@@ -1,0 +1,9 @@
+export MPI_BASE=$MPI_HOME
+export GCC_BASE=$GCC4HOME/../
+
+export percept_build_dir=$PWD
+export LD_LIBRARY_PATH=$MPI_BASE/lib:$LD_LIBRARY_PATH
+export LD_LIBRARY_PATH=$GCC_BASE/lib64:$LD_LIBRARY_PATH
+export PATH=$MPI_BASE/bin:$PATH
+export PATH=$percept_build_dir/install/bin:$PATH
+export PATH=$percept_build_dir/install/trilinos/bin:$PATH

@@ -1,0 +1,37 @@
+Building Percept
+================
+
+(thanks to github/Nalu for examples of this build process)
+
+First, have a look at the .sh files in this director and modify as necessary.
+
+Some steps are manual, see each of thse files.
+
+0. (temporary until Percept is hosted outside Sierra): copy the
+<Sierra code path>/percept tree to a new location, then cd into this
+directory (build-cmake).
+
+1. module-file - sets this directory path - edit it as necessary
+
+2. setup.sh - run this to setup directories
+
+3. get-tpls.sh - gets third-party libraries from net
+
+
+4. build-tpls.sh - run after reading get-tpls.sh
+
+5. see sample-trilinos-release.config - it is copied to
+./packages/Trilinos/build - edit it as needed then execute it in that
+directory followed by
+
+   make
+   make install
+
+6. copy sample-percept-release.config to a non-tracked file in this
+directory,  edit and then execute it, followed by make to build
+perceptX and mesh_adapt. NOTE: to build only the "lite" version of
+percept's library (e.g. for use by Nalu), use the
+sample-percept-lite-release.config file as a starting point - the lite
+version doesn't use OpenNURBS or Intrepid and results in a smaller
+executable, but with less functionality.
+

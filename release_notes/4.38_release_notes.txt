@@ -1,0 +1,84 @@
+Simplified offline adaptivity interface
+
+Users can now invoke offline adaptivity using the following interface:
+
+  mesh_adapt adapt mesh0.g output0.e
+  mesh_adapt adapt mesh1.g output1.e
+  mesh_adapt adapt mesh2.g output2.e
+  ...
+
+Here the numbers are interpreted by mesh_adapt as mesh levels in a
+sequence of meshes beginning with the base mesh "mesh0.g". The results
+mesh "output0.e" is expected to contain an element error indicator
+field. The output of each level is the new mesh for the next
+level. The input file in this case must be named "adapt.yaml".
+
+---------------------
+
+Mesh-based Geometry (MBG)
+
+This release of Percept includes the ability to fit bicubic splines to
+the surface of a 3D mesh to produce smooth surfaces after refinement.
+
+There are two steps to follow to use this feature.  First, the mesh
+must be fit with splines.  This is done with a command like this:
+
+mesh_adapt --input_mesh=myMesh.e --output_mesh=myFittedMesh.e --fit_3d_file=myFile.yaml ...
+
+where the YAML file specifies options for the fitting (see below).
+
+The second step is to refine the produced mesh specifying that same
+file as input geometry:
+
+mesh_adapt --input_mesh=myFittedMesh.e --output_mesh=myRefinedMesh.e --input_geometry=myFittedMesh.e ...
+
+Note you must supply myFittedMesh.e as the input since it contains
+edge seam information needed for subsequent refinement and enforcement
+of edges.
+
+An example YAML file for driving 3D MBG fitting:
+
+#### start yaml example file
+globalAngleCriterion: 80 # degrees
+surface_sets:
+  - set_1: [surface_1, surface_3]
+  - set_2: [surface_2]
+angle_map:
+  set_1: 15
+#Note: if QA.activate is set then the surfaces will be
+#  converted to shells, and all seams will be detected and put in a
+#  special edge part and saved to the qa_XXX.e specified - this is
+#  for QA'ing of the input data before doing the actual fit.
+QA:
+  activate: yes
+  file: qa
+  num_divisions: 5 # how many divisions to use to create surface mesh for Q/A
+#### end yaml example file
+
+The globalAngleCriterion and the optional values in the angle_map are
+given in degrees and specify a criterion for how "sharp" an edge is
+between two surface faces that are to be considered a hard edge in the
+mesh, and thus should not be smoothed out by the higher-order spline
+fit.  The angle here refers to the angle between two adjacent surface
+normals, thus, a flat surface has an angle of 0 degrees.  If the angle
+is greater than the specified criterion, it is considered a hard edge.
+
+The optional specification of surface_sets and angle_map allow more
+fine grain control of the angle.  If surface_sets are specified, the
+user supplies a name (set_1 or set_2) and then a list of surfaces. The
+angle_map can then specify which sets have an angle criterion that
+overrides the globalAngleCriterion.
+
+Surface sets specified as being grouped together (e.g. surface_1 and
+surface_3 above) will have "topological" hard edges along their
+boundaries.  If surface_1 and 3 share an edge, that edge will be
+smooth, but all others will be "hard" and thus enforced.
+
+If surface_sets and angle_map are not specified, the whole surface is
+treated as one surface and the globalAngleCriterion is applied.
+
+The resulting normals and hard edges can be viewed by specifying that
+the QA phase is activated.  Two extra Exodus files will be generated,
+one showing the normals and the edges (as parts called edgeSeam_N) and
+subdivided surfaces.
+

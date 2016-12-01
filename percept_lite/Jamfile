@@ -1,0 +1,203 @@
+#---------------------------------------------------------------
+#    Copyright 2010 - 2010 Sandia Corporation.
+#    Under the terms of Contract DE-AC04-94AL85000, there is a
+#    non-exclusive license for use of this work by or on behalf
+#    of the U.S. Government.  Export of this program may require
+#    a license from the United States Government.
+#---------------------------------------------------------------
+
+#
+# The signature for Boost.build rules is described here:
+#
+# http://www.boost.org/build/doc/html/bbv2/overview/targets.html
+#
+#function-name main-target-name
+#    : sources
+#    : requirements
+#    : default-build
+#    : usage-requirements
+#    ;
+#
+#    * "main-target-name" is the name used to request the target
+#            on command line and to use it from other main targets.
+#            Main target name may contain alphanumeric characters and symbols '-' and '_';
+#    * "sources" is the list of source files and other main targets that must be combined.
+#    * "requirements" is the list of properties that must always be present
+#            when this main target is built.
+#    * "default-build" is the list of properties that will be used unless
+#            some other value of the same feature is already specified.
+#    * "usage-requirements" is the list of properties that will be propagated
+#            to all main targets that use this one, i.e. to all dependedents.
+#
+#
+# SECTION 1: Project definition
+#
+
+import set ;
+import path ;
+
+local percept-root-inc ;
+if $(RTenv-arg) = "user" {
+  percept-root-inc = $(percept-root)/include ;
+} else {
+  percept-root-inc = $(percept-root)/src ;
+}
+local percept-root-src = $(percept-root)/src ;
+local percept-root-test = $(percept-root)/test ;
+
+project votd
+  : requirements
+    $(sierra-warnings)
+    <include>$(percept-root-src)
+    <include>$(percept-root-test)
+    <define>STK_BUILT_IN_SIERRA
+    <define>STK_PERCEPT_LITE=1
+  : usage-requirements
+    <include>$(percept-root-inc)
+  : build-dir $(percept-builddir)/lite
+  ;
+
+#
+# SECTION 2: Development install
+#
+explicit install-serial-targets ;
+alias install-serial-targets ;
+
+explicit install-targets ;
+alias install-targets
+  : percept_utest_lite
+
+  ;
+
+#
+# SECTION 3: End-user install
+#
+explicit install-user-env ;
+alias install-user-env : install-user-jamfile
+                          install-user-include install-user-lib ;
+
+# This rule copies build-system related files for this product to the install-root.
+explicit install-user-jamfile ;
+install install-user-jamfile
+  : [ glob $(percept_lite-root)/Jamfile ]
+  : <location>$(install-root)/percept/percept_lite
+    <install-source-root>$(percept_lite-root)
+  ;
+
+
+
+explicit install-user-include ;
+install install-user-include
+  : [ path.glob-tree $(percept-root)/src : *.h *.hpp ]
+  : <location>$(install-root)/percept/percept_lite/include <install-source-root>$(percept-root)/src
+  ;
+
+explicit install-user-lib ;
+install install-user-lib
+  : percept_lite
+  : <location>$(install-root)/percept/percept_lite/lib
+  ;
+
+explicit install-exe-targets ;
+alias install-exe-targets : ;
+
+#
+# SECTION 4: Build configuration
+#
+
+local xml-files =
+  ;
+
+local percept-utest-files = [ set.difference
+    [ glob $(percept-root-test)/unit_tests/*.cpp ]
+  : [ glob $(percept-root-test)/unit_tests/UnitTestRunAdaptRun.cpp
+           $(percept-root-test)/unit_tests/UnitTestLocalRefiner.cpp
+           $(percept-root-test)/unit_tests/UnitTestTransfer.cpp
+           $(percept-root-test)/unit_tests/UnitTestNorm.cpp
+           $(percept-root-test)/unit_tests/UnitTestTopoCheck.cpp
+           $(percept-root-test)/unit_tests/UnitTestFieldFunction.cpp
+           $(percept-root-test)/unit_tests/UnitTestStringFunction.cpp
+           $(percept-root-test)/unit_tests/UnitTestGeometryVerifier.cpp
+           $(percept-root-test)/unit_tests/mainsh.cpp
+     ]
+] ;
+
+exe percept_utest_lite
+  :
+    $(percept-utest-files)
+
+    percept_lite
+    /sierra/stk_mesh//stk_mesh_base
+    /sierra/stk_util//stk_util_environment
+    /sierra/stk_util//stk_util_parallel
+    /sierra/stk_util//stk_util_use_case
+    /sierra/stk_util//stk_util_diag
+    /sierra/stk_util//stk_util_util
+    /sierra/stk_search//stk_search
+    /sierra/stk_io//stk_io
+    /sierra/stk_io//stk_io_util
+    /sierra/seacas//ioss
+    /sierra/seacas//ioinit
+    /tpl/trilinos//shards
+    /tpl/trilinos//teuchos
+    /tpl/gtest//gtest
+    /mpi//mpi
+  : <tag>@sierra-exec-tag
+  ;
+
+
+lib percept_lite
+  :
+    [ ifdevbuild
+    # Any parameters within this 'ifdevbuild' block apply to development
+    # builds only and will not be present for user builds.
+
+      [ glob
+
+         $(percept-root-src)/percept/mesh/mod/smoother/JacobianUtil.cpp
+         $(percept-root-src)/percept/mesh/mod/smoother/SpacingFieldUtil.cpp
+         $(percept-root-src)/percept/PerceptMesh.cpp
+         $(percept-root-src)/percept/pool.cpp
+         $(percept-root-src)/percept/RebalanceMesh.cpp
+         $(percept-root-src)/percept/RunEnvironment.cpp
+         $(percept-root-src)/percept/Util.cpp
+         $(percept-root-src)/percept/Stacktrace.cpp
+         $(percept-root-src)/percept/mesh/geometry/volume/VolumeUtil.cpp
+      ]
+
+       [ glob $(percept-root-src)/percept/stk_rebalance/*.cpp ]
+       [ glob $(percept-root-src)/percept/stk_rebalance_utils/*.cpp ]
+#       [ glob $(percept-root-src)/percept/mesh/geometry/stk_geom/3D/*.cpp ]
+       [ glob $(percept-root-src)/percept/fixtures/*.cpp ]
+
+       [ glob $(percept-root-src)/adapt/*.*pp ]
+       [ glob $(percept-root-src)/adapt/sierra_element/*.cpp ]
+       [ glob $(percept-root-src)/adapt/markers/*.cpp ]
+
+    ]
+    /sierra/stk_mesh//stk_mesh_base
+    /sierra/stk_util//stk_util_environment
+    /sierra/stk_util//stk_util_parallel
+    /sierra/stk_util//stk_util_diag
+    /sierra/stk_util//stk_util_util
+    /sierra/stk_expreval//stk_expreval
+    /sierra/stk_search//stk_search
+    /sierra/stk_io//stk_io
+    /sierra/stk_io//stk_io_util
+    /tpl/trilinos//shards
+    /tpl/boost-graph-parallel//boost_graph_parallel
+    /tpl/boost-program-options//boost_program_options
+    /tpl/boost-system//boost_system
+    /tpl/yaml-cpp//yaml-cpp
+    /mpi//mpi
+  : <define>STK_PERCEPT_LITE=1
+    [ ifuserbuild
+    # Any parameters within this 'ifuserbuild' block apply to user
+    # builds only and will not be present for developer builds.
+        <file>$(percept_lite-root)/lib/libpercept_lite.a
+    ]
+  :
+  : <define>STK_PERCEPT_LITE=1
+  ;
+
+

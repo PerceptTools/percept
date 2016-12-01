@@ -1,0 +1,14 @@
+install
+packages
+percept-release.config
+CMakeCache.txt
+CMakeFiles
+Makefile
+clean
+cmake_install.cmake
+libpercept*.a
+mesh_adapt
+perceptX*
+percept_rtest
+percept_utest
+percept_htest
