@@ -250,7 +250,7 @@
               {
                 part = &m_eMesh.get_fem_meta_data()->declare_part(part_name, part_rank);
                 stk::io::put_io_part_attribute(*part);
-                stk::mesh::CellTopology topo = m_eMesh.get_fem_meta_data()->get_cell_topology(topo_name);
+                shards::CellTopology topo = m_eMesh.get_fem_meta_data()->get_cell_topology(topo_name);
                 if (!topo.getCellTopologyData())
                   {
                     std::cout << "bad cell topo SerializeNodeRegistry::declareGlobalParts topo_name= " << topo_name << std::endl;
@@ -597,7 +597,7 @@
                 continue;
               }
 
-            stk::mesh::CellTopology topo = m_eMesh.get_fem_meta_data()->get_cell_topology(part);
+            shards::CellTopology topo = m_eMesh.get_fem_meta_data()->get_cell_topology(part);
             TopologyName topo_name = "null";
             if (topo.getCellTopologyData()) topo_name = topo.getName();
             //std::cout << "part, topo= " << part.name() << " " << topo_name << std::endl;

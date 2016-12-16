@@ -12,6 +12,11 @@
 #include <adapt/AdaptHelperFunctions.hpp>
 #include <adapt/FixSideSets.hpp>
 
+#include <stk_util/registry/ProductRegistry.hpp>
+#if defined( STK_BUILT_IN_SIERRA)
+#include <AuditLog.h>
+#endif
+
 #if defined( STK_PERCEPT_HAS_GEOMETRY )
 #include <percept/mesh/geometry/kernel/GeometryKernelGregoryPatch.hpp>
 #include <percept/mesh/geometry/kernel/GeometryKernelOpenNURBS.hpp>
@@ -188,7 +193,7 @@ namespace percept {
     return std::make_pair(basename, level);
   }
 
-  void MeshAdapt::checkInput(std::string option, std::string value, std::string allowed_values, RunEnvironment& run_environment)
+  void MeshAdapt::checkInput(std::string option, std::string value, std::string allowed_values, Teuchos::CommandLineProcessor& clp)
   {
     //if (value.length() == 0) return;
     std::vector<std::string> vals = Util::split(allowed_values, ", ");
@@ -202,7 +207,7 @@ namespace percept {
     //throw std::runtime_error(oss.str());
     {
       std::cout << oss.str() << std::endl;
-      run_environment.printHelp();
+      printHelp(clp);
       std::cout << oss.str() << std::endl;
       exit(1);
     }
@@ -427,7 +432,7 @@ namespace percept {
       }
   }
 
-  int MeshAdapt::setup_options(RunEnvironment& run_environment, int argc, char **argv)
+  int MeshAdapt::setup_options(Teuchos::CommandLineProcessor& clp, const stk::ParallelMachine& comm, int argc, char **argv)
   {
     bool found_Help = false;
     bool found_print_version = false;
@@ -435,80 +440,81 @@ namespace percept {
       const std::string s(argv[i]);
       if ( s == "-H" || s == "-Help" || s == "--Help" || s == "--H") {
         found_Help = true;
-        //std::cout << "Found Help:: Usage: " << (*argv)[0] << " [options...]" << std::endl;
       }
       if (s == "--version" || s == "-v")
         found_print_version = true;
     }
 
-    run_environment.clp.setOption("help"                     , &help                     , "print this usage message");
+    clp.setOption("help"                     , &help                     , "print this usage message");
 
     // version
-    run_environment.clp.setOption("version"                  , &print_version            , "print version and exit");
+    clp.setOption("version"                  , &print_version            , "print version and exit");
 
     // files
-    run_environment.clp.setOption("input_mesh"               , &input_mesh               , "input mesh name");
-    run_environment.clp.setOption("output_mesh"              , &output_mesh              , "output mesh name");
-    run_environment.clp.setOption("load_balance"             , &load_balance             , "load balance (decomp/slice/spread) input mesh file");
-    run_environment.clp.setOption("previous_adapted_mesh"    , &previous_adapted_mesh    , "previous adapted mesh name for offline adaptivity (INTERNAL USE)");
-    run_environment.clp.setOption("next_adapted_mesh"        , &next_adapted_mesh        , "next adapted mesh name for offline adaptivity (INTERNAL USE)");
-    run_environment.clp.setOption("save_intermediate_meshes" , &save_intermediate_meshes ,
+    clp.setOption("input_mesh"               , &input_mesh               , "input mesh name");
+    clp.setOption("output_mesh"              , &output_mesh              , "output mesh name");
+    clp.setOption("load_balance"             , &load_balance             , "load balance (decomp/slice/spread) input mesh file");
+    clp.setOption("previous_adapted_mesh"    , &previous_adapted_mesh    , "previous adapted mesh name for offline adaptivity (INTERNAL USE)");
+    clp.setOption("next_adapted_mesh"        , &next_adapted_mesh        , "next adapted mesh name for offline adaptivity (INTERNAL USE)");
+    clp.setOption("save_intermediate_meshes" , &save_intermediate_meshes ,
                                   "save meshes in refinement sequence to 'refined_mesh_I.e' for each I <= number_refines\n"
                                   "  Note: if < 0, save in animation format: refined_mesh.e, refined_mesh.e-s0001, ...");
 
     // operation type
-    run_environment.clp.setOption("refine"                   , &refine                   , refine_options.c_str());
-    run_environment.clp.setOption("number_refines"           , &number_refines           ,
+    clp.setOption("refine"                   , &refine                   , refine_options.c_str());
+    clp.setOption("number_refines"           , &number_refines           ,
                                   "number of refinement passes"
                                   "\n  Note: must be set to be >= max of any 'N' in the --blocks=<block-name>:Nx,... option."
                                   "\n  Note: if the :Nx optional specification is not used for a block, it is equivalent"
                                   "\n    to specifying :<number_refines>x for that block.");
-    run_environment.clp.setOption("convert"                  , &convert                  , convert_options.c_str());
-    run_environment.clp.setOption("enrich"                   , &enrich                   , enrich_options.c_str());
+    clp.setOption("convert"                  , &convert                  , convert_options.c_str());
+    clp.setOption("enrich"                   , &enrich                   , enrich_options.c_str());
 
     // run-adapt-run
-    run_environment.clp.setOption("RAR_info"                 , &adapt_input              , "name of input file for advanced usage");
+    clp.setOption("RAR_info"                 , &adapt_input              , "name of input file for advanced usage");
 
     // spacing
 #if !defined(NO_GEOM_SUPPORT)
-    run_environment.clp.setOption("respect_spacing"          , &respect_spacing          , "respect the initial mesh spacing during refinement");
+    clp.setOption("respect_spacing"          , &respect_spacing          , "respect the initial mesh spacing during refinement");
 #endif
 
     // query/control
-    run_environment.clp.setOption("verify_meshes"            , &verify_meshes            , "verify positive volumes for input and output meshes, set to 1 for finite element volume checks, FV for finite volume checks");
-    run_environment.clp.setOption("query_only"               , &query_only               , "query only, no refinement done");
-    run_environment.clp.setOption("progress_meter"           , &progress_meter           , "progress meter on or off");
-    run_environment.clp.setOption("print_info"               , &print_info               , ">= 0  (higher values print more info)");
-    run_environment.clp.setOption("dihedral_angle_check"     , &dihedral_angle_check     ,
+    clp.setOption("verify_meshes"            , &verify_meshes            , "verify positive volumes for input and output meshes, set to 1 for finite element volume checks, FV for finite volume checks");
+    clp.setOption("query_only"               , &query_only               , "query only, no refinement done");
+    clp.setOption("progress_meter"           , &progress_meter           , "progress meter on or off");
+    clp.setOption("print_timers"             , &print_timers             , "print more detailed timing info");
+    clp.setOption("print_info"               , &print_info               , ">= 0  (higher values print more info)");
+    clp.setOption("skin_mesh"                , &skin_mesh                , "produce a boundary sideset for any exposed boundaries");
+    clp.setOption("dihedral_angle_check"     , &dihedral_angle_check     ,
                                   ">= 0  check dihedral angles of a tetrahedral mesh, print those that are larger than 90 deg. (higher values print more info)\n");
-    run_environment.clp.setOption("print_memory_usage"       , &print_memory_usage       , "print memory usage");
-    run_environment.clp.setOption("precheck_memory_usage"    , &precheck_memory_usage    ,
+    clp.setOption("print_memory_usage"       , &print_memory_usage       , "print memory usage");
+    clp.setOption("precheck_memory_usage"    , &precheck_memory_usage    ,
                                   "before refinement, check there's enough memory by using an estimated number of bytes per element (1000)\n"
                                   "\nIf set to 1, we internally estimate how many cores/node using a list of SNL hostnames, but it can be set\n"
                                   "explicitly to the number of cores/node, e.g. on chama, cores/node is 16");
-    run_environment.clp.setOption("estimate_memory_usage"    , &estimate_memory_usage    ,
+    clp.setOption("estimate_memory_usage"    , &estimate_memory_usage    ,
                                   " use internal or memory_multipliers_file values to estimate memory needed.\n"
                                   "   if query_only=1, use multipliers from memory_multipliers_file to estimate memory to be used in refinements, if memory_multipliers_file is set.\n"
                                   "   if query_only=1, and no memory_multipliers_file is set, use internal values for memory_multipliers.\n"
                                   "   If query_only=0, print actual memory data and estimates.");
 
     // properties
-    run_environment.clp.setOption("property_map"             , &property_map             , "YAML-based list of string: string pairs, e.g. {smoother_type: Newton, smoother_niter: 200, smoother_tol: 1.e-3}");
+    clp.setOption("property_map"             , &property_map             , "YAML-based list of string: string pairs, e.g. {smoother_type: Newton, smoother_niter: 200, smoother_tol: 1.e-3}");
 
     // geometry
-    run_environment.clp.setOption("input_geometry"           , &input_geometry           , "input geometry name");
-    run_environment.clp.setOption("smooth_geometry"          , &smooth_geometry          , "smooth geometry - moves nodes after geometry projection to try to avoid bad meshes");
-    run_environment.clp.setOption("smoother_niter"           , &smoother_niter           , "mesh smoother number of iterations");
-    run_environment.clp.setOption("smoother_tol"             , &smoother_tol             , "mesh smoother convergence tolerance");
-    run_environment.clp.setOption("smooth_surfaces"          , &smooth_surfaces          , "allow nodes to move on surfaces when smoothing");
-    run_environment.clp.setOption("dump_geometry_file"       , &dump_geometry_file       , "debug print geometry (OpenNURBS 3dm) file contents");
-    run_environment.clp.setOption("fit_geometry_file"        , &fit_geometry_file        , "for 2D meshes, create an OpenNURBS 3dm file fitting cubic splines to all boundaries");
-    run_environment.clp.setOption("fit_angle"                , &fit_angle                ,
+    clp.setOption("input_geometry"           , &input_geometry           , "input geometry name");
+    clp.setOption("smooth_geometry"          , &smooth_geometry          , "smooth geometry - moves nodes after geometry projection to try to avoid bad meshes");
+    clp.setOption("smoother_niter"           , &smoother_niter           , "mesh smoother number of iterations");
+    clp.setOption("smoother_tol"             , &smoother_tol             , "mesh smoother convergence tolerance");
+    clp.setOption("smooth_surfaces"          , &smooth_surfaces          , "allow nodes to move on surfaces when smoothing");
+    clp.setOption("dump_geometry_file"       , &dump_geometry_file       , "debug print geometry (OpenNURBS 3dm) file contents");
+    clp.setOption("fit_geometry_file"        , &fit_geometry_file        , "for 2D meshes, create an OpenNURBS 3dm file fitting cubic splines to all boundaries");
+    clp.setOption("fit_angle"                , &fit_angle                ,
                                   "for 2D meshes, specify angle criterion for determining corners - defined by the\n"
                                   "   angle between the two adjacent faces, so a flat surface has angle 180.\n"
                                   "   Specified in degrees - if the included angle is less than fit_angle, the\n"
                                   "   node is considered a corner and a hard corner will be enforced.");
-    run_environment.clp.setOption("fit_3d_file"              , &fit_3d_file              ,
+    clp.setOption("fit_3d_file"              , &fit_3d_file              ,
                                   "for 3D meshes, fit bi-cubics to mesh surface geometry, store in fields for evaluation\n"
                                   "  specify a YAML file to read with control information on which surfaces\n"
                                   "  to fit and how to treat seams in the surface using an angle criterion\n"
@@ -518,25 +524,25 @@ namespace percept {
                                   "  special edge part and saved to the file specified - this is\n"
                                   "  for QA'ing of the input data before doing the actual fit.");
 
-    run_environment.clp.setOption("convert_geometry_parts_OpenNURBS"  , &convert_geometry_parts_OpenNURBS , "remove beam and shell elements, place nodes in similarly-named nodesets, save to specified new file in this option");
+    clp.setOption("convert_geometry_parts_OpenNURBS"  , &convert_geometry_parts_OpenNURBS , "remove beam and shell elements, place nodes in similarly-named nodesets, save to specified new file in this option");
 
     // smoothing
-    run_environment.clp.setOption("smooth_use_reference_mesh", &smooth_use_reference_mesh, "for most cases, set to 1 (default) - can be used for smoothing with no reference mesh");
-    run_environment.clp.setOption("fix_all_block_boundaries" , &fix_all_block_boundaries , "when smoothing without geometry, fix all inner and outer block boundaries");
+    clp.setOption("smooth_use_reference_mesh", &smooth_use_reference_mesh, "for most cases, set to 1 (default) - can be used for smoothing with no reference mesh");
+    clp.setOption("fix_all_block_boundaries" , &fix_all_block_boundaries , "when smoothing without geometry, fix all inner and outer block boundaries");
 
     // mesh query
-    run_environment.clp.setOption("compute_hmesh"            , &compute_hmesh            , "compute mesh parameter using method eigens|edges");
-    run_environment.clp.setOption("print_hmesh_surface_normal"  , &print_hmesh_surface_normal            , "prints a table of normal mesh spacing at each surface");
+    clp.setOption("compute_hmesh"            , &compute_hmesh            , "compute mesh parameter using method eigens|edges");
+    clp.setOption("print_hmesh_surface_normal"  , &print_hmesh_surface_normal            , "prints a table of normal mesh spacing at each surface");
 
     // subsetting
-    run_environment.clp.setOption("blocks"                   , &block_name_inc           , block_name_desc_inc.c_str());
-    run_environment.clp.setOption("use_transition_elements"  , &use_transition_elements  ,
+    clp.setOption("blocks"                   , &block_name_inc           , block_name_desc_inc.c_str());
+    clp.setOption("use_transition_elements"  , &use_transition_elements  ,
                                   "when specifying --blocks option, set this to 1 to enable conformal meshes\n"
                                   "by introducing so-called transition elements in the border region between\n"
                                   "a refined and unrefined block");
     // histograms
 #if STK_ADAPT_HAVE_YAML_CPP
-    run_environment.clp.setOption("histogram"  , &histogram_options  , "options for histograms:"
+    clp.setOption("histogram"  , &histogram_options  , "options for histograms:"
                                   "\n  either a single filename, which reads further commands in YAML format (yaml.org) from that file, or\n"
                                   "  a string of the form \"{ fields: [field_1,...,field_n], file_root: my_histograms,\n"
                                   "     mesh: [edge_length, quality_edge, quality_vol_edge_ratio, volume], time: 0.1, step: 2 }\"\n"
@@ -555,68 +561,68 @@ namespace percept {
                                   "      - quality_vol_edge_ratio\n"
                                   "      - volume");
 #endif
-    run_environment.clp.setOption("histogram_file_root"      , &histograms_root          , " if cout, use screen, else use this as the root name of histogram files.");
+    clp.setOption("histogram_file_root"      , &histograms_root          , " if cout, use screen, else use this as the root name of histogram files.");
 
     // ioss options
-    run_environment.clp.setOption("ioss_read_options"        , &ioss_read_options        ,
+    clp.setOption("ioss_read_options"        , &ioss_read_options        ,
                                   "options to IOSS/Exodus for e.g. large files | auto-decomp | auto-join\n"
                                   "to use, set the string to a combination of\n"
                                   "{\"large\", \"auto-decomp:yes\",  \"auto-decomp:no\",\n"
                                   "   \"auto-join:yes\", \"auto-join:no\" }\n"
                                   "   e.g. \"large,auto-decomp:yes\"\n"
                                   " Note: set options for read and/or write (ioss_write_options)");
-    run_environment.clp.setOption("ioss_write_options"       , &ioss_write_options       , "see ioss_read_options");
+    clp.setOption("ioss_write_options"       , &ioss_write_options       , "see ioss_read_options");
 
     // debugging/advanced
-    run_environment.clp.setOption("debug"                    , &debug                    , " turn on debug printing");
+    clp.setOption("debug"                    , &debug                    , " turn on debug printing");
 
-    run_environment.clp.setOption("use_side_map"             , &use_side_map             , " experimental - for shell-based meshes");
-    run_environment.clp.setOption("proc_rank_field"          , &proc_rank_field          , " add an element field to show processor rank");
-    run_environment.clp.setOption("remove_original_elements" , &remove_original_elements , " remove original elements (default=true)");
+    clp.setOption("use_side_map"             , &use_side_map             , " experimental - for shell-based meshes");
+    clp.setOption("proc_rank_field"          , &proc_rank_field          , " add an element field to show processor rank");
+    clp.setOption("remove_original_elements" , &remove_original_elements , " remove original elements (default=true)");
 
-    run_environment.clp.setOption("remove_geometry_blocks"   , &remove_geometry_blocks   , "remove geometry blocks from output Exodus file after refinement/geometry projection");
+    clp.setOption("remove_geometry_blocks"   , &remove_geometry_blocks   , "remove geometry blocks from output Exodus file after refinement/geometry projection");
 
     // internal
-    run_environment.clp.setOption("delete_parents"           , &delete_parents           , "DEBUG: delete parents from a nested, multi-refine mesh - used for debugging");
-    run_environment.clp.setOption("snap_geometry"            , &snap_geometry            , "project nodes to geometry - used for internal testing only");
-    run_environment.clp.setOption("internal_test"            , &internal_test            , "run the specified internal test");
-    run_environment.clp.setOption("sync_io_regions"          , &sync_io_regions          ,
+    clp.setOption("delete_parents"           , &delete_parents           , "DEBUG: delete parents from a nested, multi-refine mesh - used for debugging");
+    clp.setOption("snap_geometry"            , &snap_geometry            , "project nodes to geometry - used for internal testing only");
+    clp.setOption("internal_test"            , &internal_test            , "run the specified internal test");
+    clp.setOption("sync_io_regions"          , &sync_io_regions          ,
                                   "synchronize input/output region's Exodus id's (default=0)\n"
                                   "   use this option if you want to ensure output mesh has\n"
                                   "   the same block ids and names as the input mesh, which\n"
                                   "   only makes sense if in refine (not enrich or convert) mode");
-    run_environment.clp.setOption("save_internal_fields"     , &save_internal_fields     , "save internally created fields to the output file");
+    clp.setOption("save_internal_fields"     , &save_internal_fields     , "save internally created fields to the output file");
 
 #if defined(STK_BUILT_IN_SIERRA)
     // Salinas
-    run_environment.clp.setOption("rbar_blocks"              , &rbar_blocks              , "list of blocks to treat in special Salinas fashion for RBARs - see block_name description for format.");
+    clp.setOption("rbar_blocks"              , &rbar_blocks              , "list of blocks to treat in special Salinas fashion for RBARs - see block_name description for format.");
 #endif
-    //run_environment.clp.setOption("exclude"                  , &block_name_exc           , block_name_desc_exc.c_str());
+    //clp.setOption("exclude"                  , &block_name_exc           , block_name_desc_exc.c_str());
 
-    run_environment.clp.setOption("memory_multipliers_file"  , &memory_multipliers_file  ,
+    clp.setOption("memory_multipliers_file"  , &memory_multipliers_file  ,
                                   "[experimental]  filename with 3 space-separated entries, with estimate for bytes-per-hex8 tet4 and nodes, e.g. 300 280 200\n"
                                   "  If not set, use internal estimates for memory multipliers.");
 
 #if ALLOW_MEM_TEST
-    run_environment.clp.setOption("test_memory_elements"     , &test_memory_elements     , " give a number of elements");
-    run_environment.clp.setOption("test_memory_nodes"        , &test_memory_nodes        , " give a number of nodes");
+    clp.setOption("test_memory_elements"     , &test_memory_elements     , " give a number of elements");
+    clp.setOption("test_memory_nodes"        , &test_memory_nodes        , " give a number of nodes");
 #endif
-    run_environment.clp.setOption("serialized_io_group_size" , &serialized_io_group_size , "[experimental] set to non-zero to use this many i/o groups to minimize disk contention");
+    clp.setOption("serialized_io_group_size" , &serialized_io_group_size , "[experimental] set to non-zero to use this many i/o groups to minimize disk contention");
 
-    run_environment.clp.setOption("streaming_size"           , &streaming_size      ,
+    clp.setOption("streaming_size"           , &streaming_size      ,
                                   "INTERNAL use only by python script streaming refinement interface:\n"
                                   "  run in streaming mode - this number specifies how many virtual procs the mesh is split into\n"
                                   "    i.e. we expect to see files like file.e.N.iN where N = streaming_size iN=0..N");
-    run_environment.clp.setOption("streaming_rank"           , &streaming_rank     ,
+    clp.setOption("streaming_rank"           , &streaming_rank     ,
                                   "INTERNAL use only by python script streaming refinement interface:\n"
                                   "  run in streaming mode - this number specifies which virtual proc this is.");
-    run_environment.clp.setOption("streaming_pass_start"     , &streaming_pass_start           ,
+    clp.setOption("streaming_pass_start"     , &streaming_pass_start           ,
                                   "INTERNAL use only by python script streaming refinement interface:");
-    run_environment.clp.setOption("streaming_pass_end"       , &streaming_pass_end           ,
+    clp.setOption("streaming_pass_end"       , &streaming_pass_end           ,
                                   "INTERNAL use only by python script streaming refinement interface:");
-    run_environment.clp.setOption("streaming_W"              , &streaming_W           ,
+    clp.setOption("streaming_W"              , &streaming_W           ,
                                   "INTERNAL use only by python script streaming refinement interface:");
-    run_environment.clp.setOption("streaming_iW"             , &streaming_iW          ,
+    clp.setOption("streaming_iW"             , &streaming_iW          ,
                                   "INTERNAL use only by python script streaming refinement interface:");
 
     // Detailed doc
@@ -640,28 +646,26 @@ namespace percept {
         int vb = get_version(&v);
         if(p_rank == 0) std::cout << "Version: " << v << std::endl;
 #if defined( STK_HAS_MPI )
-        MPI_Barrier( run_environment.m_comm );
-        MPI_Finalize();
+        stk::parallel_machine_finalize();
 #endif
         std::exit(vb);
       }
 
     if (!found_Help) docString = "";
-    run_environment.clp.setDocString(docString.c_str());
+    clp.setDocString(docString.c_str());
 
     if (found_Help) {
       try {
-        run_environment.printHelp();
+        printHelp(clp);
       }
       catch (...) {}
 #if defined( STK_HAS_MPI )
-      MPI_Barrier( run_environment.m_comm );
-      MPI_Finalize();
+      stk::parallel_machine_finalize();
 #endif
       std::exit(0);
     }
 
-    int err_clp = run_environment.processCommandLine();
+    int err_clp = processCommandLine(clp, argc, argv);
     if (err_clp) return err_clp;
 
     if (serialized_io_group_size)
@@ -682,19 +686,19 @@ namespace percept {
     if (convert.length()+enrich.length()+refine.length() == 0)
       {
         std::cout << "\nCommand line syntax error: you must give a value for one (and only one) of the options: refine, enrich, or convert.\n" << std::endl;
-        run_environment.printHelp();
+        printHelp(clp);
         std::cout << "\nCommand line syntax error: you must give a value for one (and only one) of the options: refine, enrich, or convert.\n" << std::endl;
         exit(1);
       }
 
     if (convert.length())
-      checkInput("convert", convert, convert_options, run_environment);
+      checkInput("convert", convert, convert_options, clp);
 
     if (enrich.length())
-      checkInput("enrich", enrich, enrich_options, run_environment);
+      checkInput("enrich", enrich, enrich_options, clp);
 
     if (refine.length())
-      checkInput("refine", refine, refine_options, run_environment);
+      checkInput("refine", refine, refine_options, clp);
 
     if (print_info || convert_geometry_parts_OpenNURBS.size())
       {
@@ -708,7 +712,7 @@ namespace percept {
         //||  not (convert == "Hex8_Tet4_24" || convert == "Quad4_Quad4_4" || convert == "Quad4_Tri3_6")
         )
       {
-        run_environment.printHelp();
+        printHelp(clp);
         return 1;
       }
 
@@ -885,12 +889,12 @@ namespace percept {
                   {
                     std::string command = fitter->m_QA.m_visualizer_command_prefix + fitter->m_QA.m_filenames[ii] + ext;
                     std::cout << "\n\n======\n=====\nrunning visualization command: " << command << "\n\n" << std::endl;
-                    RunEnvironment::runCommand(command);
+                    runCommand(command);
                     if (fitter->m_QA.m_num_divisions)
                       {
                         command = fitter->m_QA.m_visualizer_command_prefix + "div_" + fitter->m_QA.m_filenames[ii] + ext;
                         std::cout << "\n\n======\n=====\nrunning visualization command: " << command << "\n\n" << std::endl;
-                        RunEnvironment::runCommand(command);
+                        runCommand(command);
                       }
                   }
               }
@@ -973,7 +977,6 @@ namespace percept {
         if (!p_rank) {
           std::cout << "Before refine, user-requested histograms= " << std::endl;
           histograms.print(true);
-          //histograms.print(percept::pout());
         }
         // reset
         eMeshP->read_database_at_step(current_step);
@@ -996,7 +999,6 @@ namespace percept {
         if (!p_rank) {
           std::cout << "After refine, user-requested histograms= " << std::endl;
           histograms.print(true);
-          //histograms.print(percept::pout());
         }
       }
 #endif
@@ -1038,13 +1040,7 @@ namespace percept {
                     << " ave = " << hmesh_min_max_ave_factor[2]
                     << ") "
                     << std::endl;
-          percept::pout() << "Before refine, Mesh size (h-parameter) = " << hmesh
-                          << " (min = " << hmesh_min_max_ave_factor[0]
-                          << " max = " << hmesh_min_max_ave_factor[1]
-                          << " ave = " << hmesh_min_max_ave_factor[2]
-                          << ")\n " ;
           histograms.print(true);
-          //histograms.print(percept::pout());
         }
         hmesh_factor = hmesh;
       }
@@ -1096,17 +1092,7 @@ namespace percept {
                     << " ave = " << hmesh_min_max_ave_factor[2]
                     << ") "
                     << std::endl;
-          percept::pout() << "After refine, Mesh size (h-parameter) = " << hmesh << " oldH/newH factor= " << hmesh_factor
-                          << "\n (new min = " << min_max_ave[0]
-                          << " max = " << min_max_ave[1]
-                          << " ave = " << min_max_ave[2]
-                          << ") "
-                          << "\n (old/new min = " << hmesh_min_max_ave_factor[0]
-                          << " max = " << hmesh_min_max_ave_factor[1]
-                          << " ave = " << hmesh_min_max_ave_factor[2]
-                          << ")\n";
           histograms.print(true);
-          //histograms.print(percept::pout());
         }
       }
   }
@@ -1308,6 +1294,13 @@ namespace percept {
       }
   }
 
+  // init these static vars before we use them in the function below
+
+  double RunAdaptRunInfo::mMeshInputTime = 0.0;
+  double RunAdaptRunInfo::mMeshOutputTime = 0.0;
+  double RunAdaptRunInfo::mAdaptTimeOverall = 0.0;
+  double RunAdaptRunInfo::mAdaptCPUTimeOverall = 0.0;
+
   void MeshAdapt::run_adapt_run()
   {
 
@@ -1332,6 +1325,11 @@ namespace percept {
                                    property_map,
                                    verify_meshes,
                                    false);
+
+    mMeshInputTime = RunAdaptRunInfo::mMeshInputTime;
+    mMeshOutputTime = RunAdaptRunInfo::mMeshOutputTime;
+    mAdaptTimeOverall = RunAdaptRunInfo::mAdaptTimeOverall;
+    mAdaptCPUTimeOverall = RunAdaptRunInfo::mAdaptCPUTimeOverall;
   }
 
   void MeshAdapt::do_dihedral_angle_check()
@@ -1479,7 +1477,6 @@ namespace percept {
       {
         throw std::runtime_error("deprecated - run decomp manually before running mesh_adapt, or, use the auto-decomp options");
         if (streaming_size) throw std::runtime_error("can't load balance and stream");
-        //RunEnvironment::doLoadBalance(run_environment.m_comm, input_mesh);
       }
 
     if (ioss_read_options.length() || ioss_write_options.length())
@@ -1487,7 +1484,6 @@ namespace percept {
         if (!eMeshP->get_rank())
           {
             std::cout << "INFO: ioss_read_options= " << ioss_read_options << " ioss_write_options= " << ioss_write_options << std::endl;
-            percept::pout() << "INFO: ioss_read_options= " << ioss_read_options << " ioss_write_options= " << ioss_write_options << std::endl;
           }
       }
 
@@ -1509,7 +1505,12 @@ namespace percept {
     eMeshP->set_do_print_memory(print_memory_usage);
 
     pre_open();
-    eMeshP->open(input_mesh);
+    {
+      double t0 = stk::wall_time();
+      eMeshP->open(input_mesh);
+      double t1 = stk::wall_time();
+      mMeshInputTime = t1 - t0;
+    }
     if (smooth_surfaces == 1) eMeshP->set_smooth_surfaces(true);
 
     eMeshP->set_save_internal_fields(save_internal_fields);
@@ -1527,7 +1528,6 @@ namespace percept {
             if (!eMeshP->get_rank())
               {
                 std::cout       << "WARNING: removing property original_topology_type from input (and output mesh) since topology is changed by convert or enrich" << std::endl;
-                percept::pout() << "WARNING: removing property original_topology_type from input (and output mesh) since topology is changed by convert or enrich" << std::endl;
               }
             eMeshP->set_remove_io_orig_topo_type(true);
           }
@@ -1604,6 +1604,11 @@ namespace percept {
         do_dihedral_angle_check();
       }
 
+    if (skin_mesh)
+      {
+        eMeshP->skin_mesh();
+      }
+
     if (convert_geometry_parts_OpenNURBS.size())
       {
         if (!input_geometry.size())
@@ -1630,7 +1635,6 @@ namespace percept {
       {
         std::string msg="before refine";
         eMeshP->print_hmesh_surface_normal(msg, std::cout);
-        eMeshP->print_hmesh_surface_normal(msg, percept::pout());
       }
 
 #if !defined(NO_GEOM_SUPPORT)
@@ -1720,7 +1724,6 @@ namespace percept {
                 if (!query_only) ib = 0;
                 bool printAllTopologies = false;
                 RefinementInfoByType::printTable(std::cout, refiner->getRefinementInfoByType(), ib , printAllTopologies);
-                RefinementInfoByType::printTable(percept::pout(), refiner->getRefinementInfoByType(), ib , printAllTopologies);
                 std::cout << std::endl;
               }
             if (print_memory_usage)
@@ -1808,6 +1811,9 @@ namespace percept {
         t1 =  stk::wall_time();
         cpu1 = stk::cpu_time();
 
+        mAdaptTimeOverall = t1 - t0;
+        mAdaptCPUTimeOverall = cpu1 - cpu0;
+
         verify_mesh_util(false);
 
         do_histograms_final();
@@ -1818,19 +1824,21 @@ namespace percept {
           {
             std::string msg="after refine";
             eMeshP->print_hmesh_surface_normal(msg, std::cout);
-            eMeshP->print_hmesh_surface_normal(msg, percept::pout());
           }
 
         if (DEBUG_ADAPT_MAIN || 0 == p_rank) {
-          percept::pout() << "P[" << p_rank << "] AdaptMain::  saving mesh... \n";
           std::cout << "P[" << p_rank << "]  AdaptMain:: saving mesh... " << std::endl;
         }
         //if (streaming_size) eMeshP->setStreamingSize(m_M); // FIXME
         if (remove_geometry_blocks) eMeshP->remove_geometry_blocks_on_output(input_geometry);
 
-        eMeshP->save_as(output_mesh);
+        {
+          double t0 = stk::wall_time();
+          eMeshP->save_as(output_mesh);
+          double t1 = stk::wall_time();
+          mMeshOutputTime = t1 - t0;
+        }
         if (DEBUG_ADAPT_MAIN || 0 == p_rank) {
-          percept::pout() << "P[" << p_rank << "] AdaptMain:: ... mesh saved\n";
           std::cout << "P[" << p_rank << "]  AdaptMain:: mesh saved" << std::endl;
         }
 
@@ -1866,35 +1874,49 @@ namespace percept {
     if (failed_proc_rank)
       {
         std::cout << "P[" << p_rank << "] AdaptMain::exception found on processor " << (failed_proc_rank-1) << std::endl;
-        percept::pout() << "P[" << p_rank << "]  exception found on processor " << (failed_proc_rank-1) << "\n";
         exit(1);
       }
 
     if (DEBUG_ADAPT_MAIN)
       {
-        percept::pout() << "P[" << p_rank << ", " << p_size << "]  wall clock time on processor [" << p_rank << ", " << p_size << "]= " << (t1-t0) << " (sec) "
-                        << " cpu time= " << (cpu1 - cpu0) << " (sec)\n";
         std::cout << "P[" << p_rank << ", " << p_size << "]  wall clock time on processor [" << p_rank << ", " << p_size << "]= " << (t1-t0) << " (sec) "
                   << " cpu time= " << (cpu1 - cpu0) << " (sec) " << std::endl;
       }
 
     double cpuMax = (cpu1-cpu0);
     double wallMax = (t1-t0);
+    double wallMin = wallMax;
     double cpuSum = (cpu1-cpu0);
+    double cpuMin = cpuMax;
 
     stk::all_reduce( eMeshP->get_bulk_data()->parallel(), stk::ReduceSum<1>( &cpuSum ) );
     stk::all_reduce( eMeshP->get_bulk_data()->parallel(), stk::ReduceMax<1>( &cpuMax ) );
+    stk::all_reduce( eMeshP->get_bulk_data()->parallel(), stk::ReduceMin<1>( &cpuMin ) );
     stk::all_reduce( eMeshP->get_bulk_data()->parallel(), stk::ReduceMax<1>( &wallMax ) );
+    stk::all_reduce( eMeshP->get_bulk_data()->parallel(), stk::ReduceMin<1>( &wallMin ) );
 
     if (0 == p_rank)
       {
-        percept::pout() << "P[" << p_rank << ", " << p_size << "]  max wall clock time = " << wallMax << " (sec)\n";
-        percept::pout() << "P[" << p_rank << ", " << p_size << "]  max cpu  clock time = " << cpuMax << " (sec)\n";
-        percept::pout() << "P[" << p_rank << ", " << p_size << "]  sum cpu  clock time = " << cpuSum << " (sec)\n";
+        std::cout << "P[" << p_rank << ", " << p_size << "]  min wall clock time = " << wallMin << " (sec)" << std::endl;
         std::cout << "P[" << p_rank << ", " << p_size << "]  max wall clock time = " << wallMax << " (sec)" << std::endl;
+        std::cout << "P[" << p_rank << ", " << p_size << "]  min cpu  clock time = " << cpuMin << " (sec)" << std::endl;
         std::cout << "P[" << p_rank << ", " << p_size << "]  max cpu  clock time = " << cpuMax << " (sec)" << std::endl;
         std::cout << "P[" << p_rank << ", " << p_size << "]  sum cpu  clock time = " << cpuSum << " (sec)" << std::endl;
       }
+
+    if (print_timers)
+      {
+        std::ostringstream str;
+        refiner->rootTimer().stop();
+        stk::diag::printTimersTable(str, refiner->rootTimer(),
+                                    stk::diag::METRICS_ALL, false,
+                                    eMeshP->get_bulk_data()->parallel() );
+        if (0 == p_rank)
+          {
+            std::cout << str.str() << std::endl;
+          }
+      }
+
     return 0;
   }
 
@@ -1909,22 +1931,78 @@ namespace percept {
 #endif
   }
 
+#if !defined(STK_BUILT_IN_SIERRA)
+  void MeshAdapt::log_usage( bool status )
+  {
+  }
+#else
+  void MeshAdapt::log_usage( bool status )
+  {
+    const bool disable_audit = !sierra::Env::get_param("noaudit").empty() || std::getenv("SIERRA_USAGE_METRICS_OFF") != NULL;
+
+    size_t hwm_max = 0, hwm_min = 0, hwm_avg = 0;
+
+    stk::get_memory_high_water_mark_across_processors(eMeshP->parallel(), hwm_max, hwm_min, hwm_avg);
+
+    stk::all_reduce( eMeshP->parallel(), stk::ReduceSum<1>( &mAdaptCPUTimeOverall ) );
+
+    if (eMeshP->get_parallel_rank() == 0) {
+      // Audit log
+      bool runtest = sierra::Env::get_param("runtest").empty() ? false : true;
+      if ((!disable_audit) && (!runtest)) {
+        const double bytes_in_MB = 1024*1024;
+        auditdata data;
+        AuditLogDefaults(&data, "mesh_adapt", sierra::ProductRegistry::version(), eMeshP->get_parallel_size());
+        strcpy(data.starttime,sierra::format_time(sierra::Env::start_time(), "%Y%m%d%H%M%S").c_str());
+        strcpy(data.purpose,"meshing");
+
+        data.num_proc       = eMeshP->get_parallel_size();
+
+        data.time_elapsed   = mAdaptTimeOverall;
+        data.cputimesum     = mAdaptCPUTimeOverall;
+        data.meshinputtime  = mMeshInputTime;
+        data.meshoutptutime = mMeshOutputTime;
+        data.hwm_min        = hwm_min / bytes_in_MB;
+        data.hwm_max        = hwm_max / bytes_in_MB;
+        data.hwm_avg        = hwm_avg / bytes_in_MB;
+        strcpy(data.status, status ? "success" : "fail" );
+
+#if 0
+        printf( "product %s\n", data.product );
+        printf( "version %s\n", data.version );
+        printf( "purpose %s\n", data.purpose );
+        printf( "hostname %s\n", data.hostname );
+        printf( "username %s\n", data.username );
+        printf( "num_proc %d\n", data.num_proc );
+        printf( "starttime %s\n", data.starttime );
+        printf( "time_elapsed %lf\n", data.time_elapsed );
+        printf( "cputimesum %lf\n", data.cputimesum );
+        printf( "meshinputtime %lf\n", data.meshinputtime );
+        printf( "meshoutputtime %lf\n", data.meshoutptutime );
+        printf( "hwm_max %lf\n", data.hwm_max );
+        printf( "hwm_min %lf\n", data.hwm_min );
+        printf( "hwm_avg %lf\n", data.hwm_avg );
+        printf( "status %s\n", data.status );
+        //printf( "audit_filename %s\n", audit_filename.c_str() );
+#endif
+        OutputAuditLog(&data);
+      }
+    }
+  }
+#endif
+
   int MeshAdapt::adapt_main_full_options(int argc, char **argv)
   {
+#if defined( STK_HAS_MPI )
+    stk::ParallelMachine comm(stk::parallel_machine_init(&argc, &argv));
+#endif
     EXCEPTWATCH;
-    bool debug_re = false;
-    for (int ia=0; ia < argc; ++ia)
-      {
-        std::string aa = argv[ia];
-        if (aa == "--debug=1")
-          debug_re = true;
-      }
 
-    RunEnvironment run_environment(&argc, &argv, debug_re);
-    p_rank = stk::parallel_machine_rank(run_environment.m_comm);
-    p_size = stk::parallel_machine_size(run_environment.m_comm);
+    Teuchos::CommandLineProcessor clp;
+    p_rank = stk::parallel_machine_rank(comm);
+    p_size = stk::parallel_machine_size(comm);
 
-    setup_options(run_environment, argc, argv);
+    setup_options(clp, comm, argc, argv);
 
     if (streaming_size)
       return adapt_main_full_options_streaming(argc, argv);
@@ -2185,6 +2263,9 @@ namespace percept {
                     if (res1 < 0)
                       {
                         eMeshP.reset();
+#if defined( STK_HAS_MPI )
+                        stk::parallel_machine_finalize();
+#endif
                         return 0;
                       }
 
@@ -2217,6 +2298,9 @@ namespace percept {
 
     eMeshP.reset();
 
+#if defined( STK_HAS_MPI )
+    stk::parallel_machine_finalize();
+#endif
     return result;
   }
 
@@ -2265,7 +2349,13 @@ namespace percept {
     // trap for RunAdaptRun
     if (res1 < 0)
       {
+        log_usage();
+
         eMeshP.reset();
+
+#if defined( STK_HAS_MPI )
+        stk::parallel_machine_finalize();
+#endif
         return 0;
       }
 
@@ -2275,8 +2365,13 @@ namespace percept {
 
     do_post_proc();
 
+    log_usage();
+
     eMeshP.reset();
 
+#if defined( STK_HAS_MPI )
+    stk::parallel_machine_finalize();
+#endif
     return result;
   }
 
@@ -2396,7 +2491,6 @@ namespace percept {
 
     int res=0;
     res = adapt_main(argc, argv);
-    percept::ParallelMachineFinalize pm(true);
     return res;
   }
 

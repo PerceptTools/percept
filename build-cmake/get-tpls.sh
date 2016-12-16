@@ -4,7 +4,7 @@
 source module-file
 echo percept_build_dir = $percept_build_dir
 
-do_get=1
+do_get=0
 do_build=0
 
 do_get_cgns=$do_get
@@ -14,7 +14,7 @@ do_get_xml=$do_get
 do_get_boost=$do_get
 do_get_yaml=$do_get
 do_get_zlib=$do_get
-do_get_hdf5=$do_get
+do_get_hdf5=1 # $do_get
 do_get_netcdf=$do_get
 do_get_pnetcdf=$do_get
 do_get_gtest=$do_get
@@ -148,7 +148,9 @@ if [ $do_get_hdf5 -eq 1 ]
 then
   echo Getting hdf5...
   cd $percept_build_dir/packages/
-  curl -s --retry 3 -o hdf5-1.8.12.tar.gz http://www.hdfgroup.org/ftp/HDF5/releases/hdf5-1.8.12/src/hdf5-1.8.12.tar.gz
+  curl -s --retry 3 -o hdf5-1.8.12.tar.gz https://support.hdfgroup.org/ftp/HDF5/releases/hdf5-1.8.12/src/hdf5-1.8.12.tar.gz
+
+#  curl -s --retry 3 -o hdf5-1.8.12.tar.gz http://www.hdfgroup.org/ftp/HDF5/releases/hdf5-1.8.12/src/hdf5-1.8.12.tar.gz
   tar zxf hdf5-1.8.12.tar.gz
 fi
 

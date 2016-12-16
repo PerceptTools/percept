@@ -72,6 +72,7 @@
 #include <stk_util/util/human_bytes.hpp>
 
 #include <stk_mesh/base/FieldParallel.hpp>
+#include <stk_mesh/base/SkinBoundary.hpp>
 
 #include <stk_mesh/base/BoundaryAnalysis.hpp>
 #include <stk_mesh/base/BulkModification.hpp>
@@ -164,6 +165,7 @@
     open_read_only(const std::string& in_filename, const std::string &type)
     {
       setProperty("in_filename", in_filename);
+      setProperty("file_type", type);
       open(in_filename, type);
       commit();
     }
@@ -217,29 +219,9 @@
       m_needsDelete = true;
     }
 
-    /// reads but doesn't commit mesh, enabling edit
     void PerceptMesh::
-    open(const std::string& in_filename, const std::string &type)
+    set_read_properties()
     {
-      setProperty("in_filename", in_filename);
-
-      m_needsDelete = false;
-
-      if (m_isOpen)
-        {
-          throw std::runtime_error("percept::Mesh::open: mesh is already opened.  Please close() before trying open, or use reopen().");
-        }
-      if (m_isCommitted)
-        {
-          throw std::runtime_error("percept::Mesh::open: mesh is already committed. Internal code error");
-        }
-      if (!m_isInitialized)
-        {
-          init( m_comm);
-        }
-
-      const unsigned p_rank = stk::parallel_machine_rank( m_comm );
-
       if (ALLOW_IOSS_PROPERTIES_SETTING_FOR_LARGE_RUNS && m_ioss_read_options.length())
         {
           //export IOSS_PROPERTIES="INTEGER_SIZE_API=8:INTEGER_SIZE_DB=8:PARALLEL_IO_MODE=mpiposix:DECOMPOSITION_METHOD=RIB:COMPOSE_RESULTS=NO:COMPOSE_RESTART=NO"
@@ -299,12 +281,47 @@
 #undef ADD
         }
 
+    }
+
+    /// reads but doesn't commit mesh, enabling edit
+    void PerceptMesh::
+    open(const std::string& in_filename, const std::string &type)
+    {
+      setProperty("in_filename", in_filename);
+      setProperty("file_type", type);
+
+      m_needsDelete = false;
+
+      if (m_isOpen)
+        {
+          throw std::runtime_error("percept::Mesh::open: mesh is already opened.  Please close() before trying open, or use reopen().");
+        }
+      if (m_isCommitted)
+        {
+          throw std::runtime_error("percept::Mesh::open: mesh is already committed. Internal code error");
+        }
+      if (!m_isInitialized)
+        {
+          init( m_comm);
+        }
+
+      const unsigned p_rank = stk::parallel_machine_rank( m_comm );
+
+      set_read_properties();
+
       if (p_rank == 0)  std::cout << "PerceptMesh:: opening "<< in_filename << std::endl;
       read_metaDataNoCommit(in_filename, type);
       m_isCommitted = false;
       m_isAdopted = false;
       m_isOpen = true;
       m_filename = in_filename;
+
+      if (getProperty("stk_io_set_sideset_face_creation_behavior") == "current")
+        {
+          if (!get_rank()) std::cout << "WARNING: calling set_sideset_face_creation_behavior(STK_IO_SIDESET_FACE_CREATION_CURRENT)" << std::endl;
+          m_iossMeshData->set_sideset_face_creation_behavior(stk::io::StkMeshIoBroker::STK_IO_SIDESET_FACE_CREATION_CURRENT);
+        }
+
     }
 
     /// creates a new mesh using the GeneratedMesh with spec @param gmesh_spec
@@ -808,7 +825,14 @@
       //       unsigned dataStride = r.dimension() ;
       //       VERIFY_OP((int)dataStride, ==, m_spatialDim, "PerceptMesh::get_spatial_dim() bad spatial dim");
       // #endif
+#if !STK_PERCEPT_LITE
+      if (m_block_structured_grid)
+        return 3;
+      else
+        return m_metaData->spatial_dimension();
+#else
       return m_metaData->spatial_dimension();
+#endif
     }
 
     void PerceptMesh::get_memory_high_water_mark_across_processors(MPI_Comm comm, size_t& hwm_max, size_t& hwm_min, size_t& hwm_avg, size_t& hwm_sum)
@@ -906,20 +930,32 @@
       //         std::cout.flush();
     }
 
+    // FIXME int64_t
     int PerceptMesh::
     get_number_nodes()
     {
-      std::vector<unsigned> count ;
-      stk::mesh::Selector selector(get_fem_meta_data()->locally_owned_part() );
-      stk::mesh::count_entities( selector, *get_bulk_data(), count );
-      if (count.size() < 3)
+      size_t nnodes=0;
+#if !STK_PERCEPT_LITE
+      if (get_block_structured_grid())
         {
-          throw std::logic_error("logic error in PerceptMesh::get_number_nodes");
+          std::vector<typename StructuredGrid::MTNode> nodes;
+          get_block_structured_grid()->get_nodes(nodes);
+          nnodes = nodes.size();
         }
+      else
+#endif
+        {
+          std::vector<unsigned> count ;
+          stk::mesh::Selector selector(get_fem_meta_data()->locally_owned_part() );
+          stk::mesh::count_entities( selector, *get_bulk_data(), count );
+          if (count.size() < 3)
+            {
+              throw std::logic_error("logic error in PerceptMesh::get_number_nodes");
+            }
 
-      unsigned nnodes = count[ node_rank() ];
-      stk::ParallelMachine pm = get_bulk_data()->parallel();
-      stk::all_reduce( pm, stk::ReduceSum<1>( &nnodes ) );
+          nnodes = count[ node_rank() ];
+        }
+      stk::all_reduce( parallel(), stk::ReduceSum<1>( &nnodes ) );
       return nnodes;
     }
 
@@ -1299,6 +1335,96 @@
       return false;
     }
 
+    stk::mesh::Permutation PerceptMesh::
+    find_side_element_permutation_and_appropriate_element(const stk::mesh::Entity *side_nodes,
+                                                          const unsigned nside_nodes,
+                                                          stk::topology side_topo_in,
+                                                          stk::mesh::Entity *new_side_nodes,
+                                                          stk::mesh::Entity& element_found,
+                                                          unsigned& side_ord_found, bool debug)
+    {
+      std::ostringstream str;
+      stk::mesh::EntityId minId = std::numeric_limits<stk::mesh::EntityId>::max();
+      stk::mesh::Permutation perm_found = stk::mesh::INVALID_PERMUTATION;
+      for (unsigned inode=0; inode < nside_nodes; ++inode)
+        {
+          MyPairIterRelation elements(*this, side_nodes[inode], element_rank());
+          for (unsigned ielem = 0; ielem < elements.size(); ++ielem)
+            {
+              stk::mesh::Entity element = elements[ielem].entity();
+              stk::mesh::Entity const *elem_nodes = get_bulk_data()->begin_nodes(element);
+              unsigned nsides = topology(element).num_sides();
+              for (unsigned side_ord = 0; side_ord < nsides; ++side_ord)
+                {
+                  stk::topology side_topo = topology(element).side_topology(side_ord);
+                  if (side_topo != side_topo_in)
+                    continue;
+                  stk::mesh::Permutation perm = get_bulk_data()->find_permutation(topology(element), elem_nodes, side_topo, side_nodes, side_ord);
+
+                  bool sameOwner = this->owner_rank(element) == this->get_rank();
+                  bool isPos = perm < side_topo.num_positive_permutations();
+
+                  if (debug)
+                    {
+                      str << "P[" << get_rank() << "] tmp srk elem= " << print_entity_compact(element)
+                          << " sameOwner= " << sameOwner << " isPos= " << isPos << " perm= " << perm
+                          << " side_topo= " << side_topo_in
+                          << std::endl;
+                      //m_eMesh.print(str,side,true,true);
+                      //m_eMesh.print(str,elem,true,true);
+                    }
+
+                  if (sameOwner && perm != stk::mesh::INVALID_PERMUTATION)
+                    {
+                      // if (perm == 0)
+                      //   {
+                      //     element_found = element;
+                      //     side_ord_found = side_ord;
+                      //     found = true;
+                      //     return;
+                      //   }
+                      if (this->id(element) < minId)
+                        {
+                          minId = this->id(element);
+                          element_found = element;
+                          side_ord_found = side_ord;
+                          perm_found = perm;
+                        }
+                    }
+                }
+            }
+        }
+      if (perm_found != stk::mesh::INVALID_PERMUTATION)
+        {
+          VERIFY_OP_ON(is_valid(element_found), ==, true, "bad element_found");
+          const stk::mesh::Entity *element_nodes = get_bulk_data()->begin_nodes(element_found);
+          stk::topology element_topo = topology(element_found);
+          switch (side_topo_in.rank())
+            {
+            case stk::topology::EDGE_RANK:
+              element_topo.edge_nodes(element_nodes, side_ord_found, new_side_nodes);
+              break;
+            case stk::topology::FACE_RANK:
+              element_topo.face_nodes(element_nodes, side_ord_found, new_side_nodes);
+              break;
+            default:
+              VERIFY_MSG("bad side rank");
+            }
+        }
+      if (debug) std::cout << str.str() << std::endl;
+      return perm_found;
+    }
+
+    // stk::mesh::Permutation PerceptMesh::find_side_element_permutation_and_appropriate_element(const stk::mesh::Entity *side_nodes, const unsigned nside_nodes,
+    //                                                                                           stk::mesh::Entity& element_found,
+    //                                                                                           unsigned& side_ord_found)
+    // {
+    //   bool found = false;
+    //   stk::mesh::Permutation perm =
+    //     find_good_element(side_nodes, nside_nodes, element_found, side_ord_found, found);
+    //   VERIFY_OP_ON(perm, !=, stk::mesh::INVALID_PERMUTATION, "bad permutation");
+    //   return perm;
+    // }
 
 
 
@@ -2140,6 +2266,8 @@
     {
       m_bulkData = bulkData;
       m_comm = bulkData->parallel();
+      if (!Teuchos::is_null(m_iossMeshData) && m_iossMeshData->is_bulk_data_null())
+          m_iossMeshData->set_bulk_data(*bulkData);
       setCoordinatesField();
     }
 
@@ -2163,20 +2291,25 @@
 #if defined(STK_PERCEPT_LITE) &&  !STK_PERCEPT_LITE
       m_iocgns_init.reset(new Iocgns::Initializer());
 #endif
-      m_iossMeshData = Teuchos::rcp( new stk::io::StkMeshIoBroker(comm) );
-      m_iossMeshData->property_add(Ioss::Property("MAXIMUM_NAME_LENGTH", 100));
-
-      std::vector<std::string> entity_rank_names = stk::mesh::entity_rank_names();
-#if PERCEPT_USE_FAMILY_TREE
-      entity_rank_names.push_back("FAMILY_TREE");
-#endif
-      m_iossMeshData->set_rank_name_vector(entity_rank_names);
+      set_io_broker( new stk::io::StkMeshIoBroker(comm) );
 
       m_isCommitted   = false;
       m_isAdopted     = false;
       m_isOpen        = false;
       m_filename      = "";
       m_coordinatesField = NULL;
+    }
+
+    void PerceptMesh::
+    set_io_broker(stk::io::StkMeshIoBroker *mesh_data)
+    {
+        m_iossMeshData = Teuchos::rcp( mesh_data );
+        m_iossMeshData->property_add(Ioss::Property("MAXIMUM_NAME_LENGTH", 100));
+        std::vector<std::string> entity_rank_names = stk::mesh::entity_rank_names();
+  #if PERCEPT_USE_FAMILY_TREE
+        entity_rank_names.push_back("FAMILY_TREE");
+  #endif
+        m_iossMeshData->set_rank_name_vector(entity_rank_names);
     }
 
     void PerceptMesh::destroy()
@@ -2489,7 +2622,13 @@
       for(int ii = 0; ii < count; ++ii)
       {
         stk::mesh::EntityId id = getNextId(entityRank);
-        stk::mesh::Entity elem = bulk.declare_entity(entityRank, id, parts);
+        stk::mesh::Entity elem;
+        if (entityRank == get_fem_meta_data()->side_rank()) {
+          elem = bulk.declare_solo_side(id, parts);
+        }
+        else {
+          elem = bulk.declare_entity(entityRank, id, parts);
+        }
         requested_entities.push_back(elem);
       }
       return true;
@@ -2797,6 +2936,41 @@
       //checkOmit(in_region.    get_commsets(), omit_part ) ; /*const CommSetContainer&  */
     }
 
+    void PerceptMesh::read_metaDataNoCommitCGNSStructured(const std::string& in_filename)
+    {
+      std::vector<std::string> entity_rank_names = stk::mesh::entity_rank_names();
+#if PERCEPT_USE_FAMILY_TREE
+      entity_rank_names.push_back("FAMILY_TREE");
+#endif
+
+      m_metaData = new stk::mesh::MetaData();
+      m_spatialDim = 3; // FIXME
+      m_metaData->initialize(m_spatialDim, entity_rank_names);
+      m_bulkData = new stk::mesh::BulkData(*m_metaData, m_comm);
+
+      m_coordinatesField =
+        &m_metaData->declare_field< CoordinatesFieldType >( stk::topology::NODE_RANK, "coordinates" );
+      stk::mesh::put_field( *m_coordinatesField, m_metaData->universal_part());
+
+      const unsigned p_rank = stk::parallel_machine_rank( m_comm );
+
+      if (p_rank == 0)  std::cout << "PerceptMesh:: opening cgns_structured mesh" << std::endl;
+
+      Ioss::PropertyManager properties;
+      Ioss::DatabaseIO *    dbi = Ioss::IOFactory::create("cgns", in_filename, Ioss::READ_MODEL,
+                                                          (MPI_Comm)m_comm, properties);
+      if (dbi == nullptr || !dbi->ok(true)) {
+        std::exit(EXIT_FAILURE);
+      }
+
+      // NOTE: 'region' owns 'db' pointer at this time...
+      m_cgns_structured_region.reset( new Ioss::Region(dbi, "region_1") );
+
+      if (m_cgns_structured_region->get_element_blocks().size())
+        VERIFY_MSG("specified read of structured grid but this mesh has unstructured blocks");
+
+    }
+
     // ========================================================================
     void PerceptMesh::read_metaDataNoCommit( const std::string& in_filename, const std::string& type)
     {
@@ -2806,21 +2980,27 @@
       //                   << " Use Case: Subsetting with df and attribute field input/output          \n"
       //                   << "========================================================================\n";
 
-      stk::io::StkMeshIoBroker& mesh_data = *m_iossMeshData;
+      if (type == "cgns_structured")
+      {
+        read_metaDataNoCommitCGNSStructured(in_filename);
+        return;
+      }
 
-      mesh_data.add_mesh_database(in_filename, type, stk::io::READ_MESH);
+      stk::io::StkMeshIoBroker* mesh_data = m_iossMeshData.get();
 
-      checkForPartsToAvoidReading(*mesh_data.get_input_io_region(), s_omit_part);
+      mesh_data->add_mesh_database(in_filename, type, stk::io::READ_MESH);
+
+      checkForPartsToAvoidReading(*mesh_data->get_input_io_region(), s_omit_part);
 
       // Open, read, filter meta data from the input mesh file:
       // The coordinates field will be set to the correct dimension.
       // this call creates the MetaData
-      mesh_data.create_input_mesh();
-      m_metaData = &mesh_data.meta_data();
+      mesh_data->create_input_mesh();
+      m_metaData = &mesh_data->meta_data();
 
       // This defines all fields found on the input mesh as stk fields
       if (!m_avoid_add_all_mesh_fields_as_input_fields)
-        mesh_data.add_all_mesh_fields_as_input_fields();
+        mesh_data->add_all_mesh_fields_as_input_fields();
     }
 
     void PerceptMesh::add_registered_refine_fields_as_input_fields()
@@ -2849,7 +3029,14 @@
           //std::cout << "PerceptMesh::readBulkData()" << std::endl;
           return;
         }
-
+#if !STK_PERCEPT_LITE
+      if (getProperty("file_type") == "cgns_structured")
+        {
+          m_block_structured_grid.reset(new BlockStructuredGrid(this, m_cgns_structured_region.get()));
+          m_block_structured_grid->read_cgns();
+          return;
+        }
+#endif
       int step = 1;
 
       if (get_database_time_step_count() == 0)
@@ -2922,15 +3109,15 @@
 
       // Read the model (topology, coordinates, attributes, etc)
       // from the mesh-file into the mesh bulk data.
-      stk::io::StkMeshIoBroker& mesh_data = *m_iossMeshData;
-      if (mesh_data.is_bulk_data_null())
+      stk::io::StkMeshIoBroker* mesh_data = m_iossMeshData.get();
+      if (mesh_data->is_bulk_data_null())
         {
-          mesh_data.populate_bulk_data();
+          mesh_data->populate_bulk_data();
           m_iossMeshDataDidPopulate = true;
-          m_bulkData = &mesh_data.bulk_data();
+          m_bulkData = &mesh_data->bulk_data();
         }
 
-      int timestep_count = mesh_data.get_input_io_region()->get_property("state_count").get_int();
+      int timestep_count = mesh_data->get_input_io_region()->get_property("state_count").get_int();
       //std::cout << "tmp timestep_count= " << timestep_count << std::endl;
       //Util::pause(true, "tmp timestep_count");
 
@@ -2944,7 +3131,7 @@
       m_exodusStep = step;
       m_exodusTime = get_database_time_at_step(step);
       std::vector<stk::io::MeshField> missingFields;
-      mesh_data.read_defined_input_fields(step, &missingFields);
+      mesh_data->read_defined_input_fields(step, &missingFields);
       if (missingFields.size())
         {
           if (!get_rank())
@@ -2961,7 +3148,7 @@
             }
 
           std::vector<stk::io::MeshField> missingFields1;
-          mesh_data.read_defined_input_fields(step, &missingFields1);
+          mesh_data->read_defined_input_fields(step, &missingFields1);
           VERIFY_OP_ON(missingFields1.size(), ==, 0, "missingFields1 size should be 0");
         }
     }
@@ -3110,7 +3297,7 @@
     }
 
     static size_t percept_create_output_mesh(const std::string &filename,
-					     stk::io::StkMeshIoBroker &mesh_data)
+					     stk::io::StkMeshIoBroker *mesh_data)
     {
       std::string out_filename = filename;
 
@@ -3124,8 +3311,8 @@
       std::cout << "tmp srk PerceptMesh::percept_create_output_mesh: filename= " << filename
                 << " processor_count= " << processor_count << " my_processor= " << my_processor << std::endl;
 
-      size_t index = mesh_data.create_output_mesh(out_filename, stk::io::WRITE_RESULTS);
-      Teuchos::RCP<Ioss::Region> out_region = mesh_data.get_output_io_region(index);
+      size_t index = mesh_data->create_output_mesh(out_filename, stk::io::WRITE_RESULTS);
+      Teuchos::RCP<Ioss::Region> out_region = mesh_data->get_output_io_region(index);
       out_region->property_add(Ioss::Property("sort_stk_parts", true));
       out_region->property_add(Ioss::Property("processor_count", processor_count));
       out_region->property_add(Ioss::Property("my_processor", my_processor));
@@ -3150,19 +3337,19 @@
       else
         m_iossMeshDataOut = Teuchos::rcp( new stk::io::StkMeshIoBroker(m_comm) );
 
-      stk::io::StkMeshIoBroker& mesh_data = *m_iossMeshDataOut;
-      mesh_data.property_add(Ioss::Property("MAXIMUM_NAME_LENGTH", 100));
+      stk::io::StkMeshIoBroker* mesh_data = m_iossMeshDataOut.get();
+      mesh_data->property_add(Ioss::Property("MAXIMUM_NAME_LENGTH", 100));
       checkForPartsToAvoidWriting();
 
       if (m_outputActiveChildrenOnly)
         {
-          if (Teuchos::is_null(mesh_data.deprecated_selector()))
+          if (Teuchos::is_null(mesh_data->deprecated_selector()))
             {
               Teuchos::RCP<stk::mesh::Selector> io_mesh_selector =
                 Teuchos::rcp(new stk::mesh::Selector(get_fem_meta_data()->universal_part()));
-              mesh_data.deprecated_set_selector(io_mesh_selector);
+              mesh_data->deprecated_set_selector(io_mesh_selector);
             }
-          stk::mesh::Selector & io_mesh_selector = *(mesh_data.deprecated_selector());
+          stk::mesh::Selector & io_mesh_selector = *(mesh_data->deprecated_selector());
 
           stk::mesh::EntityRank part_ranks[] = {element_rank(), side_rank()};
           unsigned num_part_ranks = 2;
@@ -3171,17 +3358,17 @@
         }
 
       if (!(!Teuchos::is_null(m_iossMeshData) && m_sync_io_regions)) {
-        if (mesh_data.is_bulk_data_null())
-          mesh_data.set_bulk_data(bulk_data);
+        if (mesh_data->is_bulk_data_null())
+          mesh_data->set_bulk_data(bulk_data);
       }
 
       if (ALLOW_IOSS_PROPERTIES_SETTING_FOR_LARGE_RUNS && m_ioss_write_options.length() )
         {
 
 #define ERASE(prop)                                                     \
-          do { mesh_data.remove_property_if_exists(prop); } while(0)
+          do { mesh_data->remove_property_if_exists(prop); } while(0)
 #define ADD1(prop,val)                                                  \
-          do { mesh_data.property_add(Ioss::Property(prop, val)); } while (0)
+          do { mesh_data->property_add(Ioss::Property(prop, val)); } while (0)
 
           ERASE("INTEGER_SIZE_DB");
           ERASE("INTEGER_SIZE_API");
@@ -3226,10 +3413,10 @@
       if (m_remove_io_orig_topo_type)
         {
           std::string orig_topo_str = "original_topology_type";
-          if (!Teuchos::is_null(mesh_data.get_input_io_region()))
+          if (!Teuchos::is_null(mesh_data->get_input_io_region()))
             {
               {
-                const Ioss::AliasMap& aliases = mesh_data.get_input_io_region()->get_alias_map();
+                const Ioss::AliasMap& aliases = mesh_data->get_input_io_region()->get_alias_map();
                 Ioss::AliasMap::const_iterator I  = aliases.begin();
                 Ioss::AliasMap::const_iterator IE = aliases.end();
 
@@ -3242,7 +3429,7 @@
 
                     // Query the 'from' database to get the entity (if any) referred
                     // to by the 'alias'
-                    Ioss::GroupingEntity *ge = mesh_data.get_input_io_region()->get_entity(base);
+                    Ioss::GroupingEntity *ge = mesh_data->get_input_io_region()->get_entity(base);
 
                     if (ge != NULL) {
                       // See if there is a 'original_topology_type' property...
@@ -3256,7 +3443,7 @@
                 }
               }
 
-              if (0) std::cout << "tmp srk property_exists(original_topology_type) = " << mesh_data.get_input_io_region()->property_exists(orig_topo_str) << std::endl;
+              if (0) std::cout << "tmp srk property_exists(original_topology_type) = " << mesh_data->get_input_io_region()->property_exists(orig_topo_str) << std::endl;
             }
           else
             {
@@ -3269,13 +3456,13 @@
           result_file_index = percept_create_output_mesh(out_filename, mesh_data);
       else
         {
-          result_file_index = mesh_data.create_output_mesh(out_filename, stk::io::WRITE_RESULTS);
+          result_file_index = mesh_data->create_output_mesh(out_filename, stk::io::WRITE_RESULTS);
         }
       m_output_file_index = result_file_index;
-      if (mesh_data.get_input_io_region().get() == NULL) {
-          mesh_data.get_output_io_region(result_file_index)->property_add(Ioss::Property("sort_stk_parts",true));
+      if (mesh_data->get_input_io_region().get() == NULL) {
+          mesh_data->get_output_io_region(result_file_index)->property_add(Ioss::Property("sort_stk_parts",true));
       }
-      mesh_data.set_subset_selector(result_file_index, mesh_data.deprecated_selector());
+      mesh_data->set_subset_selector(result_file_index, mesh_data->deprecated_selector());
 
       if (0)
         {
@@ -3292,20 +3479,20 @@
             }
         }
 
-      const stk::mesh::FieldVector &fields = mesh_data.meta_data().get_fields();
+      const stk::mesh::FieldVector &fields = mesh_data->meta_data().get_fields();
       for (size_t i=0; i < fields.size(); i++) {
         const Ioss::Field::RoleType* role = stk::io::get_field_role(*fields[i]);
         if ( role && *role == Ioss::Field::TRANSIENT )
         {
-           mesh_data.add_field(result_file_index, *fields[i]);
+           mesh_data->add_field(result_file_index, *fields[i]);
         }
       }
 
       // Read and Write transient fields...
-      mesh_data.process_output_request(result_file_index, time);
+      mesh_data->process_output_request(result_file_index, time);
 
-      if (!Teuchos::is_null(mesh_data.get_input_io_region()))
-        mesh_data.get_input_io_region()->get_database()->closeDatabase();
+      if (!Teuchos::is_null(mesh_data->get_input_io_region()))
+        mesh_data->get_input_io_region()->get_database()->closeDatabase();
 
       if (p_rank == 0) std::cout << " ... done" << std::endl;
     }
@@ -3495,6 +3682,65 @@
       if (max_edge_length_in) *max_edge_length_in = max_edge_length;
       return edge_length_ave;
     }
+
+#if !STK_PERCEPT_LITE
+    double PerceptMesh::edge_length_ave(const typename StructuredGrid::MTElement entity, typename StructuredGrid::MTField* coord_field_in , double* min_edge_length_in, double* max_edge_length_in, const typename StructuredGrid::MTCellTopology topology_data_in)
+    {
+      std::shared_ptr<BlockStructuredGrid> bsg = get_block_structured_grid();
+      typename StructuredGrid::MTField *coord_field = (coord_field_in ? coord_field_in : bsg->m_fields["coordinates"].get());
+      const typename StructuredGrid::MTCellTopology * const cell_topo_data = 0;
+      (void)cell_topo_data;
+
+      //shards::CellTopology cell_topo(cell_topo_data);
+
+      int spaceDim = get_spatial_dim();
+
+      const typename StructuredGrid::MTElement elem = entity;
+      //const MyPairIterRelation elem_nodes(*get_bulk_data(), elem, stk::topology::NODE_RANK );
+      std::vector<typename StructuredGrid::MTNode> nodes_buffer;
+      const typename StructuredGrid::MTNode *elem_nodes = get_nodes<StructuredGrid>(this, elem, &nodes_buffer);
+
+      double edge_length_ave=0.0;
+      double min_edge_length = -1.0;
+      double max_edge_length = -1.0;
+      unsigned edge_count = 12;
+      const int edges[12][2] = {{0,1},{1,2},{2,3},{3,0}, {4,5}, {5,6}, {6,7}, {7,4}, {0,4}, {1,5}, {2,6}, {3,7}};
+      for (unsigned iedgeOrd = 0; iedgeOrd < edge_count; ++iedgeOrd)
+        {
+          unsigned in0 = edges[iedgeOrd][0];
+          unsigned in1 = edges[iedgeOrd][1];
+
+          double node_coord_data_0[3];
+          percept::get_field<StructuredGrid>(node_coord_data_0, 3, this, coord_field, elem_nodes[in0]);
+
+          double node_coord_data_1[3];
+          percept::get_field<StructuredGrid>(node_coord_data_1, 3, this, coord_field, elem_nodes[in1]);
+
+          double edge_length = 0.0;
+          for (int iSpaceDimOrd = 0; iSpaceDimOrd < spaceDim; iSpaceDimOrd++)
+            {
+              edge_length +=
+                (node_coord_data_0[iSpaceDimOrd]-node_coord_data_1[iSpaceDimOrd])*
+                (node_coord_data_0[iSpaceDimOrd]-node_coord_data_1[iSpaceDimOrd]);
+            }
+          edge_length = std::sqrt(edge_length);
+          edge_length_ave += edge_length / ((double)edge_count);
+          if(iedgeOrd == 0)
+            {
+              min_edge_length = edge_length;
+              max_edge_length = edge_length;
+            }
+          else
+            {
+              min_edge_length = std::min(min_edge_length, edge_length);
+              max_edge_length = std::max(max_edge_length, edge_length);
+            }
+        }
+      if (min_edge_length_in) *min_edge_length_in = min_edge_length;
+      if (max_edge_length_in) *max_edge_length_in = max_edge_length;
+      return edge_length_ave;
+    }
+#endif
 
 #if !STK_PERCEPT_LITE
     // static
@@ -4692,12 +4938,45 @@
 
     void PerceptMesh::add_coordinate_state_fields()
     {
+#if !STK_PERCEPT_LITE
+      if (m_block_structured_grid)
+        {
+          int scalarDimension = get_spatial_dim(); // a scalar
+
+          m_block_structured_grid->register_field("coordinates_N", scalarDimension);
+          m_block_structured_grid->register_field("coordinates_NM1", scalarDimension);
+          m_block_structured_grid->register_field("coordinates_lagged", scalarDimension);
+          m_block_structured_grid->register_field("coordinates_0", scalarDimension);
+
+          m_block_structured_grid->register_field("cg_g", scalarDimension);
+          m_block_structured_grid->register_field("cg_r", scalarDimension);
+          m_block_structured_grid->register_field("cg_d", scalarDimension);
+          m_block_structured_grid->register_field("cg_s", scalarDimension);
+
+          // hessian
+          m_block_structured_grid->register_field("cg_h", scalarDimension*scalarDimension);
+
+          // edge length
+          m_block_structured_grid->register_field("cg_edge_length", 1);
+
+          // global id
+          // {
+          //   typedef stk::mesh::Field<stk::mesh::EntityId> GlobalIdField;
+          //   GlobalIdField& cg_gid_field = m_metaData->declare_field<GlobalIdField>(node_rank(), "cg_gid");
+          //   stk::mesh::put_field( cg_gid_field , m_metaData->universal_part());
+          //   stk::io::set_field_role(cg_gid_field, Ioss::Field::TRANSIENT);
+          // }
+
+          return;
+        }
+#endif
+
       m_num_coordinate_field_states = 3;
       int extraLambdaDof = 0;
-      // if (!get_rank()) std::cout << "prop= " << this->getProperty("ReferenceMeshSmoother3.use_lambda")
+      // if (!get_rank()) std::cout << "prop= " << this->getProperty("ReferenceMeshSmootherNewton.use_lambda")
       //                            << std::endl;
 
-      if (this->get_smooth_surfaces() && this->getProperty("ReferenceMeshSmoother3.use_lambda") == "true")
+      if (this->get_smooth_surfaces() && this->getProperty("ReferenceMeshSmootherNewton.use_lambda") == "true")
         {
           extraLambdaDof = 1;
           //if (!get_rank()) std::cout << "Turning on useLambda" << std::endl;
@@ -4817,6 +5096,13 @@
       // the shared part (just the shared boundary)
       //stk::mesh::communicate_field_data(*get_bulk_data()->ghostings()[0], fields);
 
+    }
+
+    void PerceptMesh::copy_field(typename StructuredGrid::MTField* field_dest, typename StructuredGrid::MTField* field_src)
+    {
+#if !STK_PERCEPT_LITE
+      get_block_structured_grid()->copy_field(field_dest, field_src);
+#endif
     }
 
     /// axpby calculates: y = alpha*x + beta*y
@@ -5891,6 +6177,26 @@
       }
     }
 
+    void PerceptMesh::skin_mesh(std::string skinPartName)
+    {
+      PerceptMesh& eMesh = *this;
+
+      eMesh.reopen();
+
+      stk::mesh::MetaData * md = eMesh.get_fem_meta_data();
+      stk::mesh::Part & skin_part = md->declare_part(skinPartName, eMesh.side_rank()); //doing this before the break pattern should make this work
+      stk::io::put_io_part_attribute(skin_part);
+      eMesh.commit();
+
+      std::vector< stk::mesh::Part * > partToPutSidesInto(1,&skin_part);
+      stk::mesh::Selector blocksToSkinOrConsider(md->locally_owned_part());
+      blocksToSkinOrConsider |= (md->globally_shared_part());
+      stk::mesh::create_exposed_block_boundary_sides(*eMesh.get_bulk_data(), blocksToSkinOrConsider, partToPutSidesInto);
+      //stk::mesh::create_interior_block_boundary_sides(*eMesh.get_bulk_data(),blocksToSkinOrConsider, partToPutSidesInto);
+
+    }
+
+
     static void get_nodes_on_side(stk::mesh::BulkData& bulkData, stk::mesh::Entity element, unsigned element_side_ordinal, std::vector<stk::mesh::Entity>& node_vector)
     {
       stk::mesh::EntityRank side_entity_rank = bulkData.mesh_meta_data().side_rank();
@@ -6249,6 +6555,19 @@
 #else
       return false;
 #endif
+    }
+
+    unsigned PerceptMesh::index_of(stk::mesh::Entity src_entity, stk::mesh::Entity entity)
+    {
+      MyPairIterRelation rels(*this, src_entity, this->entity_rank(entity));
+      for (unsigned ii = 0; ii < rels.size(); ++ii)
+        {
+          if (rels[ii].entity() == entity)
+            {
+              return ii;
+            }
+        }
+      return std::numeric_limits<unsigned>::max();
     }
 
     bool PerceptMesh::

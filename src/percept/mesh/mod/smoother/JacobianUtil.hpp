@@ -13,18 +13,22 @@
 
 
 #include <percept/PerceptMesh.hpp>
+#include <percept/MeshType.hpp>
+#include <percept/StructuredCellIndex.hpp>
 #include <percept/math/DenseMatrix.hpp>
 
   namespace percept {
 
-    class JacobianUtil
+    template<typename MeshType>
+    class JacobianUtilBase
     {
 
     public:
       typedef double Vec3D[3];
       Vec3D mCoords[4];
 
-      enum { NELEM_TYPES = 10, NNODES_MAX = 10 };
+      //enum { NELEM_TYPES = 10, NNODES_MAX = 10 };
+      enum { NELEM_TYPES =  MeshType::NELEM_TYPES, NNODES_MAX = 10 };
 
       double   m_detJ[NNODES_MAX];
       DenseMatrix<3,3> m_J[NNODES_MAX];
@@ -34,7 +38,7 @@
       bool m_scale_to_unit;
       bool m_use_approximate_quadratic_jacobian;
 
-      JacobianUtil(bool use_approximate_quadratic_jacobian=true) :
+      JacobianUtilBase(bool use_approximate_quadratic_jacobian=true) :
         m_num_nodes(0),
         m_scale_to_unit(false),
         m_use_approximate_quadratic_jacobian(use_approximate_quadratic_jacobian)
@@ -47,14 +51,47 @@
         for (unsigned i=0; i < n; i++) sum += detJ[i];
         return sum/double(n);
       }
+    };
 
-      bool operator()(double& averageJ, PerceptMesh& eMesh, stk::mesh::Entity element, stk::mesh::FieldBase *coord_field,
-                      const CellTopologyData * topology_data_in = 0 );
+
+    template<typename MeshType>
+    class JacobianUtilImpl : public JacobianUtilBase<MeshType>
+    {
+
+    public:
+
+      using Base =  JacobianUtilBase<MeshType>;
+
+      using  typename Base::Vec3D;
+      using  Base::NELEM_TYPES;
+      using  Base::NNODES_MAX;
+      using  Base::m_detJ;
+      using  Base::m_J;
+      using  Base::m_dMetric_dA;
+      using  Base::m_grad;
+      using  Base::m_num_nodes;
+      using  Base::m_scale_to_unit;
+      using  Base::m_use_approximate_quadratic_jacobian;
+
+
+      JacobianUtilImpl(bool use_approximate_quadratic_jacobian=true) : Base(use_approximate_quadratic_jacobian)
+      {
+      }
+
+      bool operator()(double& averageJ, PerceptMesh& eMesh, typename MeshType::MTElement element, typename MeshType::MTField *coord_field,
+                      const typename MeshType::MTCellTopology * topology_data_in = 0 );
+
+      bool operator()(double& averageJ,  typename MeshType::MTElement element, typename MeshType::MTField *coord_field,
+                      const typename MeshType::MTCellTopology * topology_data_in = 0 )
+      {
+        PerceptMesh eMesh(&coord_field->mesh_meta_data(), &coord_field->get_mesh(), true);
+        return this->operator()(averageJ, eMesh, element, coord_field, topology_data_in);
+      }
+
+      bool grad_metric_util( PerceptMesh& eMesh, typename MeshType::MTElement element, typename MeshType::MTField *coord_field,
+                             const typename MeshType::MTCellTopology * topology_data );
 
       double getJacobianToVolumeScale(shards::CellTopology& cell_topo);
-
-      bool grad_metric_util( PerceptMesh& eMesh, stk::mesh::Entity element, stk::mesh::FieldBase *coord_field,
-                             const CellTopologyData * topology_data );
 
       /// compute an approximate element diameter (diameter of circumscribing sphere) by computing
       ///   max of distance between all pairs of vertices
@@ -428,6 +465,8 @@
       }
 
     };
+    using JacobianUtil = JacobianUtilImpl<STKMesh>;
+
   }
 
 #endif

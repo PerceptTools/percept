@@ -837,6 +837,72 @@ using namespace percept;
       return true;
     }
 
+    std::vector< std::pair<UInt,UInt> >
+    RefinementTopology::get_children_on_ordinal(const UInt face_ordinal) const
+    {
+      std::vector< std::pair<UInt,UInt> > result;
+      std::pair<UInt,UInt> entry(0,0);
+
+      bool flag = (face_ordinal < m_cellTopology.getFaceCount());
+
+      if (flag) {
+
+        const CellTopology & faceTop = faceCellTopology(m_cellTopology, face_ordinal);
+
+        const UInt * const faceN      = face_node(face_ordinal);
+
+        for(unsigned face_child_ordinal=0; face_child_ordinal < getRefinementTopology(faceCellTopology(m_cellTopology, face_ordinal))->num_child(); ++face_child_ordinal)
+        {
+            const UInt * const faceChildN = Elem::getRefinementTopology(faceTop)->child_node(face_child_ordinal);
+
+            const CellTopology faceChildTop = getRefinementTopology(faceTop)->child_cell_topology(face_child_ordinal);
+
+            flag = false;
+            UInt childIndex, faceIndex;
+
+            for (childIndex = 0; childIndex < num_child(); ++childIndex) {
+
+              const UInt * const           childN   =   child_node(    childIndex);
+              const CellTopology childTop = child_cell_topology(childIndex);
+
+              for (faceIndex = 0; faceIndex < childTop.getFaceCount(); ++faceIndex) {
+
+                if (faceCellTopology(childTop, faceIndex) == faceChildTop) {
+
+                  const UInt * const childFaceN = Elem::getRefinementTopology(childTop)->face_node(faceIndex);
+
+                  UInt i = 0;
+
+                  for (; i < faceChildTop.getNodeCount() &&
+                         faceN[ faceChildN[i] ] == childN[ childFaceN[i] ]; ++i);
+
+                  if (i == faceChildTop.getNodeCount()) {
+                    VERIFY_TRUE(! flag);
+                    flag = true;
+
+                    entry.first  = childIndex;
+                    entry.second = faceIndex;
+
+                    result.push_back(entry);
+                  }
+                }
+              }
+            }
+          }
+      }
+
+      if (! flag) {
+        //         throw RuntimeError() << "CellTopology[" << m_cellTopology.getName() << "]::child_face("
+        //                              << face_ordinal << "," << face_child_ordinal
+        //                              << ") could not find a match." << std::endl << StackTrace;
+        THROW( "CellTopology[" << m_cellTopology.getName() << "]::get_children_on_ordinal("
+               << face_ordinal
+               << ") could not find a match." );
+      }
+
+      return result;
+    }
+
 
   } // namespace Elem
 } // namespace percept 

@@ -124,9 +124,22 @@
 
 #endif
 
+        bool use_declare_element_side = UniformRefinerPatternBase::USE_DECLARE_ELEMENT_SIDE &&  m_primaryEntityRank == eMesh.side_rank();
+
         for (unsigned ielem=0; ielem < elems.size(); ielem++)
           {
-            stk::mesh::Entity newElement = *element_pool;
+            stk::mesh::Entity newElement = stk::mesh::Entity();
+            if (!use_declare_element_side)
+              newElement = *element_pool;
+
+            stk::mesh::Entity nodes[3];
+            for (int inode=0; inode < 3; inode++)
+              {
+                stk::mesh::EntityId eid = elems[ielem][inode];
+                stk::mesh::Entity node = eMesh.createOrGetNode(eid);
+                nodes[inode] = node;
+              }
+            create_side_element(eMesh, use_declare_element_side, nodes, 3, newElement);
 
             // FIXME
             if (0 && proc_rank_field)
@@ -146,17 +159,12 @@
                 }
 
             }
-            for (int inode=0; inode < 3; inode++)
-              {
-                stk::mesh::EntityId eid = elems[ielem][inode];
-                stk::mesh::Entity node = eMesh.createOrGetNode(eid);
-                eMesh.get_bulk_data()->declare_relation(newElement, node, inode);
-              }
 
             set_parent_child_relations(eMesh, element, newElement, *ft_element_pool, ielem);
 
             ft_element_pool++;
-            element_pool++;
+            if (!use_declare_element_side)
+              element_pool++;
 
           }
 

@@ -442,11 +442,7 @@
                               if (!debug_geom_side_sets_as_blocks)
                                 {
                                   side_id = PerceptMesh::exodus_side_id(bulk_data.identifier(element) , j_side );
-                                  //std::cout << "side_id = " << side_id << std::endl;
-                                  stk::mesh::declare_element_side(bulk_data,
-                                                                       element,
-                                                                       j_side, // local_side_ord,
-                                                                       stk::mesh::PartVector{side_parts[i_side]});
+                                  bulk_data.declare_element_side(element, j_side, stk::mesh::PartVector{side_parts[i_side]});
                                 }
                               else
                                 {
@@ -485,10 +481,7 @@
                                 {
                                   side_id = PerceptMesh::exodus_side_id(bulk_data.identifier(element) , j_side );
 
-                                  stk::mesh::declare_element_side(bulk_data,
-                                                                       element,
-                                                                       j_side, // local_side_ord,
-                                                                       stk::mesh::PartVector{side_parts[i_side]});
+                                  bulk_data.declare_element_side(element, j_side, stk::mesh::PartVector{side_parts[i_side]});
                                 }
 
                             }

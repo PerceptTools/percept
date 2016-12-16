@@ -20,7 +20,7 @@
 
 //#include <TpetraLinearSystem.h>
 #include <percept/mesh/mod/smoother/TpetraLinearSolver.hpp>
-#include <percept/mesh/mod/smoother/ReferenceMeshSmoother3.hpp>
+#include <percept/mesh/mod/smoother/ReferenceMeshSmootherNewton.hpp>
 //#include <DiagWriter.h>
 
 #include <BelosLinearProblem.hpp>

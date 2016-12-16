@@ -55,7 +55,7 @@
 
 // smoothing tests
 #include <percept/mesh/mod/smoother/MeshSmoother.hpp>
-#include <percept/mesh/mod/smoother/ReferenceMeshSmoother1.hpp>
+#include <percept/mesh/mod/smoother/ReferenceMeshSmootherConjugateGradient.hpp>
 
 
 // this is for testing the local-refine refactoring

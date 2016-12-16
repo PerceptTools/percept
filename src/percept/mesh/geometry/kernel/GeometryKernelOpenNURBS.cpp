@@ -9,7 +9,7 @@
 #include <typeinfo>
 #include <stdexcept>
 
-#include "GeometryKernelOpenNURBS.hpp"
+#include <percept/mesh/geometry/kernel/GeometryKernelOpenNURBS.hpp>
 #include <string>
 
 namespace percept {

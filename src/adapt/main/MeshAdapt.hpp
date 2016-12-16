@@ -106,7 +106,7 @@ namespace percept {
     //    string - the basename which is everything before the number
     //    int    - the refinement level
     std::pair<std::string,int> get_basename_and_level(const std::string& input_mesh);
-    void checkInput(std::string option, std::string value, std::string allowed_values, RunEnvironment& run_environment);
+    void checkInput(std::string option, std::string value, std::string allowed_values, Teuchos::CommandLineProcessor& clp);
     void print_simple_usage(int argc, char **argv);
     int check_for_simple_options(int argc, char **argv);
 
@@ -153,7 +153,7 @@ namespace percept {
 
     // sub-algorithms of do_run algorithms
     void do_precheck_memory_usage();
-    int setup_options(RunEnvironment& run_environment, int argc, char **argv);
+    int setup_options(Teuchos::CommandLineProcessor& clp, const stk::ParallelMachine& comm, int argc, char **argv);
     BlockNamesType process_block_names();
     void mesh_based_geometry_setup();
     void mesh_based_geometry_fitting();
@@ -178,6 +178,8 @@ namespace percept {
 
     // version - return true if built in Sierra
     bool get_version(std::string* v=0);
+
+    void log_usage( bool status = true );
 
     // main routines
     int adapt_main(int argc, char **argv);
@@ -232,6 +234,12 @@ namespace percept {
     typedef std::map<std::string, int> StringIntMap;
     StringIntMap block_names_x_map;
     std::shared_ptr<DihedralAngleCheck> m_dihedral_angle_check;
+
+    double mMeshInputTime;
+    double mMeshOutputTime;
+    double mAdaptTimeOverall;
+    double mAdaptCPUTimeOverall;
+
   };
 
 

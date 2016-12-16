@@ -25,6 +25,99 @@
 
 namespace percept {
 
+  void RebalanceMesh::fixup_family_trees(PerceptMesh& eMesh, bool debug)
+  {
+    double ft_time = stk::cpu_time();
+    eMesh.get_bulk_data()->modification_begin();
+    std::vector<stk::mesh::Entity> vec;
+    stk::mesh::Selector on_univ =  eMesh.get_fem_meta_data()->universal_part();
+    const stk::mesh::EntityRank FAMILY_TREE_RANK = static_cast<stk::mesh::EntityRank>(eMesh.element_rank()+1);
+    stk::mesh::get_selected_entities(on_univ, eMesh.get_bulk_data()->buckets(FAMILY_TREE_RANK), vec);
+
+    std::vector<stk::mesh::Entity> new_rels;
+
+    stk::mesh::EntityRank ranks[] = {eMesh.side_rank(), eMesh.element_rank()};
+    const unsigned nranks = 2;
+    for (unsigned iFT = 0; iFT < vec.size(); iFT++)
+      {
+        stk::mesh::Entity ft = vec[iFT];
+        stk::mesh::Entity const *ft_nodes = eMesh.get_bulk_data()->begin(ft, eMesh.node_rank());
+        unsigned ft_nodes_size = eMesh.get_bulk_data()->num_connectivity(ft, eMesh.node_rank());
+
+        new_rels.resize(0);
+        for (unsigned irank = 0; irank < nranks; ++irank)
+          {
+            unsigned ft_elems_size = eMesh.get_bulk_data()->num_connectivity(ft, ranks[irank]);
+            if (!ft_elems_size) continue;
+            stk::mesh::Entity const* ft_elems = eMesh.get_bulk_data()->begin(ft, ranks[irank]);
+
+            stk::mesh::Entity root = eMesh.rootOfTree(ft_elems[0]);
+            VERIFY_OP_ON(eMesh.is_valid(root), ==, true, "bad root");
+
+            // FIXME
+            bool found_shared = (eMesh.shared(root) || !eMesh.owned(root))
+              || eMesh.get_bulk_data()->in_send_ghost(eMesh.key(root));
+            if (!found_shared)
+              {
+                continue;
+              }
+
+            stk::mesh::Entity const *root_nodes = eMesh.get_bulk_data()->begin(root, eMesh.node_rank());
+            unsigned root_nodes_size = eMesh.get_bulk_data()->num_connectivity(root, eMesh.node_rank());
+
+            found_shared = false;
+            for (unsigned mm=0; mm < root_nodes_size; ++mm)
+              {
+                if (eMesh.shared(root_nodes[mm]))
+                  {
+                    found_shared = true;
+                    break;
+                  }
+              }
+            if (!found_shared)
+              continue;
+
+            for (unsigned mm=0; mm < root_nodes_size; ++mm)
+              {
+                if (!eMesh.shared(root_nodes[mm]))
+                  continue;
+                bool found = false;
+                for (unsigned kk=0; kk < ft_nodes_size; ++kk)
+                  {
+                    if (ft_nodes[kk] == root_nodes[mm])
+                      {
+                        found=true;
+                        break;
+                      }
+                  }
+                if (!found)
+                  {
+                    new_rels.push_back(root_nodes[mm]);
+                  }
+              }
+          }
+
+        for (unsigned jj=0; jj < new_rels.size(); ++jj)
+          {
+            eMesh.get_bulk_data()->declare_relation(ft, new_rels[jj], ft_nodes_size + jj);
+          }
+      }
+
+    ft_time = stk::cpu_time() - ft_time;
+
+    stk::mesh::fixup_ghosted_to_shared_nodes(*eMesh.get_bulk_data());
+    double mod_end_time = stk::cpu_time();
+    eMesh.get_bulk_data()->modification_end();
+    mod_end_time = stk::cpu_time() - mod_end_time;
+
+    stk::all_reduce(eMesh.get_bulk_data()->parallel(), stk::ReduceSum<1>(&mod_end_time));
+    stk::all_reduce(eMesh.get_bulk_data()->parallel(), stk::ReduceSum<1>(&ft_time));
+    if (debug && eMesh.get_rank() == 0)
+      {
+        std::cout << "ft_time = " << ft_time << " mod_end_time= " << mod_end_time << std::endl;
+      }
+  }
+
   class RebalanceAdapted : public stk::rebalance::Rebalance
   {
   public:
@@ -89,95 +182,7 @@ namespace percept {
 
     void fixup_family_trees()
     {
-      double ft_time = stk::cpu_time();
-      m_eMesh.get_bulk_data()->modification_begin();
-      std::vector<stk::mesh::Entity> vec;
-      stk::mesh::Selector on_univ =  m_eMesh.get_fem_meta_data()->universal_part();
-      const stk::mesh::EntityRank FAMILY_TREE_RANK = static_cast<stk::mesh::EntityRank>(m_eMesh.element_rank()+1);
-      stk::mesh::get_selected_entities(on_univ, m_eMesh.get_bulk_data()->buckets(FAMILY_TREE_RANK), vec);
-
-      std::vector<stk::mesh::Entity> new_rels;
-
-      stk::mesh::EntityRank ranks[] = {m_eMesh.side_rank(), m_eMesh.element_rank()};
-      const unsigned nranks = 2;
-      for (unsigned iFT = 0; iFT < vec.size(); iFT++)
-        {
-          stk::mesh::Entity ft = vec[iFT];
-          stk::mesh::Entity const *ft_nodes = m_eMesh.get_bulk_data()->begin(ft, m_eMesh.node_rank());
-          unsigned ft_nodes_size = m_eMesh.get_bulk_data()->num_connectivity(ft, m_eMesh.node_rank());
-
-          new_rels.resize(0);
-          for (unsigned irank = 0; irank < nranks; ++irank)
-            {
-              unsigned ft_elems_size = m_eMesh.get_bulk_data()->num_connectivity(ft, ranks[irank]);
-              if (!ft_elems_size) continue;
-              stk::mesh::Entity const* ft_elems = m_eMesh.get_bulk_data()->begin(ft, ranks[irank]);
-
-              stk::mesh::Entity root = m_eMesh.rootOfTree(ft_elems[0]);
-              VERIFY_OP_ON(m_eMesh.is_valid(root), ==, true, "bad root");
-
-              // FIXME
-              bool found_shared = (m_eMesh.shared(root) || !m_eMesh.owned(root))
-                || m_eMesh.get_bulk_data()->in_send_ghost(m_eMesh.key(root));
-              if (!found_shared)
-                {
-                  continue;
-                }
-
-              stk::mesh::Entity const *root_nodes = m_eMesh.get_bulk_data()->begin(root, m_eMesh.node_rank());
-              unsigned root_nodes_size = m_eMesh.get_bulk_data()->num_connectivity(root, m_eMesh.node_rank());
-
-              found_shared = false;
-              for (unsigned mm=0; mm < root_nodes_size; ++mm)
-                {
-                  if (m_eMesh.shared(root_nodes[mm]))
-                    {
-                      found_shared = true;
-                      break;
-                    }
-                }
-              if (!found_shared)
-                continue;
-
-              for (unsigned mm=0; mm < root_nodes_size; ++mm)
-                {
-                  if (!m_eMesh.shared(root_nodes[mm]))
-                    continue;
-                  bool found = false;
-                  for (unsigned kk=0; kk < ft_nodes_size; ++kk)
-                    {
-                      if (ft_nodes[kk] == root_nodes[mm])
-                        {
-                          found=true;
-                          break;
-                        }
-                    }
-                  if (!found)
-                    {
-                      new_rels.push_back(root_nodes[mm]);
-                    }
-                }
-            }
-
-          for (unsigned jj=0; jj < new_rels.size(); ++jj)
-            {
-              m_eMesh.get_bulk_data()->declare_relation(ft, new_rels[jj], ft_nodes_size + jj);
-            }
-        }
-
-      ft_time = stk::cpu_time() - ft_time;
-
-      stk::mesh::fixup_ghosted_to_shared_nodes(*m_eMesh.get_bulk_data());
-      double mod_end_time = stk::cpu_time();
-      m_eMesh.get_bulk_data()->modification_end();
-      mod_end_time = stk::cpu_time() - mod_end_time;
-
-      stk::all_reduce(m_eMesh.get_bulk_data()->parallel(), stk::ReduceSum<1>(&mod_end_time));
-      stk::all_reduce(m_eMesh.get_bulk_data()->parallel(), stk::ReduceSum<1>(&ft_time));
-      if (m_debug && m_eMesh.get_rank() == 0)
-        {
-          std::cout << "ft_time = " << ft_time << " mod_end_time= " << mod_end_time << std::endl;
-        }
+      RebalanceMesh::fixup_family_trees(m_eMesh, m_debug);
     }
 
     virtual bool full_rebalance(stk::mesh::BulkData  & bulk_data ,

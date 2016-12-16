@@ -19,6 +19,10 @@ namespace percept {
     double compute_imbalance();
     // return the imbalance factor after rebalancing
     double rebalance();
+
+    static
+    void fixup_family_trees(PerceptMesh& eMesh, bool debug);
+
   protected:
     void build_entities_to_rebalance_list(stk::mesh::EntityVector& vec);
     void set_weights(const std::vector<stk::mesh::Entity>& entities_to_rebalance);

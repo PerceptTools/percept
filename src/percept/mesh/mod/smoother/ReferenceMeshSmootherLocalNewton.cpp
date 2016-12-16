@@ -9,11 +9,12 @@
 #if !defined(NO_GEOM_SUPPORT)
 
 
-#include <percept/mesh/mod/smoother/ReferenceMeshSmoother2.hpp>
+#include <percept/mesh/mod/smoother/ReferenceMeshSmootherLocalNewton.hpp>
 #include <percept/mesh/mod/smoother/MeshSmoother.hpp>
 #include <percept/mesh/mod/smoother/JacobianUtil.hpp>
 #include <percept/math/DenseMatrix.hpp>
 #include <percept/math/Math.hpp>
+#include <percept/MeshType.hpp>
 
 #include <stk_mesh/base/FieldParallel.hpp>
 #include <stdio.h>
@@ -33,7 +34,16 @@ namespace percept {
   //static double sqrt_eps = std::sqrt(macheps);
   // static double cbrt_eps = std::pow(macheps, 1./3.);
 
-  double ReferenceMeshSmoother2::local_line_search(stk::mesh::Entity node, stk::mesh::FieldBase *cg_g_field)
+  ReferenceMeshSmootherLocalNewton::ReferenceMeshSmootherLocalNewton(PerceptMesh *eMesh,
+                                                                     stk::mesh::Selector *boundary_selector,
+                                                                     MeshGeometry *meshGeometry,
+                                                                     int inner_iterations ,
+                                                                     double grad_norm ,
+                                                                     int parallel_iterations )
+    : ReferenceMeshSmootherConjugateGradientImpl<STKMesh>(eMesh, boundary_selector, meshGeometry, inner_iterations, grad_norm, parallel_iterations)
+  {}
+
+  double ReferenceMeshSmootherLocalNewton::local_line_search(stk::mesh::Entity node, stk::mesh::FieldBase *cg_g_field)
   {
     SmootherMetricFunction smf(m_eMesh, m_metric);
     double *cg_g = m_eMesh->field_data(cg_g_field, node);
@@ -77,7 +87,7 @@ namespace percept {
   }
 
   // fills cg_s with locally solved Newton at nodes
-  void ReferenceMeshSmoother2::get_step()
+  void ReferenceMeshSmootherLocalNewton::get_step()
   {
     PerceptMesh *eMesh = m_eMesh;
     //stk::mesh::FieldBase *coord_field = eMesh->get_coordinates_field();
@@ -255,7 +265,7 @@ namespace percept {
 
   }
 
-  double ReferenceMeshSmoother2::run_one_iteration()
+  double ReferenceMeshSmootherLocalNewton::run_one_iteration()
   {
     PerceptMesh *eMesh = m_eMesh;
 

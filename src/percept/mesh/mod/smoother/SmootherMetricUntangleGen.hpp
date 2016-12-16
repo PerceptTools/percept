@@ -138,7 +138,7 @@ namespace percept {
         {
           lambdaSet = true;
           smoothSurfaces = m_eMesh->get_smooth_surfaces();
-          if (m_eMesh->get_smooth_surfaces() && m_eMesh->getProperty("ReferenceMeshSmoother3.use_lambda") == "true")
+          if (m_eMesh->get_smooth_surfaces() && m_eMesh->getProperty("ReferenceMeshSmootherNewton.use_lambda") == "true")
             {
               useLambda = true;
             }

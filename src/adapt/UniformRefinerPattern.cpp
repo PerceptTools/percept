@@ -1257,16 +1257,17 @@
 
 #undef CENTROID_N
 
+      bool use_declare_element_side = UniformRefinerPatternBase::USE_DECLARE_ELEMENT_SIDE &&  getPrimaryEntityRank() == eMesh.side_rank();
+
       for (unsigned ielem=0; ielem < elems.size(); ielem++)
         {
-          stk::mesh::Entity newElement = *element_pool;
 
-          // FIXME
-          if (m_primaryEntityRank == stk::topology::ELEMENT_RANK &&  proc_rank_field)
+          stk::mesh::Entity newElement = stk::mesh::Entity();
+          if (!use_declare_element_side)
             {
-              double *fdata = eMesh.field_data( *static_cast<const ScalarFieldType *>(proc_rank_field) , newElement );
-              fdata[0] = double(eMesh.owner_rank(newElement));
+              newElement = *element_pool;
             }
+          stk::mesh::Entity nodes[ToTopology_node_count];
 
           for (int inode=0; inode < ToTopology_node_count; inode++)
             {
@@ -1278,8 +1279,19 @@
                 }
               //stk::mesh::Entity node = eMesh.createOrGetNode(eid);
               stk::mesh::Entity node = createOrGetNode(nodeRegistry, eMesh, eid);
-              eMesh.get_bulk_data()->declare_relation(newElement, node, inode);
+              nodes[inode] = node;
+              //eMesh.get_bulk_data()->declare_relation(newElement, node, inode);
             }
+
+          create_side_element(eMesh, use_declare_element_side, nodes, static_cast<unsigned>(ToTopology_node_count), newElement);
+
+          // FIXME
+          if (m_primaryEntityRank == stk::topology::ELEMENT_RANK &&  proc_rank_field)
+            {
+              double *fdata = eMesh.field_data( *static_cast<const ScalarFieldType *>(proc_rank_field) , newElement );
+              fdata[0] = double(eMesh.owner_rank(newElement));
+            }
+
 
           change_entity_parts(eMesh, element, newElement);
 
@@ -1295,7 +1307,8 @@
           eMesh.prolongateElementFields( elements, newElement);
 
           ft_element_pool++;
-          element_pool++;
+          if (!use_declare_element_side)
+            element_pool++;
 
         }
 
@@ -1618,17 +1631,18 @@
             }
         }
 
+      bool use_declare_element_side = UniformRefinerPatternBase::USE_DECLARE_ELEMENT_SIDE &&  getPrimaryEntityRank() == eMesh.side_rank();
 
       for (unsigned iChild = 0; iChild < num_child; iChild++)
         {
           int iChildRefTopo = iChild + iChildStart;
-          stk::mesh::Entity newElement = *element_pool;
-
-          if (m_primaryEntityRank == stk::topology::ELEMENT_RANK &&  proc_rank_field)
+          stk::mesh::Entity newElement = stk::mesh::Entity();
+          if (!use_declare_element_side)
             {
-              double *fdata = eMesh.field_data( *static_cast<const ScalarFieldType *>(proc_rank_field) , newElement );
-              fdata[0] = double(eMesh.owner_rank(newElement));
+              newElement = *element_pool;
             }
+
+          stk::mesh::Entity nodes[ToTopology_node_count];
 
           for (int inode=0; inode < ToTopology_node_count; inode++)
             {
@@ -1649,11 +1663,17 @@
               stk::mesh::Entity node = createOrGetNode(nodeRegistry, eMesh, eid);
               /**/                                                         TRACE_CPU_TIME_AND_MEM_1(CONNECT_LOCAL_URP_createOrGetNode);
 
-              /**/                                                         TRACE_CPU_TIME_AND_MEM_0(CONNECT_LOCAL_URP_declare_relation);
-              eMesh.get_bulk_data()->declare_relation(newElement, node, inode);
-              //register_relation(newElement, node, inode);
-              /**/                                                         TRACE_CPU_TIME_AND_MEM_1(CONNECT_LOCAL_URP_declare_relation);
+              nodes[inode] = node;
             }
+
+          create_side_element(eMesh, use_declare_element_side, nodes, static_cast<unsigned>(ToTopology_node_count), newElement);
+
+          if (m_primaryEntityRank == stk::topology::ELEMENT_RANK &&  proc_rank_field)
+            {
+              double *fdata = eMesh.field_data( *static_cast<const ScalarFieldType *>(proc_rank_field) , newElement );
+              fdata[0] = double(eMesh.owner_rank(newElement));
+            }
+
 
           change_entity_parts(eMesh, element, newElement);
 
@@ -1678,7 +1698,8 @@
             }
 
           ft_element_pool++;
-          element_pool++;
+          if (!use_declare_element_side)
+            element_pool++;
         }
 
     }
@@ -2567,6 +2588,43 @@
       std::cout << "\n\n";
     }
 
+
+    void UniformRefinerPatternBase::create_side_element(PerceptMesh& eMesh, bool use_declare_element_side, stk::mesh::Entity *nodes, unsigned nodes_size, stk::mesh::Entity& newElement)
+    {
+      stk::topology topo = stk::mesh::get_topology( shards::CellTopology (getToTopology()));
+
+      stk::mesh::Permutation perm = static_cast<stk::mesh::Permutation>(0);
+      stk::mesh::Entity new_nodes[nodes_size];
+
+      if (use_declare_element_side)
+        {
+          stk::mesh::Entity element_found = stk::mesh::Entity();
+          unsigned side_ord_found = 0;
+          perm = eMesh.find_side_element_permutation_and_appropriate_element(nodes, nodes_size, topo, new_nodes, element_found, side_ord_found);
+          if (perm == stk::mesh::INVALID_PERMUTATION)
+            {
+              std::cout << eMesh.rank() << " perm= " << perm << std::endl;
+              perm = eMesh.find_side_element_permutation_and_appropriate_element(nodes, nodes_size, topo, new_nodes, element_found, side_ord_found, true);
+            }
+          VERIFY_OP_ON(perm, !=, stk::mesh::INVALID_PERMUTATION, "bad permutation");
+
+          VERIFY_OP_ON(eMesh.is_valid(element_found), ==, true, "newElement");
+
+          if (1)
+            {
+              newElement = eMesh.get_bulk_data()->declare_element_side(element_found, side_ord_found);
+              VERIFY_OP_ON(eMesh.is_valid(newElement), ==, true, "bad newElement");
+            }
+        }
+      else
+        {
+          for (unsigned inode=0; inode < nodes_size; ++inode)
+            {
+              eMesh.get_bulk_data()->declare_relation(newElement, nodes[inode], inode);
+            }
+        }
+
+    }
 
   }
 

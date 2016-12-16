@@ -80,7 +80,7 @@ namespace percept {
       for (SetOfEntities::iterator it_side=side_set.begin(); it_side != side_set.end(); ++it_side)
         {
           stk::mesh::Entity side = *it_side;
-          stk::mesh::EntityId cid = 0; //15608; //3650;
+          stk::mesh::EntityId cid = 0; //637; //15608; //3650;
           bool ldb = m_eMesh.id(side) == cid && m_eMesh.entity_rank(side) == m_eMesh.side_rank();
 
           if (m_eMesh.aura(side))
@@ -95,21 +95,26 @@ namespace percept {
 
           percept::MyPairIterRelation side_elements (m_eMesh, side, m_eMesh.element_rank());
 
+          stk::topology side_topo = m_eMesh.topology(side);
           bool found = false;
           stk::mesh::Entity element = stk::mesh::Entity();
           unsigned side_ord = 0;
           stk::mesh::EntityId minId = std::numeric_limits<stk::mesh::EntityId>::max();
           std::ostringstream str;
           if (!m_avoidFixSideSetChecks) VERIFY_OP_ON(side_elements.size(), >, 0, "no connected elements to this side");
+          bool hasPosPerm = false;
           for (unsigned ii = 0; ii < side_elements.size(); ++ii)
             {
               stk::mesh::Entity elem = side_elements[ii].entity();
               bool sameOwner = m_eMesh.owner_rank(elem) == m_eMesh.owner_rank(side);
               bool isPos = m_eMesh.is_positive_perm(elem, side, side_elements[ii].relation_ordinal());
+              stk::mesh::Permutation perm = m_eMesh.find_permutation(elem, side, side_elements[ii].relation_ordinal());
+              if (perm < side_topo.num_positive_permutations())
+                hasPosPerm = true;
               if (ldb)
                 {
                   str << "P[" << m_eMesh.get_rank() << "] FP TMP srk elem= " << m_eMesh.id(elem) << " side_elements.size= " << side_elements.size()
-                      << " sameOwner= " << sameOwner << " isPos= " << isPos
+                      << " sameOwner= " << sameOwner << " isPos= " << isPos 
                       << std::endl;
                   m_eMesh.print(str,side,true,true);
                   m_eMesh.print(str,elem,true,true);
@@ -126,6 +131,9 @@ namespace percept {
                   found = true;
                 }
             }
+          if (hasPosPerm)
+            continue;
+
           if (!found && m_avoidFixSideSetChecks)
             continue;
           if (!found && !m_avoidFixSideSetChecks)
@@ -138,7 +146,7 @@ namespace percept {
             }
 
           // reorient to use permIndex = 0 always
-          stk::topology side_topo = m_eMesh.topology(side), element_topo = m_eMesh.topology(element);
+          stk::topology element_topo = m_eMesh.topology(element);
           bool isShell = element_topo.is_shell();
           const stk::mesh::Entity *element_nodes = m_eMesh.get_bulk_data()->begin_nodes(element);
           stk::mesh::Entity expected_nodes[100];
@@ -296,7 +304,7 @@ namespace percept {
       bool use_coordinate_compare=false;
 
       valid_side_part_map = true;
-      stk::mesh::EntityId cid = 0; //3650; //0; //15608;
+      stk::mesh::EntityId cid = 0; //637; //3650; //0; //15608;
       s_debugCSF = m_eMesh.id(side) == cid;
       bool debug = s_debugCSF;
 
@@ -834,6 +842,8 @@ namespace percept {
         delete_unattached_sides(side_set, avoid_sides);
 
       if (LTRACE) std::cout << m_eMesh.rank() << "fix_permutation side_set.size= " << side_set.size() << std::endl;
+
+      end_begin();
 
       if (1)
         {

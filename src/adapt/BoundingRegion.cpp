@@ -10,6 +10,7 @@
 
 #include <adapt/BoundingRegion.hpp>
 #include <percept/PerceptMesh.hpp>
+#include <percept/PerceptUtils.hpp>
 
 namespace percept {
 

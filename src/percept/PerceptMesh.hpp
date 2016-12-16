@@ -29,6 +29,8 @@
 #include <percept/Name.hpp>
 #include <percept/PerceptBoostArray.hpp>
 
+#include <percept/MeshType.hpp>
+
 #if !STK_PERCEPT_LITE
 #include <percept/function/Function.hpp>
 #include "ShardsInterfaceTable.hpp"
@@ -36,6 +38,7 @@
 
 
 #include <stk_util/parallel/Parallel.hpp>
+#include <stk_util/environment/CPUTime.hpp>
 #include <stk_util/util/string_case_compare.hpp>
 
 #include <stk_mesh/base/Field.hpp>
@@ -56,6 +59,8 @@
 #include <stk_io/IossBridge.hpp>
 #include <stk_io/StkMeshIoBroker.hpp>
 #if !STK_PERCEPT_LITE
+#include <percept/BlockStructuredGrid.hpp>
+
 #  if defined(STK_BUILT_IN_SIERRA)
 #    include <cgns/Iocgns_Initializer.h>
 #  else
@@ -137,6 +142,8 @@
       /// Create a Mesh object that doesn't own its constituent MetaData and BulkData, pointers to which are adopted
       /// by this constructor.
       PerceptMesh(const stk::mesh::MetaData* metaData, stk::mesh::BulkData* bulkData, bool isCommitted=true);
+
+      void set_io_broker(stk::io::StkMeshIoBroker *mesh_data);
 
       /// reads and commits mesh, editing disabled
       void
@@ -243,6 +250,15 @@
       bool get_do_print_memory() { return m_do_print_memory; }
       void set_do_print_memory(bool m) { m_do_print_memory = m; }
 
+      double cpu_time() { return stk::cpu_time(); }
+      double start_cpu_timer() { return cpu_time(); }
+      double stop_cpu_timer(double previous_cpu_time)
+      {
+        double cpu = cpu_time() - previous_cpu_time;
+        stk::all_reduce( parallel(), stk::ReduceSum<1>( &cpu ) );
+        return cpu;
+      }
+
       /// print a node, edge, element, etc; optionally pass in a field to dump data associated with the entity
       void print_entity(const stk::mesh::Entity entity, stk::mesh::FieldBase* field=0) { print_entity(std::cout, entity, field); };
 
@@ -278,6 +294,12 @@
       bool is_perm_bad(stk::mesh::Entity element, stk::mesh::Entity side, unsigned side_ord, stk::mesh::Permutation& perm);
       bool is_positive_perm(stk::mesh::Entity element, stk::mesh::Entity side, unsigned side_ord);
       bool has_default_perm(stk::mesh::Entity side, unsigned *which = 0);
+
+      stk::mesh::Permutation
+      find_side_element_permutation_and_appropriate_element(const stk::mesh::Entity *side_nodes, const unsigned nside_nodes, stk::topology side_topo_in,
+                                                            stk::mesh::Entity *new_side_nodes,
+                                                            stk::mesh::Entity& element_found,
+                                                            unsigned& side_ord_found, bool debug=false);
 
       /// return info about elements that contain the given collection of entities - returns the number of results found
       int in_mesh(const std::vector<stk::mesh::EntityId>& subDim, std::vector<SubDimInfoType>& results, bool sorted=true);
@@ -366,6 +388,9 @@
       /// find and return pointer to element that contains given point - in parallel, check return for null (if null, element containing point is on another proc)
       stk::mesh::Entity get_element(double x, double y, double z=0, double t=0) ;
 #endif
+
+      // find which of src_entity's entities entity is, return max unsigned if not found
+      unsigned index_of(stk::mesh::Entity src_entity, stk::mesh::Entity entity);
 
       static bool is_percept_lite();
 
@@ -471,6 +496,7 @@
 
       /// copy field data from one field (field_src) to another (field_dest)
       void copy_field(stk::mesh::FieldBase* field_dest, stk::mesh::FieldBase* field_src);
+      void copy_field(typename StructuredGrid::MTField* field_dest, typename StructuredGrid::MTField* field_src);
 
       template<class FieldTypeDst, class FieldTypeSrc>
       void copy_element_field(FieldTypeDst* field_dest, FieldTypeSrc* field_src)
@@ -525,6 +551,13 @@
 
       /// axpby calculates: y = alpha*x + beta*y
       void nodal_field_axpby(double alpha, stk::mesh::FieldBase* field_x, double beta, stk::mesh::FieldBase* field_y);
+      void nodal_field_axpby(double alpha, typename StructuredGrid::MTField* field_x, double beta, typename StructuredGrid::MTField* field_y)
+      {
+#if !STK_PERCEPT_LITE
+        get_block_structured_grid()->nodal_field_axpby(alpha, field_x, beta, field_y);
+#endif
+      }
+
 
       /// axpbypgz calculates: z = alpha*x + beta*y + gamma*z
       void nodal_field_state_axpbypgz(stk::mesh::FieldBase* field, double alpha, unsigned x_state, double beta, unsigned y_state, double gamma, unsigned z_state);
@@ -534,12 +567,40 @@
                                 double beta, stk::mesh::FieldBase* field_y,
                                 double gamma, stk::mesh::FieldBase* field_z);
 
+      void nodal_field_axpbypgz(double alpha, typename StructuredGrid::MTField* field_x,
+                                double beta, typename StructuredGrid::MTField* field_y,
+                                double gamma, typename StructuredGrid::MTField* field_z)
+      {
+#if !STK_PERCEPT_LITE
+        get_block_structured_grid()->nodal_field_axpbypgz(alpha, field_x, beta, field_y, gamma, field_z);
+#endif
+      }
+
       /// dot calculates: x.y
       double nodal_field_dot_old(stk::mesh::FieldBase* field_x, stk::mesh::FieldBase* field_y);
+      // long double nodal_field_dot(stk::mesh::FieldBase* field_x, stk::mesh::FieldBase* field_y);
       long double nodal_field_dot(stk::mesh::FieldBase* field_x, stk::mesh::FieldBase* field_y);
+      // template<typename MeshType>
+      // long double nodal_field_dot(typename MeshType::MTField* field_x, typename MeshType::MTField* field_y);
+      long double nodal_field_dot(typename StructuredGrid::MTField* field_x, typename StructuredGrid::MTField* field_y)
+      {
+#if !STK_PERCEPT_LITE
+        return get_block_structured_grid()->nodal_field_dot(field_x, field_y);
+#else
+        return 0;
+#endif
+      }
+
 
       /// set field to constant value
       void nodal_field_set_value(stk::mesh::FieldBase* field_x, double value = 0.0);
+      void nodal_field_set_value(typename StructuredGrid::MTField* field_x, double value = 0.0)
+      {
+#if !STK_PERCEPT_LITE
+        get_block_structured_grid()->nodal_field_set_value(field_x, value);
+#endif
+      }
+
 
       /// remove blocks in the mesh used solely for geometry association, during output of the mesh to Exodus.
       /// @param geometry_file_name = name of the OpenNURBS file (*.3dm) containing the geometry info
@@ -604,6 +665,8 @@
       void print(const stk::mesh::Entity entity, bool cr=true, bool id_only=false) { print(std::cout, entity, cr, id_only); }
       void print_all(std::ostream& out, stk::mesh::EntityRank rank = stk::topology::ELEMENT_RANK, bool cr=true, bool id_only=false);
       void print_all(stk::mesh::EntityRank rank = stk::topology::ELEMENT_RANK, bool cr=true, bool id_only=false) { print_all(std::cout, rank, cr, id_only); }
+
+      void skin_mesh(std::string skinPartName="SkinPart");
 
       /// the exodus side ID is defined by 10*id_of_volume_element_id + side_of_element_ordinal + 1
       ///    so, it combines the element owner and the side
@@ -1020,6 +1083,8 @@
       double edge_length_ave(const stk::mesh::Entity entity, stk::mesh::FieldBase* coord_field = 0, double* min_edge_length=0, double* max_edge_length=0,  const CellTopologyData * topology_data_in = 0);
 
 #if !STK_PERCEPT_LITE
+      double edge_length_ave(const typename StructuredGrid::MTElement entity, typename StructuredGrid::MTField* coord_field = 0, double* min_edge_length=0, double* max_edge_length=0, const typename StructuredGrid::MTCellTopology topology_data_in = 0);
+
       static
       void findMinMaxEdgeLength(stk::mesh::BulkData& bulk, const stk::mesh::Bucket &bucket,  stk::mesh::Field<double, stk::mesh::Cartesian>& coord_field,
                                 Intrepid::FieldContainer<double>& elem_min_edge_length, Intrepid::FieldContainer<double>& elem_max_edge_length);
@@ -1086,6 +1151,9 @@
       /// Cache internal pointer to coordinate field
       void setCoordinatesField(CoordinatesFieldType * coordinates);
 
+      /// Cache internal pointer to coordinate field
+      void setCoordinatesField();
+
       TransitionElementType * get_transition_element_field() const { return m_transition_element_field; }
       RefineLevelType * get_refine_level_field() const { return m_refine_level_field; }
 
@@ -1093,6 +1161,8 @@
       void set_transition_element_field_2d(TransitionElementType * field) { m_transition_element_field_2d = field; m_transition_element_field_set = true; }
       void set_refine_level_field(RefineLevelType * field) { m_refine_level_field = field; m_refine_level_field_set = true; }
     private:
+
+      void set_read_properties();
 
 #if STK_ADAPT_HAVE_YAML_CPP
       bool parse_property_map_string(const YAML::Node& node);
@@ -1104,6 +1174,7 @@
 
       /// read with no commit
       void read_metaDataNoCommit( const std::string& in_filename, const std::string &type = "exodus" );
+      void read_metaDataNoCommitCGNSStructured( const std::string& in_filename );
 
       /// create with no commit
       void create_metaDataNoCommit( const std::string& gmesh_spec);
@@ -1112,9 +1183,6 @@
 
       /// read the bulk data (no op in create mode)
       void readBulkData();
-
-      /// Cache internal pointer to coordinate field
-      void setCoordinatesField();
 
       // look for omitted parts
       void checkForPartsToAvoidWriting();
@@ -1143,6 +1211,11 @@
       int parallel_owner_rank(stk::mesh::Entity entity) const { return m_bulkData->parallel_owner_rank(entity); }
       int owner_rank(stk::mesh::Entity entity) const { return m_bulkData->parallel_owner_rank(entity); }
 
+#if !STK_PERCEPT_LITE
+      std::shared_ptr<BlockStructuredGrid> get_block_structured_grid() { return m_block_structured_grid; }
+      void set_block_structured_grid(std::shared_ptr<BlockStructuredGrid> bsg) { m_block_structured_grid = bsg; }
+#endif
+
 #endif // SWIG
 
       Teuchos::RCP<stk::io::StkMeshIoBroker>  get_ioss_mesh_data() { return m_iossMeshData; }
@@ -1154,6 +1227,12 @@
       stk::mesh::BulkData *                 m_bulkData;
       Teuchos::RCP<stk::io::StkMeshIoBroker>       m_iossMeshData;
       Teuchos::RCP<stk::io::StkMeshIoBroker>       m_iossMeshDataOut;
+
+      std::shared_ptr<Ioss::Region>         m_cgns_structured_region;
+#if !STK_PERCEPT_LITE
+      std::shared_ptr<BlockStructuredGrid>  m_block_structured_grid;
+#endif
+
       size_t                                m_output_file_index;
       bool                                  m_iossMeshDataDidPopulate;
       bool                                  m_sync_io_regions;

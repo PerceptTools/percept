@@ -155,14 +155,25 @@
 
         //nodeRegistry.prolongateCoords(*const_cast<stk::mesh::Entity>(&element), stk::topology::ELEMENT_RANK, 0u);
 
+        bool use_declare_element_side = UniformRefinerPatternBase::USE_DECLARE_ELEMENT_SIDE &&  m_primaryEntityRank == eMesh.side_rank();
+
         for (unsigned ielem=0; ielem < elems.size(); ielem++)
           {
-            stk::mesh::Entity newElement = *element_pool;
+            stk::mesh::Entity newElement = stk::mesh::Entity();
+            if (!use_declare_element_side)
+              newElement = *element_pool;
+
+            stk::mesh::Entity nodes[3] = {eMesh.createOrGetNode(elems[ielem].get<0>()),
+                                          eMesh.createOrGetNode(elems[ielem].get<1>()),
+                                          eMesh.createOrGetNode(elems[ielem].get<2>()) };
+
+            create_side_element(eMesh, use_declare_element_side, nodes, 3, newElement);
 
             if (m_transition_element_field)
               {
                 int *transition_element = 0;
                 transition_element = stk::mesh::field_data( *m_transition_element_field , newElement );
+                VERIFY_OP_ON(transition_element, !=, 0, "transition_element");
                 if (num_edges_marked == 3)
                   {
                     transition_element[0] = 0;
@@ -172,7 +183,7 @@
                     transition_element[0] = 1;
                   }
                 if (0)
-                  std::cout << "tmp srk found transition_element = " << m_eMesh.identifier(newElement) << " num_edges_marked= " << num_edges_marked 
+                  std::cout << "tmp srk found transition_element = " << m_eMesh.identifier(newElement) << " num_edges_marked= " << num_edges_marked
                             << " val= " << transition_element[0]
                             << " element= " << m_eMesh.identifier(element)
                             << std::endl;
@@ -189,18 +200,6 @@
             //eMesh.get_bulk_data()->change_entity_parts( newElement, add_parts, remove_parts );
             change_entity_parts(eMesh, element, newElement);
 
-            {
-              if (!elems[ielem].get<0>())
-                {
-                  std::cout << "P[" << eMesh.get_rank() << "] nid = 0 << " << std::endl;
-                  //exit(1);
-                }
-            }
-
-            // 3 nodes of the new tris
-            eMesh.get_bulk_data()->declare_relation(newElement, eMesh.createOrGetNode(elems[ielem].get<0>()), 0);
-            eMesh.get_bulk_data()->declare_relation(newElement, eMesh.createOrGetNode(elems[ielem].get<1>()), 1);
-            eMesh.get_bulk_data()->declare_relation(newElement, eMesh.createOrGetNode(elems[ielem].get<2>()), 2);
 
             set_parent_child_relations(eMesh, element, newElement, *ft_element_pool, ielem);
 
@@ -223,7 +222,8 @@
               }
 
             ft_element_pool++;
-            element_pool++;
+            if (!use_declare_element_side)
+              element_pool++;
 
           }
 

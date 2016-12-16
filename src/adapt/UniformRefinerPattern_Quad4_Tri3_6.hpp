@@ -145,12 +145,23 @@
 
 #endif
 
+        bool use_declare_element_side = UniformRefinerPatternBase::USE_DECLARE_ELEMENT_SIDE &&  m_primaryEntityRank == eMesh.side_rank();
+
         for (unsigned ielem=0; ielem < elems.size(); ielem++)
           {
             //stk::mesh::Entity newElement = eMesh.get_bulk_data()->declare_entity(Element, *element_id_pool, eMesh.getPart(interface_table::shards_Triangle_3) );
             //stk::mesh::Entity newElement = eMesh.get_bulk_data()->declare_entity(Element, *element_id_pool, eMesh.getPart(interface_table::shards_Triangle_3) );
 
-            stk::mesh::Entity newElement = *element_pool;
+            stk::mesh::Entity newElement = stk::mesh::Entity();
+            if (!use_declare_element_side)
+              newElement = *element_pool;
+
+            stk::mesh::Entity nodes[3] = {
+              eMesh.createOrGetNode(elems[ielem].get<0>()),
+              eMesh.createOrGetNode(elems[ielem].get<1>()),
+              eMesh.createOrGetNode(elems[ielem].get<2>())};
+
+            create_side_element(eMesh, use_declare_element_side, nodes, 3, newElement);
 
             if (proc_rank_field)
               {
@@ -170,14 +181,12 @@
                 }
 
             }
-            eMesh.get_bulk_data()->declare_relation(newElement, eMesh.createOrGetNode(elems[ielem].get<0>()), 0);
-            eMesh.get_bulk_data()->declare_relation(newElement, eMesh.createOrGetNode(elems[ielem].get<1>()), 1);
-            eMesh.get_bulk_data()->declare_relation(newElement, eMesh.createOrGetNode(elems[ielem].get<2>()), 2);
 
             set_parent_child_relations(eMesh, element, newElement, *ft_element_pool, ielem);
 
             ft_element_pool++;
-            element_pool++;
+            if (!use_declare_element_side)
+              element_pool++;
 
           }
 

@@ -298,10 +298,17 @@
           const stk::mesh::EntityRank FAMILY_TREE_RANK = static_cast<stk::mesh::EntityRank>(stk::topology::ELEMENT_RANK + 1u);
           if (1)
             {
-              if (!m_eMesh.getEntitiesUsingIdServer(m_ranks[irank], num_elem_needed, new_elements))
+              if (UniformRefinerPatternBase::USE_DECLARE_ELEMENT_SIDE && m_ranks[irank] == m_eMesh.side_rank())
                 {
-                  std::cout << "P[" << m_eMesh.get_rank() << "] num_elem_needed= " << num_elem_needed << " deplenished " << " rank= " << m_ranks[irank] << std::endl;
-                  throw std::logic_error("entity pool deplenished");
+                  new_elements.resize(0);
+                }
+              else
+                {
+                  if (!m_eMesh.getEntitiesUsingIdServer(m_ranks[irank], num_elem_needed, new_elements))
+                    {
+                      std::cout << "P[" << m_eMesh.get_rank() << "] num_elem_needed= " << num_elem_needed << " deplenished " << " rank= " << m_ranks[irank] << std::endl;
+                      throw std::logic_error("entity pool deplenished");
+                    }
                 }
               if (!m_eMesh.getEntitiesUsingIdServer(FAMILY_TREE_RANK, num_elem_needed, ft_new_elements))
                 {

@@ -65,7 +65,7 @@
         }
     }
 
-    bool JacobianUtil::jacobian_matrix_1D_in_2D(double &detJ, DenseMatrix<3,3>& A, const double *x[2])
+    template<>    bool  JacobianUtilImpl<STKMesh>::jacobian_matrix_1D_in_2D(double &detJ, DenseMatrix<3,3>& A, const double *x[2])
     {
       A.zero();
       A(0,0) = std::sqrt(SQR(x[1][0] - x[0][0]) + SQR(x[1][1] - x[0][1]) );
@@ -75,7 +75,7 @@
       return detJ == 0.0;
     }
 
-    bool JacobianUtil::jacobian_matrix_1D_in_3D(double &detJ, DenseMatrix<3,3>& A, const double *x[2])
+    template<>    bool  JacobianUtilImpl<STKMesh>::jacobian_matrix_1D_in_3D(double &detJ, DenseMatrix<3,3>& A, const double *x[2])
     {
       A.zero();
       A(0,0) = std::sqrt(SQR(x[1][0] - x[0][0]) + SQR(x[1][1] - x[0][1]) + SQR(x[1][2] - x[0][2]) );
@@ -85,7 +85,7 @@
       return detJ == 0.0;
     }
 
-    bool JacobianUtil::jacobian_matrix_2D(double &detJ, DenseMatrix<3,3>& A, const double *x[3])
+    template<>    bool  JacobianUtilImpl<STKMesh>::jacobian_matrix_2D(double &detJ, DenseMatrix<3,3>& A, const double *x[3])
     {
       /* Calculate A */
       // x_xi, x_eta, x_zeta => A(ixyz, ixietazeta) = dx_i/dxi_j
@@ -106,7 +106,7 @@
       return detJ < 0.0;
     }
 
-    bool JacobianUtil::jacobian_matrix_2D_in_3D(double &detJ, DenseMatrix<3,3>& A, const double *x[3], double *area_vector)
+    template<>    bool  JacobianUtilImpl<STKMesh>::jacobian_matrix_2D_in_3D(double &detJ, DenseMatrix<3,3>& A, const double *x[3], double *area_vector)
     {
       double x0[3] = {(x[1][0] - x[0][0]), (x[1][1] - x[0][1]), (x[1][2] - x[0][2])};
       double x1[3] = {(x[2][0] - x[0][0]), (x[2][1] - x[0][1]), (x[2][2] - x[0][2])};
@@ -138,7 +138,7 @@
     /// Note: this is the dMetric_dx_n_i term associated with a particular corner, so there are up to nnode of these passed
     /// in from the grad_metric function
     /// @see jacobian_matrix_3D
-    void JacobianUtil::grad_util_2d(const DenseMatrix<3,3>& dMdA, double grad[NNODES_MAX][3], const int nnode, const int spd, const int *indices, const int nind)
+    template<>    void  JacobianUtilImpl<STKMesh>::grad_util_2d(const DenseMatrix<3,3>& dMdA, double grad[NNODES_MAX][3], const int nnode, const int spd, const int *indices, const int nind)
     {
       for (int i=0; i < nnode; i++)
         for (int j=0; j < 3; j++)
@@ -158,7 +158,7 @@
 
     }
 
-    void JacobianUtil::grad_util(const DenseMatrix<3,3>& dMdA, double grad[NNODES_MAX][3], const int nnode, const int spd, const int *indices, const int nind)
+    template<>    void  JacobianUtilImpl<STKMesh>::grad_util(const DenseMatrix<3,3>& dMdA, double grad[NNODES_MAX][3], const int nnode, const int spd, const int *indices, const int nind)
     {
       for (int i=0; i < nnode; i++)
         for (int j=0; j < 3; j++)
@@ -178,7 +178,7 @@
 
     }
 
-    void JacobianUtil::grad_util_pyramid_3d(const DenseMatrix<3,3>& dMdA, double grad[NNODES_MAX][3], const int nnode, const int spd, const int *indices, const int nind)
+    template<>    void  JacobianUtilImpl<STKMesh>::grad_util_pyramid_3d(const DenseMatrix<3,3>& dMdA, double grad[NNODES_MAX][3], const int nnode, const int spd, const int *indices, const int nind)
     {
       for (int i=0; i < nnode; i++)
         for (int j=0; j < spd; j++)
@@ -211,7 +211,7 @@
       grad[indices[3]][2] += dMdA(2,2)*(+2.0*h); grad[indices[1]][2] += dMdA(2,2)*(-1.0*h); grad[indices[2]][2] += dMdA(2,2)*(-1.0*h);
     }
 
-    void JacobianUtil::grad_util_tet_3d(const DenseMatrix<3,3>& dMdA, double grad[NNODES_MAX][3], const int nnode, const int spd, const int *indices, const int nind)
+    template<>    void  JacobianUtilImpl<STKMesh>::grad_util_tet_3d(const DenseMatrix<3,3>& dMdA, double grad[NNODES_MAX][3], const int nnode, const int spd, const int *indices, const int nind)
     {
       for (int i=0; i < nnode; i++)
         for (int j=0; j < spd; j++)
@@ -241,7 +241,7 @@
 
     }
 
-    void JacobianUtil::grad_util_wedge_3d(const DenseMatrix<3,3>& dMdA, double grad[NNODES_MAX][3], const int nnode, const int spd, const int *indices, const int nind)
+    template<>    void  JacobianUtilImpl<STKMesh>::grad_util_wedge_3d(const DenseMatrix<3,3>& dMdA, double grad[NNODES_MAX][3], const int nnode, const int spd, const int *indices, const int nind)
     {
       for (int i=0; i < nnode; i++)
         for (int j=0; j < spd; j++)
@@ -271,7 +271,7 @@
 
     }
 
-    void JacobianUtil::grad_util_tri_2d(const DenseMatrix<3,3>& dMdA, double grad[NNODES_MAX][3], const int nnode, const int spd, const int *indices, const int nind)
+    template<>    void  JacobianUtilImpl<STKMesh>::grad_util_tri_2d(const DenseMatrix<3,3>& dMdA, double grad[NNODES_MAX][3], const int nnode, const int spd, const int *indices, const int nind)
     {
       for (int i=0; i < nnode; i++)
         for (int j=0; j < 3; j++)
@@ -291,7 +291,7 @@
 
     }
 
-    void JacobianUtil::check_unhandled_topo(PerceptMesh& eMesh, const CellTopologyData * topology_data)
+    template<>    void  JacobianUtilImpl<STKMesh>::check_unhandled_topo(PerceptMesh& eMesh, const CellTopologyData * topology_data)
     {
       if (!m_use_approximate_quadratic_jacobian)
         {
@@ -312,7 +312,7 @@
         }
     }
     /// modeled after code from Mesquite::IdealWeightMeanRatio::evaluate()
-    bool JacobianUtil::operator()(double& m,  PerceptMesh& eMesh, stk::mesh::Entity element, stk::mesh::FieldBase *coord_field,
+    template<>    bool  JacobianUtilImpl<STKMesh>::operator()(double& m,  PerceptMesh& eMesh, stk::mesh::Entity element, stk::mesh::FieldBase *coord_field,
                                   const CellTopologyData * topology_data )
     {
       EXCEPTWATCH;
@@ -499,7 +499,7 @@
 
     /// modeled after code from Mesquite::IdealWeightMeanRatio::evaluate(), and TargetMetricUtil
     /// fills the mGrad member variable given the array of (member variable) m_dMetric_dA terms
-    bool JacobianUtil::grad_metric_util( PerceptMesh& eMesh, stk::mesh::Entity element, stk::mesh::FieldBase *coord_field,
+    template<>    bool  JacobianUtilImpl<STKMesh>::grad_metric_util( PerceptMesh& eMesh, stk::mesh::Entity element, stk::mesh::FieldBase *coord_field,
                                          const CellTopologyData * topology_data )
     {
       static DenseMatrix<3,3> J;
@@ -523,7 +523,6 @@
         case shards::Triangle<3>::key:
           //n[0] = 0; n[1] = 0; n[2] = 1;
           for (i = 0; i < 3; i++) {
-            //void JacobianUtil::grad_util(const DenseMatrix<3,3>& dMetric_dA, double grad[NNODES_MAX][3], int nnode, int spd, int *indices, int nind)
             grad_util_tri_2d(m_dMetric_dA[i], m_grad[i], 3, 2, indices_tri, 3);
           }
           break;
@@ -634,7 +633,7 @@
       return metric_valid;
     }
 
-    void JacobianUtil::edge_lengths(PerceptMesh& eMesh, stk::mesh::Entity element,
+    template<>    void  JacobianUtilImpl<STKMesh>::edge_lengths(PerceptMesh& eMesh, stk::mesh::Entity element,
                                     double& min_edge_length, double& max_edge_length, double& ave_edge_length,
                                     stk::mesh::FieldBase *coord_field ,
                                     const CellTopologyData * topology_data_in  )
@@ -644,7 +643,7 @@
       ave_edge_length = eMesh.edge_length_ave(element, coord_field,  &min_edge_length, &max_edge_length, topology_data_in);
     }
 
-    void JacobianUtil::stretch_eigens(PerceptMesh& eMesh, stk::mesh::Entity element,
+    template<>    void  JacobianUtilImpl<STKMesh>::stretch_eigens(PerceptMesh& eMesh, stk::mesh::Entity element,
                                       double stretch_eigens[3],
                                       stk::mesh::FieldBase *coord_field ,
                                       const CellTopologyData * topology_data_in  )
@@ -678,7 +677,7 @@
         }
     }
 
-    double JacobianUtil::getJacobianToVolumeScale(shards::CellTopology& cell_topo)
+    template<>    double  JacobianUtilImpl<STKMesh>::getJacobianToVolumeScale(shards::CellTopology& cell_topo)
     {
       double volEqui = 1.0;
       switch(cell_topo.getKey() )

@@ -9,7 +9,7 @@
 #if !defined(NO_GEOM_SUPPORT) && ENABLE_SMOOTHER3
 
 
-#include <percept/mesh/mod/smoother/ReferenceMeshSmoother3.hpp>
+#include <percept/mesh/mod/smoother/ReferenceMeshSmootherNewton.hpp>
 #include <percept/mesh/mod/smoother/MeshSmoother.hpp>
 #include <percept/mesh/mod/smoother/SmootherMetricUntangleGen.hpp>
 #include <percept/mesh/mod/smoother/SmootherMetricShapeB1Gen.hpp>
@@ -32,13 +32,13 @@
 
 namespace percept {
 
-  ReferenceMeshSmoother3::~ReferenceMeshSmoother3()
+  ReferenceMeshSmootherNewton::~ReferenceMeshSmootherNewton()
   {
     delete m_linearSystem;
     delete m_linearSolver;
   }
 
-  void ReferenceMeshSmoother3::setup_linsys()
+  void ReferenceMeshSmootherNewton::setup_linsys()
   {
     if (m_isSetup)
       return;
@@ -53,7 +53,7 @@ namespace percept {
 
     int spatialDim = eMesh->get_spatial_dim();
     int extraLambdaDof = 0;
-    if (m_eMesh->get_smooth_surfaces() && m_eMesh->getProperty("ReferenceMeshSmoother3.use_lambda") == "true")
+    if (m_eMesh->get_smooth_surfaces() && m_eMesh->getProperty("ReferenceMeshSmootherNewton.use_lambda") == "true")
       extraLambdaDof = 1;
 
     m_meshManager = std::make_shared<TpetraMeshManager>(unsigned(spatialDim + extraLambdaDof), *m_eMesh->get_bulk_data(), *cg_gid_field);
@@ -237,7 +237,7 @@ namespace percept {
     if (file) delete file;
   }
 
-  void ReferenceMeshSmoother3::get_step()
+  void ReferenceMeshSmootherNewton::get_step()
   {
     double t0 = stk::cpu_time();
 
@@ -288,7 +288,7 @@ namespace percept {
 
         int extraLambdaDof = 0;
 
-        if (m_eMesh->get_smooth_surfaces() && m_eMesh->getProperty("ReferenceMeshSmoother3.use_lambda") == "true")
+        if (m_eMesh->get_smooth_surfaces() && m_eMesh->getProperty("ReferenceMeshSmootherNewton.use_lambda") == "true")
           {
             VERIFY_OP_ON(cg_lambda_field, !=, 0, "bad lambda field");
             extraLambdaDof = 1;
@@ -542,7 +542,7 @@ namespace percept {
       }
   }
 
-  double ReferenceMeshSmoother3::run_one_iteration()
+  double ReferenceMeshSmootherNewton::run_one_iteration()
   {
     PerceptMesh *eMesh = m_eMesh;
 

@@ -133,7 +133,7 @@
         }
     }
     /// modeled after code from Mesquite::IdealWeightMeanRatio::evaluate()
-    bool VolumeUtil::operator()(double& m,  PerceptMesh& eMesh, stk::mesh::Entity element, stk::mesh::FieldBase *coord_field,
+    bool VolumeUtil::operator()(double& m,  PerceptMesh& eMesh, stk::mesh::Entity element, const stk::mesh::FieldBase *coord_field,
                                   const CellTopologyData * topology_data )
     {
       EXCEPTWATCH;

@@ -5,110 +5,216 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-#include <percept/Percept.hpp>
+
 #if !defined(NO_GEOM_SUPPORT)
 
-#include <percept/mesh/mod/smoother/MeshSmoother.hpp>
-#include <percept/mesh/mod/smoother/ReferenceMeshSmoother.hpp>
-#include <percept/mesh/mod/smoother/ReferenceMeshSmoother1.hpp>
-//#include <percept/mesh/mod/smoother/ReferenceMeshSmoother2.hpp>
-//#include <percept/mesh/mod/smoother/ReferenceMeshSmoother3.hpp>
+#include "MeshSmoother.hpp"
 #include <percept/mesh/mod/smoother/SmootherMetric.hpp>
-
-#include "mpi.h"
+#include <percept/mesh/geometry/kernel/GeometryKernel.hpp>
+#include <array>
 
 #define DEBUG_PRINT 0
+namespace std {
+
+}
 
   namespace percept {
 
+    template<>
+    MeshSmootherImpl<STKMesh>::MeshSmootherImpl(PerceptMesh *eMesh,
+                   typename STKMesh::MTSelector *boundary_selector,
+                   typename STKMesh::MTMeshGeometry *meshGeometry,
+                   int innerIter, double gradNorm , int parallelIterations) :
+        m_eMesh(eMesh), innerIter(innerIter), gradNorm(gradNorm), parallelIterations(parallelIterations),
+        m_boundarySelector(boundary_selector), m_meshGeometry(meshGeometry)
+      {
+#if defined(STK_PERCEPT_HAS_GEOMETRY)
+        if (m_meshGeometry)
+          m_meshGeometry->m_cache_classify_bucket_is_active = true;
+#endif
+      }
 
+    template<>
+    MeshSmootherImpl<StructuredGrid>::MeshSmootherImpl(PerceptMesh *eMesh,
+                   typename StructuredGrid::MTSelector *boundary_selector,
+                   typename StructuredGrid::MTMeshGeometry *meshGeometry,
+                   int innerIter, double gradNorm , int parallelIterations) :
+        m_eMesh(eMesh), innerIter(innerIter), gradNorm(gradNorm), parallelIterations(parallelIterations),
+        m_boundarySelector(boundary_selector), m_meshGeometry(meshGeometry)
+      {
+      }
 
-    /// preferred for parallel
-    size_t MeshSmoother::parallel_count_invalid_elements(PerceptMesh *eMesh)
+    template<>
+    bool MeshSmootherImpl<STKMesh>:: select_bucket(stk::mesh::Bucket& bucket, PerceptMesh *eMesh);
+
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    ////////
+    ////////  parallel_count_invalid_elements
+    ////////
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    template<typename MeshType>
+    struct GA_parallel_count_invalid_elements
     {
-      SmootherMetricUntangle utm(eMesh);
-      stk::mesh::FieldBase *coord_field_current   = eMesh->get_coordinates_field();
-      stk::mesh::FieldBase *coord_field_original  = eMesh->get_field(stk::topology::NODE_RANK, "coordinates_NM1");
-      JacobianUtil jacA, jacW;
+      using This = GA_parallel_count_invalid_elements<MeshType>;
 
-      double detA_min = std::numeric_limits<double>::max();
-      double detW_min = std::numeric_limits<double>::max();
-      double shapeA_max = 0.0;
-      double shapeW_max = 0.0;
+      PerceptMesh *m_eMesh;
+
+      typename MeshType::MTField *coord_field_current;
+      typename MeshType::MTField *coord_field_original;
+      std::vector<typename MeshType::MTElement> elements;
+      std::vector<const typename MeshType::MTCellTopology *> topos;
+
+      SmootherMetricUntangleImpl<MeshType> utm;
+      JacobianUtilImpl<MeshType> jacA, jacW;
+
+      double detA_min;
+      double detW_min;
+      double shapeA_max;
+      double shapeW_max;
+
+      size_t num_invalid;
+
       const bool get_mesh_diagnostics = false;
 
-      size_t num_invalid=0;
-      // element loop
+      GA_parallel_count_invalid_elements(PerceptMesh *eMesh);
+
+      void init()
       {
-        stk::mesh::Selector on_locally_owned_part =  ( eMesh->get_fem_meta_data()->locally_owned_part() );
-        const stk::mesh::BucketVector & buckets = eMesh->get_bulk_data()->buckets( eMesh->element_rank() );
+        detA_min = std::numeric_limits<double>::max();
+        detW_min = std::numeric_limits<double>::max();
+        shapeA_max = 0.0;
+        shapeW_max = 0.0;
+        num_invalid=0;
+      }
 
-        for ( stk::mesh::BucketVector::const_iterator k = buckets.begin() ; k != buckets.end() ; ++k )
+      void run()
+      {
+        for (int64_t index = 0; index < (int64_t)elements.size(); ++index)
           {
-            if (MeshSmoother::select_bucket(**k, eMesh) && on_locally_owned_part(**k))
-              {
-                stk::mesh::Bucket & bucket = **k ;
-                const unsigned num_elements_in_bucket = bucket.size();
-                const CellTopologyData* topology_data = eMesh->get_cell_topology(bucket);
-
-                for (unsigned i_element = 0; i_element < num_elements_in_bucket; i_element++)
-                  {
-                    stk::mesh::Entity element = bucket[i_element];
-                    bool valid=true;
-                    if (get_mesh_diagnostics)
-                      {
-                        double A_ = 0.0, W_ = 0.0; // current and reference detJ
-                        jacA(A_, *eMesh, element, coord_field_current, topology_data);
-                        jacW(W_, *eMesh, element, coord_field_original, topology_data);
-
-                        for (int i=0; i < jacA.m_num_nodes; i++)
-                          {
-                            double detAi = jacA.m_detJ[i];
-                            double detWi = jacW.m_detJ[i];
-                            DenseMatrix<3,3>& W = jacW.m_J[i];
-                            DenseMatrix<3,3>& A = jacA.m_J[i];
-                            if (detAi <= 0.)
-                              {
-                                valid = false;
-                              }
-                            detA_min = std::min(detA_min, detAi);
-                            detW_min = std::min(detW_min, detWi);
-                            double frobAi = std::sqrt(my_sqr_Frobenius(A));
-                            double frobWi = std::sqrt(my_sqr_Frobenius(W));
-                            double shapeAi = std::abs(frobAi*frobAi*frobAi/(3*std::sqrt(3.)*detAi) - 1.0);
-                            double shapeWi = std::abs(frobWi*frobWi*frobWi/(3*std::sqrt(3.)*detWi) - 1.0);
-                            shapeA_max = std::max(shapeA_max, shapeAi);
-                            shapeW_max = std::max(shapeW_max, shapeWi);
-                          }
-                      }
-                    else
-                      {
-                        utm.metric(element, valid);
-                      }
-                    if (!valid)
-                      ++num_invalid;
-                  }
-              }
+            (*this)(index);
           }
       }
-      stk::all_reduce( MPI_COMM_WORLD, stk::ReduceSum<1>( &num_invalid ) );
-      if (get_mesh_diagnostics)
+
+      void operator()(int64_t& index) const
+      {
+        const_cast<This *>(this)->operator()(index);
+      }
+
+      void operator()(int64_t& index)
+      {
+        typename MeshType::MTElement element = elements[index];
+        bool valid=true;
+        if (get_mesh_diagnostics)
+          {
+            double A_ = 0.0, W_ = 0.0; // current and reference detJ
+            jacA(A_, *m_eMesh, element, coord_field_current, topos[index]);
+            jacW(W_, *m_eMesh, element, coord_field_original, topos[index]);
+            //std::cout << "element= " << element << " W_= " << W_ << std::endl;
+
+            for (int i=0; i < jacA.m_num_nodes; i++)
+              {
+                double detAi = jacA.m_detJ[i];
+                double detWi = jacW.m_detJ[i];
+                DenseMatrix<3,3>& W = jacW.m_J[i];
+                DenseMatrix<3,3>& A = jacA.m_J[i];
+                if (detAi <= 0.)
+                  {
+                    valid = false;
+                  }
+                detA_min = std::min(detA_min, detAi);
+                detW_min = std::min(detW_min, detWi);
+                double frobAi = std::sqrt(my_sqr_Frobenius(A));
+                double frobWi = std::sqrt(my_sqr_Frobenius(W));
+                double shapeAi = std::abs(frobAi*frobAi*frobAi/(3*std::sqrt(3.)*detAi) - 1.0);
+                double shapeWi = std::abs(frobWi*frobWi*frobWi/(3*std::sqrt(3.)*detWi) - 1.0);
+                shapeA_max = std::max(shapeA_max, shapeAi);
+                shapeW_max = std::max(shapeW_max, shapeWi);
+              }
+          }
+        else
+          {
+            utm.metric(element, valid);
+          }
+        if (!valid)
+          ++num_invalid;
+      }
+
+
+    };
+
+    template<>
+    GA_parallel_count_invalid_elements<STKMesh>::GA_parallel_count_invalid_elements(PerceptMesh *eMesh) : m_eMesh(eMesh), utm(eMesh)
+    {
+      init();
+      coord_field_current   = eMesh->get_coordinates_field();
+      coord_field_original  = eMesh->get_field(stk::topology::NODE_RANK, "coordinates_NM1");
+
+      // element loop
+
+      stk::mesh::Selector on_locally_owned_part =  ( eMesh->get_fem_meta_data()->locally_owned_part() );
+      const stk::mesh::BucketVector & buckets = eMesh->get_bulk_data()->buckets( eMesh->element_rank() );
+
+      for ( stk::mesh::BucketVector::const_iterator k = buckets.begin() ; k != buckets.end() ; ++k )
         {
-          stk::all_reduce( MPI_COMM_WORLD, stk::ReduceMin<1>( &detA_min ) );
-          stk::all_reduce( MPI_COMM_WORLD, stk::ReduceMin<1>( &detW_min ) );
-          stk::all_reduce( MPI_COMM_WORLD, stk::ReduceMax<1>( &shapeA_max ) );
-          stk::all_reduce( MPI_COMM_WORLD, stk::ReduceMax<1>( &shapeW_max ) );
-          if (eMesh->get_rank() == 0)
+          if (MeshSmootherImpl<STKMesh>::select_bucket(**k, eMesh) && on_locally_owned_part(**k))
             {
-              std::cout << "P[0] detA_min= " << detA_min << " detW_min= " << detW_min
-                        << " shapeA_max= " << shapeA_max << " shapeW_max= " << shapeW_max << std::endl;
+              stk::mesh::Bucket & bucket = **k ;
+              const unsigned num_elements_in_bucket = bucket.size();
+              const CellTopologyData* topology_data = eMesh->get_cell_topology(bucket);
+
+              for (unsigned i_element = 0; i_element < num_elements_in_bucket; i_element++)
+                {
+                  stk::mesh::Entity element = bucket[i_element];
+                  elements.push_back(element);
+                  topos.push_back(topology_data);
+                }
             }
         }
-      return num_invalid;
     }
 
+    template<>
+    GA_parallel_count_invalid_elements<StructuredGrid>::GA_parallel_count_invalid_elements(PerceptMesh *eMesh) : m_eMesh(eMesh), utm(eMesh)
+    {
+      init();
+      std::shared_ptr<BlockStructuredGrid> bsg = m_eMesh->get_block_structured_grid();
+      coord_field_current                      = bsg->m_fields["coordinates"].get();
+      coord_field_original                     = bsg->m_fields["coordinates_NM1"].get();
 
-    size_t MeshSmoother::count_invalid_elements()
+      std::cout << " coord_field_original= " << coord_field_original->m_name << std::endl;
+
+      bsg->get_elements(elements);
+      topos.resize(elements.size(), static_cast<const typename StructuredGrid::MTCellTopology *>(0));
+    }
+
+    template<typename MeshType>
+    size_t MeshSmootherImpl<MeshType>::parallel_count_invalid_elements(PerceptMesh *eMesh)
+    {
+      GA_parallel_count_invalid_elements<MeshType> ga(eMesh);
+      ga.run();
+
+      stk::all_reduce( MPI_COMM_WORLD, stk::ReduceSum<1>( &ga.num_invalid ) );
+
+      if (0)
+        {
+          std::cout << "MeshSmootherImpl::parallel_count_invalid_elements: ga.num_invalid= " << ga.num_invalid << std::endl;
+        }
+      if (ga.get_mesh_diagnostics)
+        {
+          stk::all_reduce( MPI_COMM_WORLD, stk::ReduceMin<1>( &ga.detA_min ) );
+          stk::all_reduce( MPI_COMM_WORLD, stk::ReduceMin<1>( &ga.detW_min ) );
+          stk::all_reduce( MPI_COMM_WORLD, stk::ReduceMax<1>( &ga.shapeA_max ) );
+          stk::all_reduce( MPI_COMM_WORLD, stk::ReduceMax<1>( &ga.shapeW_max ) );
+          if (eMesh->get_rank() == 0)
+            {
+              std::cout << "P[0] detA_min= " << ga.detA_min << " detW_min= " << ga.detW_min
+                        << " shapeA_max= " << ga.shapeA_max << " shapeW_max= " << ga.shapeW_max << std::endl;
+            }
+        }
+      return ga.num_invalid;
+    }
+
+    template<>
+    size_t MeshSmootherImpl<STKMesh>::count_invalid_elements()
     {
 
       size_t num_invalid = 0;
@@ -116,7 +222,8 @@
       return num_invalid;
     }
 
-    int MeshSmoother::
+    template<>
+    int MeshSmootherImpl<STKMesh>::
     classify_node(stk::mesh::Entity node, size_t& curveOrSurfaceEvaluator) const
     {
       int dof =0;
@@ -130,7 +237,8 @@
       return dof;
     }
 
-    bool MeshSmoother:: select_bucket(stk::mesh::Bucket& bucket, PerceptMesh *eMesh)
+    template<>
+    bool MeshSmootherImpl<STKMesh>:: select_bucket(stk::mesh::Bucket& bucket, PerceptMesh *eMesh)
     {
       const CellTopologyData * cell_topo_data = eMesh->get_cell_topology(bucket);
       shards::CellTopology cell_topo(cell_topo_data);
@@ -148,7 +256,8 @@
         }
     }
 
-    std::pair<bool,int> MeshSmoother::get_fixed_flag(stk::mesh::Entity node_ptr)
+    template<>
+    std::pair<bool,int> MeshSmootherImpl<STKMesh>::get_fixed_flag(stk::mesh::Entity node_ptr)
     {
       int dof = -1;
       std::pair<bool,int> ret(true,MS_VERTEX);
@@ -222,7 +331,84 @@
       return ret;
     }
 
-    void MeshSmoother::run( bool always_smooth, int debug)
+    template<>
+    std::pair<bool,int> MeshSmootherImpl<StructuredGrid>::get_fixed_flag(typename StructuredGrid::MTNode node_ptr)
+    {
+      int dof = -1;
+      std::pair<bool,int> ret(true,MS_VERTEX);
+      //if the owner is something other than the top-level owner, the node
+      // is on the boundary; otherwise, it isn't.
+      bool& fixed = ret.first;
+      int& type = ret.second;
+      if (m_boundarySelector)
+        {
+          if ((*m_boundarySelector)(node_ptr))
+            {
+              fixed=true;
+              type=MS_ON_BOUNDARY;
+            }
+          else
+            {
+              fixed=false;
+              type = MS_NOT_ON_BOUNDARY;
+            }
+        }
+      else
+        {
+#if defined(STK_PERCEPT_HAS_GEOMETRY)
+          if (m_meshGeometry)
+            {
+              size_t curveOrSurfaceEvaluator;
+              dof = m_meshGeometry->classify_node(node_ptr, curveOrSurfaceEvaluator);
+              //std::cout << "tmp srk classify node= " << node_ptr->identifier() << " dof= " << dof << std::endl;
+              // vertex
+              if (dof == 0)
+                {
+                  fixed=true;
+                  type=MS_VERTEX;
+                }
+              // curve (for now we hold these fixed)
+              else if (dof == 1)
+                {
+                  fixed=true;
+                  type=MS_CURVE;
+                  //fixed=false;   // FIXME
+                }
+              // surface - also fixed
+              else if (dof == 2)
+                {
+                  //fixed=false;
+                  fixed=true;
+                  if (m_eMesh->get_smooth_surfaces())
+                    {
+                      fixed = false;
+                      //std::cout << "tmp srk found surface node unfixed= " << m_m_eMesh->identifier(node_ptr) << std::endl;
+                    }
+                  type=MS_SURFACE;
+                  if (DEBUG_PRINT) std::cout << "tmp srk found surface node unfixed= " << node_ptr << std::endl;
+                }
+              // interior/volume - free to move
+              else
+                {
+                  fixed=false;
+                  type=MS_VOLUME;
+                }
+            }
+          else
+#endif
+            {
+              fixed=false;
+              type=MS_VOLUME;
+            }
+        }
+      if (DEBUG_PRINT) std::cout << "tmp srk classify node= " << node_ptr << " dof= " << dof << " fixed= " << fixed << " type= " << type << std::endl;
+
+      return ret;
+    }
+
+
+    template<typename MeshType>
+    void MeshSmootherImpl<MeshType>::run( bool always_smooth, int debug)
     {
 #ifdef USE_CALLGRIND_MESH_SMOOTHER
       CALLGRIND_START_INSTRUMENTATION;
@@ -232,11 +418,11 @@
 
       size_t num_invalid = parallel_count_invalid_elements(eMesh);
       if (!m_eMesh->get_rank())
-        std::cout << "\ntmp srk MeshSmoother num_invalid before= " << num_invalid
+        std::cout << "\ntmp srk MeshSmootherImpl num_invalid before= " << num_invalid
                       << (num_invalid ? " WARNING: invalid elements exist before  smoothing" :
                           (!always_smooth ? "WARNING: no smoothing requested since always_smooth=false" : " "))
                       << std::endl;
-      //if (num_invalid) throw std::runtime_error("MeshSmoother can't start from invalid mesh...");
+      //if (num_invalid) throw std::runtime_error("MeshSmootherImpl can't start from invalid mesh...");
 
       if (always_smooth)
         {
@@ -250,11 +436,10 @@
 
           num_invalid = parallel_count_invalid_elements(eMesh);
           if (!m_eMesh->get_rank())
-            std::cout << "\nP[" << m_eMesh->get_rank() << "] tmp srk MeshSmoother num_invalid after= " << num_invalid << " "
+            std::cout << "\nP[" << m_eMesh->get_rank() << "] tmp srk MeshSmootherImpl num_invalid after= " << num_invalid << " "
                       << (num_invalid ? " ERROR still have invalid elements after smoothing" :
                           " SUCCESS: smoothed and removed invalid elements ")
                       << std::endl;
-          MPI_Barrier( MPI_COMM_WORLD );
           //std::cout << "\nP[" << m_eMesh->get_rank() << "] tmp srk after barrier" << std::endl;
         }
 
@@ -266,7 +451,8 @@
     }
 
 
-    void MeshSmoother::
+    template<>
+    void MeshSmootherImpl<STKMesh>::
     project_delta_to_tangent_plane(stk::mesh::Entity node, double *delta, double *norm)
     {
 #if defined(STK_PERCEPT_HAS_GEOMETRY)
@@ -293,7 +479,15 @@
 #endif
     }
 
-    void MeshSmoother::
+    template<>
+    void MeshSmootherImpl<StructuredGrid>::
+    project_delta_to_tangent_plane(typename StructuredGrid::MTNode node, double *delta, double *norm)
+    {
+      VERIFY_MSG("not impl");
+    }
+
+    template<>
+    void MeshSmootherImpl<STKMesh>::
     enforce_tangent_plane(stk::mesh::Entity node, double rhs[3], double lhs[3][3], double *norm)
     {
 #if defined(STK_PERCEPT_HAS_GEOMETRY)
@@ -337,7 +531,8 @@
     //! is the proposed new position on that domain.
     //!  if @param reset is true, the node_ptr's coordinates are unchanged, else
     //!  they are set to the projected value - default is reset=false, so nodes are changed
-    void MeshSmoother::
+    template<>
+    void MeshSmootherImpl<STKMesh>::
     snap_to(stk::mesh::Entity node_ptr,
             double *coordinate, bool reset) const
     {
@@ -406,7 +601,19 @@
 #endif
     }
 
+    template<>
+    void MeshSmootherImpl<StructuredGrid>::
+    snap_to(typename StructuredGrid::MTNode node_ptr,
+            double *coordinate, bool reset) const
+    {
+      VERIFY_MSG("not impl");
+    }
+
+    template class MeshSmootherImpl<STKMesh>;
+    template class MeshSmootherImpl<StructuredGrid>;
 
   }
+#undef DEBUG_PRINT
 
 #endif
+

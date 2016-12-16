@@ -121,21 +121,9 @@
       // Assumes already-initialized comm
       RunEnvironment(int *argc, char ***argv, stk::ParallelMachine comm, bool debug=false);
 
-      int processCommandLine(int argc, char **argv);
-      int processCommandLine() { return processCommandLine(m_argc, m_argv); }
+      //int processCommandLine() { return processCommandLine(m_argc, m_argv); }
 
       ~RunEnvironment();
-
-      void printHelp();
-
-      static void
-      runCommand(std::string command);
-
-      static void
-      doSierraLoadBalance(stk::ParallelMachine comm, std::string meshFileName);
-
-      static void
-      doLoadBalance(stk::ParallelMachine comm, std::string meshFileName);
 
       std::string
       build_log_description(const std::string &           working_directory,
@@ -145,8 +133,6 @@
       int get_argc() { return m_argc; }
       char **get_argv() { return m_argv; }
 
-      static std::string
-      get_working_directory();
 
 
       // command line options
@@ -169,8 +155,6 @@
 
     private:
 
-      static int setFileNames(std::string& fullmesh, std::string& meshFileName, std::string& errString);
-
       bool                          m_need_to_finalize;
       bool                          m_debug;
       bool                          m_processCommandLine_invoked;
@@ -180,13 +164,26 @@
 
       //ParallelMachineFinalize       m_par_finalize;
 
-      int  processCLP(int procRank, int argc, char* argv[]);
       // shared constructor implementation; do not call directly
       void internal_initialize(int argc, char **argv);
       void bootstrap();
 
       void setSierraOpts(int procRank, int argc, char* argv[]);
     };
+
+    int processCommandLine(Teuchos::CommandLineProcessor& clp_in, int argc, char **argv);
+
+    int processCLP(Teuchos::CommandLineProcessor& clp_in, int procRank, int argc, char* argv[]);
+
+    std::string get_working_directory();
+
+    int setFileNames(std::string& fullmesh, std::string& meshFileName, std::string& errString);
+
+    void runCommand(std::string command);
+
+    void doLoadBalance(stk::ParallelMachine comm, std::string meshFileName);
+
+    void printHelp(Teuchos::CommandLineProcessor& clp_in);
 
   } // namespace percept
 

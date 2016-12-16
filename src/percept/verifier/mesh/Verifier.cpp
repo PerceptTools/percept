@@ -40,11 +40,11 @@
       ParallelMachineFinalize pmf(true);
       RunEnvironment run_environment(&argc, &argv, debug_re);
       process_options(run_environment);
-      run_environment.processCommandLine();
+      processCommandLine(run_environment.clp, argc, argv);
 
       {
         if (run_environment.help_opt) {
-          run_environment.printHelp();
+          printHelp(run_environment.clp);
           std::exit(EXIT_SUCCESS);
         }
 
@@ -78,8 +78,6 @@
             printTable = true;
           }
       }
-
-      //RunEnvironment::doLoadBalance(run_environment.m_comm, file_name);
 
       PerceptMesh mesh(3, run_environment.m_comm);
       mesh.open_read_only(file_name);

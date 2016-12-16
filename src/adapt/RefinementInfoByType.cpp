@@ -35,7 +35,6 @@
               numOrig = (RefinementInfoCount)((double)numOrig * refFactorOld);
               refinementInfoByType[irank].m_numOrigElemsLast = numOrig;
               refinementInfoByType[irank].m_numNewElemsLast = numNew;
-              //std::cout << "irank= " << irank << " topo= " << refinementInfoByType[irank].m_topology.getName() << " numOrig= " << numOrig << " numNew = " << numNew << std::endl;
             }
         }
     }
@@ -62,16 +61,11 @@
       RefinementInfoCount numOrigNodes = refinementInfoByType[0].m_numOrigNodes;
       RefinementInfoCount numNewNodes = refinementInfoByType[0].m_numNewNodes;
 
-      //os << "Refinement Info> total original elements = " << numOrigTot << "\n";
-      //os << "Refinement Info> total new elements = " << numNewTot << "\n";
-
       stk::PrintTable table;
       table.setTitle("Refinement Info\n");
-      //table.setAutoEndCol(false);
 
       table << "|" << "                     " <<  "|" << stk::justify(stk::PrintTable::Cell::CENTER)
         << "Original" << stk::end_col << "     " << "|" << "New     " << stk::end_col << "     " << "|" << stk::end_header;
-      //    << stk::span << "Original"  << "|" << stk::span << "New     "  << "|" << stk::end_header;
       table << stk::justify(stk::PrintTable::Cell::LEFT) ;
       table << "|" << "Element Topology Type" <<  "|" << "Elements" << stk::end_col << "Nodes" << "|" << "Elements" << stk::end_col << "Nodes" << "|" << stk::end_header;
 
@@ -86,8 +80,6 @@
           table << "|" << refinementInfoByType[irank].m_topology.getName() << "|"
                 << numOrig << stk::end_col << " " << "|"
                 << numNew  << stk::end_col << " " << "|"
-            //                 << numOrig << stk::end_col << numOrigNodes << "|"
-            //                 << numNew  << stk::end_col << numNewNodes << "|"
                 << stk::end_row;
         }
 
@@ -95,13 +87,6 @@
             << numOrigTot << stk::end_col << numOrigNodes << "|"
             << numNewTot  << stk::end_col << numNewNodes << "|"
             << stk::end_row;
-
-#if 0
-      table << "|" << "Node Totals" << "|"
-            << numOrigNodes << "|"
-            << numNewNodes << "|"
-            << stk::end_row;
-#endif
 
       os << "\n" << table;
     }

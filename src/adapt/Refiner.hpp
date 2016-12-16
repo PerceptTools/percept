@@ -29,7 +29,6 @@
 #include <boost/tuple/tuple_comparison.hpp>
 
 #include <percept/stk_mesh.hpp>
-#include <percept/PerceptMesh.hpp>
 #include <percept/ProgressMeter.hpp>
 #include <adapt/UniformRefinerPattern.hpp>
 
@@ -42,6 +41,8 @@
 #if defined( STK_PERCEPT_HAS_GEOMETRY )
 #include <percept/mesh/geometry/kernel/MeshGeometry.hpp>
 #endif
+
+#include <percept/PerceptMesh.hpp>
 
 #define DO_REF_LTRACE 0
 #define REF_LTRACE_PROC 1
@@ -267,6 +268,10 @@
       initializeRefine();
 
     protected:
+      void fillElementRankTypeInfo(std::vector<stk::mesh::EntityRank>& ranks);
+
+      void getRefinementInfo(std::vector<stk::mesh::EntityRank>& ranks);
+
       void filterUsingRefinerSelector(std::vector<stk::mesh::Entity>& elements);
 
       typedef  std::pair<stk::mesh::EntityRank, unsigned > ElementRankTypeInfo;
@@ -455,6 +460,9 @@
 
       void
       checkBreakPatternValidityAndBuildRanks(std::vector<stk::mesh::EntityRank>& ranks);
+
+      void 
+      doPrintPatterns();
 
       void
       add_children_to_parts();

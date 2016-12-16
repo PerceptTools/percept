@@ -118,8 +118,7 @@
           if (m_sideset_quad)
             {
               for ( unsigned i = 0 ; i < number_quad ; ++i , ++curr_elem_id ) {
-                stk::mesh::declare_element_side( m_bulkData,
-                                                 pyramids[i], // element,
+                m_bulkData.declare_element_side( pyramids[i], // element,
                                                  4,            //j_side, // local_side_ord,
                                                  stk::mesh::PartVector{m_sideset_quad_subset});
               }
@@ -130,16 +129,14 @@
               unsigned j_side=0;
               for ( unsigned i = 0 ; i < 3 ; ++i , ++curr_elem_id ) {
                 if (i == 2) ++j_side;
-                stk::mesh::declare_element_side( m_bulkData,
-                                                 pyramids[0], // element,
+                m_bulkData.declare_element_side( pyramids[0], // element,
                                                  j_side,            //j_side, // local_side_ord,
                                                  stk::mesh::PartVector{m_sideset_tri_subset});
                 ++j_side;
               }
               j_side=1;
               for ( unsigned i = 0 ; i < 3 ; ++i , ++curr_elem_id ) {
-                stk::mesh::declare_element_side( m_bulkData,
-                                                 pyramids[1], // element,
+                  m_bulkData.declare_element_side( pyramids[1], // element,
                                                  j_side,            //j_side, // local_side_ord,
                                                  stk::mesh::PartVector{m_sideset_tri_subset});
                 ++j_side;
