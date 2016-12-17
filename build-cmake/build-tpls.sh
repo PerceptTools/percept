@@ -4,7 +4,7 @@ source module-file
 
 do_parallel_build=-j12
 
-do_build=0
+do_build=1
 
 do_build_superlu=$do_build
 do_build_xml=$do_build
@@ -14,7 +14,7 @@ do_build_zlib=$do_build
 do_build_hdf5=$do_build
 do_build_netcdf=$do_build
 do_build_pnetcdf=$do_build
-do_build_cgns=1 #$do_build
+do_build_cgns=$do_build
 do_build_gtest=$do_build
 do_build_opennurbs=$do_build
 
