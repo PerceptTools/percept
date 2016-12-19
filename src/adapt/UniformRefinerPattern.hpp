@@ -182,6 +182,9 @@
     //template< typename ToTopology >
     class UniformRefinerPatternBase
     {
+    public:
+      static const bool USE_DECLARE_ELEMENT_SIDE = false;
+
     protected:
 
       enum
@@ -317,6 +320,9 @@
                                           const CellTopologyData * const cell_topo_data_toTopo_in,
                                           vector< vector<stk::mesh::EntityId> >& elems,
                                           stk::mesh::FieldBase *proc_rank_field=0);
+
+      /// helper for creating sides
+      void create_side_element(PerceptMesh& eMesh, bool use_declare_element_side, stk::mesh::Entity *nodes, unsigned nodes_size, stk::mesh::Entity& newElement);
 
       /// helpers for interpolating fields, coordinates
       /// ------------------------------------------------------------------------------------------------------------------------

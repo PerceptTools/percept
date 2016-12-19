@@ -75,7 +75,6 @@
     using std::set;
 
     // pair of rank and number of entities of that rank needed on a SubDimCell
-    //typedef std::pair<stk::mesh::EntityRank, unsigned> NeededEntityType;
     struct NeededEntityType
     {
       stk::mesh::EntityRank first;
@@ -94,8 +93,8 @@
     // tuple storage: SDC_DATA_GLOBAL_NODE_IDS, SDC_DATA_OWNING_ELEMENT_KEY,  SDC_DATA_OWNING_SUBDIM_RANK, SDC_DATA_OWNING_SUBDIM_ORDINAL, SDC_DATA_SPACING
     typedef boost::tuple<NodeIdsOnSubDimEntityType, stk::mesh::EntityKey, unsigned char, unsigned char, Double2> SubDimCellData;
 
-    //typedef SubDimCell<SDCEntityType> SubDimCell_SDCEntityType;
-    typedef MySubDimCell<SDCEntityType, 4, CompareSDCEntityType> SubDimCell_SDCEntityType;
+    enum { MAX_NODES_ON_A_FACE = 4 };
+    typedef MySubDimCell<SDCEntityType, MAX_NODES_ON_A_FACE, CompareSDCEntityType> SubDimCell_SDCEntityType;
 
     inline std::ostream& operator<<(std::ostream& out,  SubDimCellData& val)
     {
@@ -133,16 +132,12 @@
 #endif
 
     // Rank of sub-dim cells needing new nodes, which sub-dim entity, one non-owning element identifier, nodeId_elementOwnderId.first
-    // FIXME - consider using bitfields to pack first two entries into a short - does this save anything on buffer size?
     enum CommDataTypeEnum {
       CDT_NEEDED_ENTITY_RANK,
       CDT_SUB_DIM_ENTITY_ORDINAL,
       CDT_NON_OWNING_ELEMENT_KEY
     };
-    enum
-      {
-        NEW_NODE_IDS
-      };
+
     // entity rank, ordinal of sub-dim entity, non-owning element key
     typedef boost::tuple<stk::mesh::EntityRank, unsigned, stk::mesh::EntityKey> CommDataType;
 
@@ -169,13 +164,12 @@
       static const unsigned NR_MARK_NONE = 1u;
       static const unsigned NR_MARK = 2u;
 
-      // FIXME use unordered_set
       typedef percept::SetOfEntities SetOfEntities;
 
       //========================================================================================================================
       // high-level interface
 
-      NodeRegistry(percept::PerceptMesh& eMesh, 
+      NodeRegistry(percept::PerceptMesh& eMesh,
                    bool useCustomGhosting = true) : m_eMesh(eMesh),
                                                     m_comm_all( new stk::CommAll(eMesh.parallel()) ),
                                                     m_ghosting(0),
@@ -188,7 +182,7 @@
                                                     m_debug(false),
                                                     m_state(NRS_NONE)
       {
-        m_useCustomGhosting = true;  // toggle this to turn on add_node_sharing test
+        m_useCustomGhosting = false;
         m_useAddNodeSharing = !m_useCustomGhosting;
       }
 
@@ -287,16 +281,9 @@
 
       inline void putInMap(SubDimCell_SDCEntityType& subDimEntity, SubDimCellData& data)
       {
-
         bool debug = false;
-        // if (data.get<SDC_DATA_OWNING_ELEMENT_KEY>().id() == 7577 ||data.get<SDC_DATA_OWNING_ELEMENT_KEY>().id() == 2214)
-        //   {
-        //     debug = false;
-        //   }
-
         if (debug)
           {
-            //const SubDimCell_SDCEntityType& subDimEntity = to_delete[itd]->first;
             SubDimCellData& nodeId_elementOwnderId = data;
 
             NodeIdsOnSubDimEntityType& nodeIds_onSE = nodeId_elementOwnderId.get<SDC_DATA_GLOBAL_NODE_IDS>();
@@ -304,8 +291,6 @@
 
             if (1)
               std::cout << "put in map: nodeIds_onSE.size= " << (nodeIds_onSE.size())
-                        // <<  m_eMesh.identifier(nodeIds_onSE[0])
-                        // << " id= " << nodeIds_onSE.m_entity_id_vector[0]
                         << " owning_elementId= " << owning_elementId
                         << " subDimEntity.size= " << subDimEntity.size()
                         << "\n" << m_eMesh.demangled_stacktrace(20)
@@ -362,17 +347,8 @@
       ///   any new nodes, we flag it with NR_MARK_NONE, then remove it here
       void removeUnmarkedSubDimEntities();
 
-      // for communicating marks to other procs
-      void communicate_marks();
-      void verify_parallel_consistency(bool requireMarks, bool requireNodeIds, bool requireNodes, bool requireSubDimExists);
 
     private:
-      void communicate_marks_pack(stk::CommAll& commAll);
-      void communicate_marks_pack_stage_2(stk::CommAll& commAll);
-      void communicate_marks_unpack(stk::CommAll& commAll, bool recv_from_non_owner);
-
-      void verify_parallel_consistency_pack(stk::CommAll& commAll);
-      void verify_parallel_consistency_unpack(stk::CommAll& commAll, bool requireMarks, bool requireNodeIds, bool requireNodes, bool requireSubDimExists);
 
       void do_add_node_sharing_comm();
 
@@ -383,12 +359,6 @@
       void query(stk::mesh::EntityId elementId, int rank, unsigned iSubDimOrd, std::string msg="", stk::mesh::EntityId *edge=0, SubDimCell_SDCEntityType* subDimEntityIn=0)
       {
         query(std::cout, elementId, rank, iSubDimOrd, msg, edge, subDimEntityIn);
-      }
-      inline stk::mesh::Entity get_entity_using_find(stk::mesh::EntityRank& rank, const stk::mesh::EntityId& id) const
-      {
-        throw std::runtime_error("not implemented");
-        const EntityRepo::const_iterator i = m_entity_repo[rank].find( id );
-        return i != m_entity_repo[rank].end() ? i->second : stk::mesh::Entity() ;
       }
 
       static std::string print_string(PerceptMesh& eMesh, const SubDimCell_SDCEntityType& subDimEntity)
@@ -401,6 +371,7 @@
           }
         return ost.str();
       }
+
       static void print(PerceptMesh& eMesh, const SubDimCell_SDCEntityType& subDimEntity)
       {
         std::cout << print_string(eMesh, subDimEntity);
@@ -411,40 +382,9 @@
         return bulk.get_entity(rank, id);
       }
 
-      inline stk::mesh::Entity get_entity_I(stk::mesh::BulkData& bulk, stk::mesh::EntityRank rank, stk::mesh::EntityId id)
-      {
-        return bulk.get_entity(rank, id);
-      }
-
-      inline stk::mesh::Entity get_entity_Ia(stk::mesh::BulkData& bulk, stk::mesh::EntityRank rank, stk::mesh::EntityId id)
-      {
-        return bulk.get_entity(rank, id);
-      }
-
-      inline stk::mesh::Entity get_entity_Ib(stk::mesh::BulkData& bulk, stk::mesh::EntityRank rank, stk::mesh::EntityId id)
-      {
-        return bulk.get_entity(rank, id);
-      }
-
       inline stk::mesh::Entity get_entity_element(stk::mesh::BulkData& bulk, stk::mesh::EntityRank rank, stk::mesh::EntityId id)
       {
         return get_entity(bulk, rank, id);
-      }
-
-      inline stk::mesh::Entity get_entity_node_I(stk::mesh::BulkData& bulk, stk::mesh::EntityRank rank, stk::mesh::EntityId id)
-      {
-        return get_entity_I(bulk, rank, id);
-      }
-
-      inline stk::mesh::Entity get_entity_node_Ia(stk::mesh::BulkData& bulk, stk::mesh::EntityRank rank, NodeIdsOnSubDimEntityType& nodeIds_onSE, unsigned index)
-      {
-        stk::mesh::Entity entity = nodeIds_onSE[index];
-        return entity;
-      }
-
-      inline stk::mesh::Entity get_entity_node_Ib(stk::mesh::BulkData& bulk, stk::mesh::EntityRank rank, stk::mesh::EntityId id)
-      {
-        return get_entity_Ib(bulk, rank, id);
       }
 
       NodeIdsOnSubDimEntityType* getNewNodesOnSubDimEntity(const stk::mesh::Entity element,  stk::mesh::EntityRank& needed_entity_rank, unsigned iSubDimOrd);
@@ -504,7 +444,6 @@
     public:
       int m_gee_cnt;
       int m_gen_cnt;
-      //const CellTopologyData * const m_cell_topo_data;
       std::vector<EntityRepo> m_entity_repo;
 
       bool m_debug;

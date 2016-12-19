@@ -10,6 +10,7 @@
 
 #include <percept/Util.hpp>
 #include <percept/PerceptMesh.hpp>
+#include <percept/PerceptUtils.hpp>
 
 #include <sstream>
 #include <fstream>
@@ -185,6 +186,10 @@ static void copy_error_indicator(PerceptMesh& eMesh_no_ft,PerceptMesh& eMesh,
     std::vector<double> m_bounding_region_end;
     std::vector<double> m_bounding_region_center;
 
+    static double mMeshInputTime;
+    static double mMeshOutputTime;
+    static double mAdaptTimeOverall;
+    static double mAdaptCPUTimeOverall;
   public:
 
     RunAdaptRunInfo(PerceptMesh& eMesh, std::string root_string, std::string emit_file="", bool debug=false) :
@@ -479,6 +484,11 @@ static void copy_error_indicator(PerceptMesh& eMesh_no_ft,PerceptMesh& eMesh,
                               const std::string& verify_meshes,
                               bool debug=false)
     {
+      mMeshInputTime = 0.0;
+      mMeshOutputTime = 0.0;
+      mAdaptTimeOverall = 0.0;
+      mAdaptCPUTimeOverall = 0.0;
+
       double t0   = stk::wall_time();
       double t1   = 0.0;
 
@@ -523,7 +533,12 @@ static void copy_error_indicator(PerceptMesh& eMesh_no_ft,PerceptMesh& eMesh,
         if (!p_rank) std::cout << "Memory usage: " << hwm << " before open meshes."  << std::endl;
       }
 
-      eMesh.open(has_ft_mesh ? input_ft : input);
+      {
+        double inputTime = stk::wall_time();
+        eMesh.open(has_ft_mesh ? input_ft : input);
+        inputTime = stk::wall_time() - inputTime;
+        mMeshInputTime += inputTime;
+      }
       eMesh.register_and_set_refine_fields();
 
       eMesh.set_sync_io_regions(true);
@@ -570,7 +585,12 @@ static void copy_error_indicator(PerceptMesh& eMesh_no_ft,PerceptMesh& eMesh,
         if (ioss_write_options.length())  eMesh_error.set_ioss_write_options(ioss_write_options);
         eMesh.set_avoid_add_all_mesh_fields_as_input_fields(true);
 
-        eMesh_error.open(input);
+        {
+          double inputTime = stk::wall_time();
+          eMesh_error.open(input);
+          inputTime = stk::wall_time() - inputTime;
+          mMeshInputTime += inputTime;
+        }
 
         ErrorFieldType * from_error_field =
           &eMesh_error.get_fem_meta_data()->declare_field<ErrorFieldType>(stk::topology::ELEMENT_RANK, rar.m_error_indicator_field);
@@ -763,10 +783,20 @@ static void copy_error_indicator(PerceptMesh& eMesh_no_ft,PerceptMesh& eMesh,
 
       // TODO make names like output.e and output_ft.e from input like "output.e" not "output"
       eMesh.output_active_children_only(false);
-      eMesh.save_as(output_ft);
+      {
+        double outputTime = stk::wall_time();
+        eMesh.save_as(output_ft);
+        outputTime = stk::wall_time() - outputTime;
+        mMeshOutputTime += outputTime;
+      }
 
       eMesh.output_active_children_only(true);
-      eMesh.save_as(output);
+      {
+        double outputTime = stk::wall_time();
+        eMesh.save_as(output);
+        outputTime = stk::wall_time() - outputTime;
+        mMeshOutputTime += outputTime;
+      }
 
       cpu1 = stk::cpu_time();
       t1   = stk::wall_time();
@@ -778,6 +808,9 @@ static void copy_error_indicator(PerceptMesh& eMesh_no_ft,PerceptMesh& eMesh,
       stk::all_reduce( eMesh.parallel(), stk::ReduceSum<1>( &cpuSum ) );
       stk::all_reduce( eMesh.parallel(), stk::ReduceMax<1>( &cpuMax ) );
       stk::all_reduce( eMesh.parallel(), stk::ReduceMax<1>( &wallMax ) );
+
+      mAdaptTimeOverall = wallMax;
+      mAdaptCPUTimeOverall = cpuMax;
 
       if (0 == p_rank) {
         std::cout << "Timings: max wall clock time = " << wallMax << " (sec)" << std::endl;

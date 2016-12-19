@@ -161,9 +161,21 @@
 
 #undef CENTROID_N
 
+        bool use_declare_element_side = UniformRefinerPatternBase::USE_DECLARE_ELEMENT_SIDE &&  m_primaryEntityRank == eMesh.side_rank();
+
         for (unsigned ielem=0; ielem < 3; ielem++)
           {
-            stk::mesh::Entity newElement = *element_pool;
+            stk::mesh::Entity newElement = stk::mesh::Entity();
+            if (!use_declare_element_side)
+              newElement = *element_pool;
+
+            stk::mesh::Entity nodes[4];
+            for (unsigned jnode=0; jnode < 4; ++jnode)
+              {
+                nodes[jnode] = createOrGetNode(nodeRegistry, eMesh, elems[ielem][jnode]);
+              }
+
+            create_side_element(eMesh, use_declare_element_side, nodes, 4, newElement);
 
             if (proc_rank_field && m_eMesh.entity_rank(element) == stk::topology::ELEMENT_RANK)
               {
@@ -173,25 +185,11 @@
 
             change_entity_parts(eMesh, element, newElement);
 
-            {
-              if (!elems[ielem][0])
-                {
-                  std::cout << "P[" << eMesh.get_rank() << " nid = 0 << " << std::endl;
-                  exit(1);
-                }
-
-            }
-
-            for (unsigned jnode=0; jnode < 4; jnode++)
-              {
-                //eMesh.get_bulk_data()->declare_relation(newElement, eMesh.createOrGetNode(elems[ielem][jnode]), jnode);
-                eMesh.get_bulk_data()->declare_relation(newElement, createOrGetNode(nodeRegistry, eMesh, elems[ielem][jnode]), jnode);
-              }
-
             set_parent_child_relations(eMesh, element, newElement, *ft_element_pool, ielem);
 
             ft_element_pool++;
-            element_pool++;
+            if (!use_declare_element_side)
+              element_pool++;
 
           }
 

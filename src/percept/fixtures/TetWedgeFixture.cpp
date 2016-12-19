@@ -203,8 +203,7 @@
             {
               for ( unsigned i = 0 ; i < number_quad ; ++i , ++curr_elem_id ) {
                 std::cout << "quad i= " << i << std::endl;
-                stk::mesh::declare_element_side( m_bulkData,
-                                                 wedges[quad_node_side_ids[i][0] - 4], // element,
+                m_bulkData.declare_element_side( wedges[quad_node_side_ids[i][0] - 4], // element,
                                                  quad_node_side_ids[i][1],   //j_side, // local_side_ord,
                                                  stk::mesh::PartVector{m_sideset_quad_subset});
               }
@@ -214,8 +213,7 @@
             {
               for ( unsigned i = 0 ; i < number_tri ; ++i , ++curr_elem_id ) {
                 std::cout << "tri i= " << i << std::endl;
-                stk::mesh::declare_element_side( m_bulkData,
-                                                 wedges[tri_node_side_ids[i][0] - 4], // element,
+                m_bulkData.declare_element_side( wedges[tri_node_side_ids[i][0] - 4], // element,
                                                  tri_node_side_ids[i][1],   //j_side, // local_side_ord,
                                                  stk::mesh::PartVector{m_sideset_tri_subset});
               }

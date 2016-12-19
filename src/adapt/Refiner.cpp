@@ -33,9 +33,9 @@
 
 #include <percept/mesh/mod/smoother/MeshSmoother.hpp>
 #if ENABLE_SMOOTHER3
-#include <percept/mesh/mod/smoother/ReferenceMeshSmoother3.hpp>
+#include <percept/mesh/mod/smoother/ReferenceMeshSmootherNewton.hpp>
 #endif
-#include <percept/mesh/mod/smoother/ReferenceMeshSmoother4.hpp>
+#include <percept/mesh/mod/smoother/ReferenceMeshSmootherAlgebraic.hpp>
 #endif
 
 #include <adapt/AdaptedMeshVerifier.hpp>
@@ -539,24 +539,7 @@
     {
       ranks.resize(0);
 
-      // print patterns
-      if (0)
-        {
-          for (unsigned jbp = 0; jbp < m_breakPattern.size(); jbp++)
-            {
-              if (m_breakPattern[jbp])
-                {
-                  stk::mesh::EntityRank jrank = m_breakPattern[jbp]->getPrimaryEntityRank();
-                  std::cout << "tmp jbp= " << jbp << " jrank= " << jrank 
-#ifndef __clang__
-                            << " class= " << m_eMesh.demangle(typeid(*m_breakPattern[jbp]).name())
-#endif
-                            << " fromTopo= " << m_breakPattern[jbp]->getFromTopology()->name
-                            << " toTopo= " << m_breakPattern[jbp]->getToTopology()->name
-                            << std::endl;
-                }
-            }
-        }
+      if (0) doPrintPatterns();
 
       m_eMesh.get_bulk_data()->modification_begin();
       for (unsigned ibp = 0; ibp < m_breakPattern.size(); ibp++)
@@ -565,16 +548,6 @@
             {
               stk::mesh::EntityRank irank = m_breakPattern[ibp]->getPrimaryEntityRank();
               stk::mesh::EntityRank irank_prev = static_cast<stk::mesh::EntityRank>(percept::EntityRankEnd);
-
-              //if (0)
-              //  {
-              //    std::cout << "tmp srk a1 ibp= " << ibp << " irank= " << irank << " irank_prev= " << irank_prev
-              //              << " fromTopo= " << m_breakPattern[ibp]->getFromTopology()->name
-              //              << " toTopo= " << m_breakPattern[ibp]->getToTopology()->name
-              //              << " m_breakPattern= " << typeid(*m_breakPattern[ibp]).name()
-              //              << "\n demangled name= " << PerceptMesh::demangle(typeid(*m_breakPattern[ibp]).name())
-              //              << std::endl;
-              //  }
 
               if (ibp > 0) irank_prev = m_breakPattern[ibp-1]->getPrimaryEntityRank();
               if (irank > irank_prev)
@@ -610,6 +583,25 @@
       stk::mesh::fixup_ghosted_to_shared_nodes(*m_eMesh.get_bulk_data());
       m_eMesh.get_bulk_data()->modification_end();
 
+    }
+
+    void Refiner::
+    doPrintPatterns()
+    {
+          for (unsigned jbp = 0; jbp < m_breakPattern.size(); jbp++)
+            {
+              if (m_breakPattern[jbp])
+                {
+                  stk::mesh::EntityRank jrank = m_breakPattern[jbp]->getPrimaryEntityRank();
+                  std::cout << "tmp jbp= " << jbp << " jrank= " << jrank
+#ifndef __clang__
+                            << " class= " << m_eMesh.demangle(typeid(*m_breakPattern[jbp]).name())
+#endif
+                            << " fromTopo= " << m_breakPattern[jbp]->getFromTopology()->name
+                            << " toTopo= " << m_breakPattern[jbp]->getToTopology()->name
+                            << std::endl;
+                }
+            }
     }
 
     void Refiner::
@@ -701,30 +693,21 @@
     void Refiner::
     doBreak(int num_registration_loops)
     {
-
       EXCEPTWATCH;
       TIMING(
              stk::diag::setEnabledTimerMetricsMask(stk::diag::METRICS_CPU_TIME | stk::diag::METRICS_WALL_TIME);
              static stk::diag::Timer timerAdapt_("percept::DoBreak", rootTimer());
              stk::diag::TimeBlock tbTimerAdapt_(timerAdapt_);
+             stk::diag::TimeBlock tbRoot_(rootTimer());
              );
 
       initializeRefine();
-      if (m_doQueryOnly)
-        {
-          return;
-        }
 
-      //CHK(m_nodeRegistry);
+      if (m_doQueryOnly) return;
 
       doMark(num_registration_loops);
 
-      //CHK(m_nodeRegistry);
-
       doRefine();
-
-      //CHK(m_nodeRegistry);
-
     }
 
     void Refiner::
@@ -744,28 +727,26 @@
       if (m_eMesh.getProperty("percept_Refiner_require_sides") != "false")
         require_sides_on_same_proc_as_pos_perm_element();
 
-      //CHK(m_nodeRegistry);
-
-      //m_eMesh.dump_vtk("before-ref.vtk");
-
       if (0) doPrintSizes();
 
-      //SidePartMap pmap;
-      //get_side_part_relations(m_eMesh, false, pmap, true);
       if (m_eMesh.getProperty("use_side_map") == "true")
         get_side_part_relations(m_eMesh, false, m_side_part_map);
 
-      //get_side_part_relations_1(m_eMesh, false, m_geomFile, m_side_part_map);
       m_eMesh.setProperty("AdaptedMeshVerifier::checkPolarity","initializeRefine");
       AdaptedMeshVerifier::checkPolarity(m_eMesh);
 
       REF_LTRACE("initializeRefine: after checkPolarity");
 
-
       std::vector<stk::mesh::EntityRank>& ranks = m_ranks;
       // check logic of break pattern setup and also build ranks used vector
       checkBreakPatternValidityAndBuildRanks(ranks);
 
+      getRefinementInfo(ranks);
+    }
+
+    void Refiner::
+    getRefinementInfo(std::vector<stk::mesh::EntityRank>& ranks)
+    {
       ///////////////////////////////////////////////////////////
       ///// Get info on refinements that will be done
       ///////////////////////////////////////////////////////////
@@ -875,20 +856,7 @@
         }
       m_elementRankTypeInfo.resize(ranks.size());
 
-      for (unsigned irank = 0; irank < ranks.size(); irank++)
-        {
-          EXCEPTWATCH;
-          unsigned elementType = m_breakPattern[irank]->getFromTypeKey();
-          shards::CellTopology cell_topo(m_breakPattern[irank]->getFromTopology());
-
-          if (TRACE_STAGE_PRINT) std::cout << "tmp Refiner:: irank = " << irank << " ranks[irank] = " << ranks[irank]
-                                           << " elementType= " << elementType
-                                           << " cell_topo= " << cell_topo.getName()
-                                           << std::endl;
-
-          m_elementRankTypeInfo[irank] = ElementRankTypeInfo(ranks[irank], elementType);
-        }
-
+      fillElementRankTypeInfo(ranks);
     }
 
     void Refiner::
@@ -908,7 +876,6 @@
 
       CommDataType buffer_entry;
       REF_LTRACE("doMark: start");
-      //CHK(m_nodeRegistry);
 
       stk::mesh::BulkData& bulkData = *m_eMesh.get_bulk_data();
       static SubDimCellData empty_SubDimCellData;
@@ -920,22 +887,7 @@
       // do the top level, all elements of this rank operation
       ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-      //vector< std::pair<stk::mesh::EntityRank, unsigned > > elementRankTypeInfo (ranks.size());
-      m_elementRankTypeInfo.resize(ranks.size());
-
-      for (unsigned irank = 0; irank < ranks.size(); irank++)
-        {
-          EXCEPTWATCH;
-          unsigned elementType = m_breakPattern[irank]->getFromTypeKey();
-          shards::CellTopology cell_topo(m_breakPattern[irank]->getFromTopology());
-
-          if (TRACE_STAGE_PRINT) std::cout << "tmp Refiner:: irank = " << irank << " ranks[irank] = " << ranks[irank]
-                                           << " elementType= " << elementType
-                                           << " cell_topo= " << cell_topo.getName()
-                                           << std::endl;
-
-          m_elementRankTypeInfo[irank] = ElementRankTypeInfo(ranks[irank], elementType);
-        }
+      fillElementRankTypeInfo(ranks);
 
       // FIXME warn if a topology shows up without a break pattern
 
@@ -1163,6 +1115,26 @@
     }
 
     void Refiner::
+    fillElementRankTypeInfo(std::vector<stk::mesh::EntityRank>& ranks)
+    {
+      m_elementRankTypeInfo.resize(ranks.size());
+
+      for (unsigned irank = 0; irank < ranks.size(); irank++)
+        {
+          EXCEPTWATCH;
+          unsigned elementType = m_breakPattern[irank]->getFromTypeKey();
+          shards::CellTopology cell_topo(m_breakPattern[irank]->getFromTopology());
+
+          if (TRACE_STAGE_PRINT) std::cout << "tmp Refiner:: irank = " << irank << " ranks[irank] = " << ranks[irank]
+                                           << " elementType= " << elementType
+                                           << " cell_topo= " << cell_topo.getName()
+                                           << std::endl;
+
+          m_elementRankTypeInfo[irank] = ElementRankTypeInfo(ranks[irank], elementType);
+        }
+    }
+
+    void Refiner::
     doRefine()
     {
 #if USE_PERCEPT_PERFORMANCE_TESTING_CALLGRIND
@@ -1285,7 +1257,14 @@
                 if (!m_eMesh.get_rank()) std::cout << "MEM: " << hwm << " before createEntities= " << bpName << std::endl;
               }
 
-              m_eMesh.createEntities( ranks[irank], num_elem_needed, new_elements);  /**/ TRACE_PRINT("Refiner: createEntities... ranks[irank]==ranks[0] done ");
+              if (UniformRefinerPatternBase::USE_DECLARE_ELEMENT_SIDE && ranks[irank] == m_eMesh.side_rank())
+                {
+                  new_elements.resize(0);
+                }
+              else
+                {
+                  m_eMesh.createEntities( ranks[irank], num_elem_needed, new_elements);  /**/ TRACE_PRINT("Refiner: createEntities... ranks[irank]==ranks[0] done ");
+                }
 
               if (DO_MEMORY && m_eMesh.get_do_print_memory()) {
                 m_eMesh.get_memory_high_water_mark_across_processors(m_eMesh.parallel(), dhwm_max, dhwm_min, dhwm_avg, dhwm_sum);
@@ -2069,7 +2048,7 @@
               if (m_eMesh.getProperty("smoother_type") == "Newton")
                 {
 #if ENABLE_SMOOTHER3
-                  percept::ReferenceMeshSmoother3 pmmpsi(&m_eMesh, selector, mesh_geometry, niter, tol);
+                  percept::ReferenceMeshSmootherNewton pmmpsi(&m_eMesh, selector, mesh_geometry, niter, tol);
                   pmmpsi.m_do_animation = 0;
                   pmmpsi.m_use_ref_mesh = use_ref_mesh;
                   pmmpsi.run( always_smooth, msq_debug);
@@ -2080,14 +2059,14 @@
                   double drop_off_coeffs[3] = {1,1,1};  // FIXME
                   int nlayers_drop_off = 40;
                   int niter = 1;
-                  percept::ReferenceMeshSmoother4 pmmpsi(&m_eMesh, selector, mesh_geometry, niter, 1.e-4, drop_off_coeffs, nlayers_drop_off);
+                  percept::ReferenceMeshSmootherAlgebraic pmmpsi(&m_eMesh, selector, mesh_geometry, niter, 1.e-4, drop_off_coeffs, nlayers_drop_off);
                   pmmpsi.m_do_animation = 0;
                   pmmpsi.m_use_ref_mesh = use_ref_mesh;
                   pmmpsi.run( always_smooth, msq_debug);
                 }
               else
                 {
-                  percept::ReferenceMeshSmoother1 pmmpsi(&m_eMesh, selector, mesh_geometry, niter, tol);
+                  percept::ReferenceMeshSmootherConjugateGradientImpl<STKMesh> pmmpsi(&m_eMesh, selector, mesh_geometry, niter, tol);
                   //pmmpsi.m_do_animation = 0;
                   pmmpsi.m_use_ref_mesh = use_ref_mesh;
                   pmmpsi.run( always_smooth, msq_debug);
@@ -2446,8 +2425,11 @@
           ++jele;
         }
 
-      ptrdiff_t ndiff = new_elements_pool.end() - element_pool_it;
-      VERIFY_OP_ON(ndiff, >=, 0,  "ERROR: bad element pool, element_pool.size= "+toString(new_elements_pool.size()));
+      if (!UniformRefinerPatternBase::USE_DECLARE_ELEMENT_SIDE)
+        {
+          ptrdiff_t ndiff = new_elements_pool.end() - element_pool_it;
+          VERIFY_OP_ON(ndiff, >=, 0,  "ERROR: bad element pool, element_pool.size= "+toString(new_elements_pool.size()));
+        }
       size_t num_new_elems = element_pool_it - new_elements_pool.begin();
 
       if (m_doProgress)
@@ -3763,7 +3745,12 @@
     stk::diag::Timer& Refiner::rootTimer()
     {
       static stk::diag::Timer s_timer = stk::diag::createRootTimer("Refiner", rootTimerSet());
-
+      static int started=0;
+      if (!started)
+        {
+          s_timer.start();
+          started=1;
+        }
       if (m_alternateRootTimer)
         return *m_alternateRootTimer;
       else

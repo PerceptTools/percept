@@ -5,9 +5,11 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-#include "MeshGeometry.hpp"
-#include "GeometryKernelGregoryPatch.hpp"
+#include <percept/mesh/geometry/kernel/MeshGeometry.hpp>
 #include <stk_util/environment/CPUTime.hpp>
+#include <percept/mesh/geometry/kernel/GeometryKernel.hpp>
+#include <percept/mesh/geometry/kernel/GeometryKernelGregoryPatch.hpp>
+#include <percept/PerceptMesh.hpp>
 
 namespace percept {
 

@@ -5,17 +5,17 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-#ifndef ReferenceMeshSmoother4_hpp
-#define ReferenceMeshSmoother4_hpp
+#ifndef ReferenceMeshSmootherAlgebraic_hpp
+#define ReferenceMeshSmootherAlgebraic_hpp
 
 #include <percept/Percept.hpp>
 #if !defined(NO_GEOM_SUPPORT)
 
-#include <percept/mesh/mod/smoother/ReferenceMeshSmoother1.hpp>
+#include <percept/mesh/mod/smoother/ReferenceMeshSmootherConjugateGradient.hpp>
 
   namespace percept {
 
-    class ReferenceMeshSmoother4 : public ReferenceMeshSmoother1 {
+    class ReferenceMeshSmootherAlgebraic : public ReferenceMeshSmootherConjugateGradientImpl<STKMesh> {
 
     public:
 
@@ -24,7 +24,7 @@
       ///   same spacing and direction as the reference mesh.
       /// A drop-off function is used to ensure interior nodes don't move if they
       ///   are too far from the boundary
-      ReferenceMeshSmoother4(PerceptMesh *eMesh,
+      ReferenceMeshSmootherAlgebraic(PerceptMesh *eMesh,
                             stk::mesh::Selector *boundary_selector=0,
                             MeshGeometry *meshGeometry=0,
                             int inner_iterations = 100,
@@ -32,10 +32,10 @@
                              double *drop_off_coeffs = 0,
                              int nlayers_drop_off = 0,
                             int parallel_iterations = 20)
-        : ReferenceMeshSmoother1(eMesh, boundary_selector, meshGeometry, inner_iterations, grad_norm, parallel_iterations),
+        : ReferenceMeshSmootherConjugateGradientImpl<STKMesh>(eMesh, boundary_selector, meshGeometry, inner_iterations, grad_norm, parallel_iterations),
           m_drop_off_coeffs(drop_off_coeffs), m_nlayers_drop_off(nlayers_drop_off)
       {
-        //std::cout << "ReferenceMeshSmoother4: m_nlayers_drop_off= " << m_nlayers_drop_off << std::endl;
+        //std::cout << "ReferenceMeshSmootherAlgebraic: m_nlayers_drop_off= " << m_nlayers_drop_off << std::endl;
       }
 
       double *m_drop_off_coeffs;

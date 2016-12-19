@@ -49,8 +49,14 @@
       }
 
       // note: returns the Jacobian - must multiply by getJacobianToVolumeScale to get volume
-      bool operator()(double& averageJ, PerceptMesh& eMesh, stk::mesh::Entity element, stk::mesh::FieldBase *coord_field,
+      bool operator()(double& averageJ, PerceptMesh& eMesh, stk::mesh::Entity element, const stk::mesh::FieldBase *coord_field,
                       const CellTopologyData * topology_data_in = 0 );
+      bool operator()(double& averageJ, stk::mesh::Entity element, const stk::mesh::FieldBase *coord_field,
+                      const CellTopologyData * topology_data_in = 0 )
+      {
+        PerceptMesh eMesh(&coord_field->mesh_meta_data(), &coord_field->get_mesh(), true);
+        return this->operator()(averageJ, eMesh, element, coord_field, topology_data_in);
+      }
 
       double getJacobianToVolumeScale(shards::CellTopology& cell_topo);
 

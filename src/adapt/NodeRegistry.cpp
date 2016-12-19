@@ -12,6 +12,7 @@
 #include <percept/mesh/mod/smoother/SpacingFieldUtil.hpp>
 #include <stk_mesh/base/DataTraits.hpp>
 #include <stk_mesh/base/MeshUtils.hpp>
+#include <stk_util/parallel/CommSparse.hpp>
 
 #include <set>
 #include <typeinfo>
@@ -363,7 +364,6 @@
           return;
         }
 
-      //unsigned *null_u = 0;
       stk::mesh::FieldBase *spacing_field    = (do_respect_spacing? m_eMesh.get_field(stk::topology::NODE_RANK, "ref_spacing_field") : 0);
       const stk::mesh::Part *oldPart = m_eMesh.getPart(UniformRefinerPatternBase::getOldElementsPartName()+toString(m_eMesh.element_rank()));
       VERIFY_OP_ON(oldPart, !=, 0, "hmmm");
@@ -376,80 +376,23 @@
       {
         EXCEPTWATCH;
         unsigned nfr = field->restrictions().size();
-        //if (print_info) std::cout << "P[" << p_rank << "] info>    number of field restrictions= " << nfr << std::endl;
         for (unsigned ifr = 0; ifr < nfr; ifr++)
           {
             const stk::mesh::FieldRestriction& fr = field->restrictions()[ifr];
-            //mesh::Part& frpart = metaData.get_part(fr.ordinal());
             field_rank = field->entity_rank();
             fieldDim = fr.num_scalars_per_entity() ;
           }
       }
-      // FIXME for interpolation of element fields
+
       if (field_rank != stk::topology::NODE_RANK)
         {
-          if (field_rank == stk::topology::ELEMENT_RANK)
-            {
-
-            }
           return;
         }
 
       SubDimCellToDataMap::iterator iter;
 
-      if (doPrint)
-        {
-          for (iter = m_cell_2_data_map.begin(); iter != m_cell_2_data_map.end(); ++iter)
-            {
-              const SubDimCell_SDCEntityType& subDimEntity = (*iter).first;
-              SubDimCellData& nodeId_elementOwnderId = (*iter).second;
-
-              NodeIdsOnSubDimEntityType& nodeIds_onSE = nodeId_elementOwnderId.get<SDC_DATA_GLOBAL_NODE_IDS>();
-              if (nodeIds_onSE.size() == 0)
-                {
-                  continue;
-                }
-              unsigned owning_elementId = nodeId_elementOwnderId.get<SDC_DATA_OWNING_ELEMENT_KEY>().id();
-              unsigned owning_elementRank = nodeId_elementOwnderId.get<SDC_DATA_OWNING_ELEMENT_KEY>().rank();
-
-              unsigned char owning_elementSubDimOrd = nodeId_elementOwnderId.get<SDC_DATA_OWNING_SUBDIM_ORDINAL>();
-              VERIFY_OP_ON(owning_elementSubDimOrd, >, 0, "hmm 2");
-              --owning_elementSubDimOrd ;
-
-              static const SubDimCellData empty_SubDimCellData;
-
-              bool is_empty = (nodeId_elementOwnderId == empty_SubDimCellData);
-
-              if (is_empty)
-                {
-                  throw std::runtime_error("prolongate(field) empty cell found");
-                }
-
-              stk::mesh::EntityRank needed_entity_rank = stk::topology::NODE_RANK;
-              // SPECIAL CASE
-              // SPECIAL CASE
-              // SPECIAL CASE
-              if (subDimEntity.size() == 1)
-                {
-                  needed_entity_rank = stk::topology::ELEMENT_RANK;
-                  //doPrint = true;
-                  if (doPrint)
-                    {
-                      std::cout << "tmp NodeRegistry::prolongate(field) npts= " << subDimEntity.size() << " needed_entity_rank= " << needed_entity_rank
-                                << " nodeIds_onSE[0] = " << m_eMesh.identifier(nodeIds_onSE[0]) << " is valid= " << m_eMesh.is_valid(nodeIds_onSE[0])
-                                << " m_eMesh.isParentElement(element_p, false) " << m_eMesh.isParentElement(*subDimEntity.begin(), false)
-                                << " owning_elementId= " << owning_elementId
-                                << " owning_elementSubDimOrd = " << (int)owning_elementSubDimOrd
-                                << " owning_elementRank= " << owning_elementRank
-                            << std::endl;
-                    }
-                }
-            }
-        }
-
       for (iter = m_cell_2_data_map.begin(); iter != m_cell_2_data_map.end(); ++iter)
         {
-          //doPrint = false;
           const SubDimCell_SDCEntityType& subDimEntity = (*iter).first;
           if (do_respect_spacing && *subDimSize_in == 2 && subDimEntity.size() != 2)
             continue;
@@ -488,12 +431,9 @@
 
           stk::mesh::EntityRank needed_entity_rank = stk::topology::NODE_RANK;
           // SPECIAL CASE
-          // SPECIAL CASE
-          // SPECIAL CASE
           if (subDimEntity.size() == 1)
             {
               needed_entity_rank = stk::topology::ELEMENT_RANK;
-              //doPrint = true;
               if (doPrint)
                 {
                   std::cout << "tmp NodeRegistry::prolongate(field) npts= " << subDimEntity.size() << " needed_entity_rank= " << needed_entity_rank
@@ -523,7 +463,6 @@
               EXCEPTWATCH;
               {
                 SDCEntityType elementId = *subDimEntity.begin();
-                //!!element_p = get_entity_element(*m_eMesh.get_bulk_data(), stk::topology::ELEMENT_RANK, elementId);
                 element_p = elementId;
                 if (!m_eMesh.is_valid(element_p))
                   {
@@ -531,13 +470,6 @@
                   }
               }
 
-              // replaced with a check for parent/child 04/09/13 srk
-              //if (!oldPartSelector(element_p))
-              //  continue;
-              //                 if (m_eMesh.isLeafElement(element_p))
-              //                   {
-              //                     continue;
-              //                   }
               if (!m_eMesh.isParentElement(element_p, false))
                 {
                   continue;
@@ -546,11 +478,7 @@
               stk::mesh::Entity element = element_p;
               bool element_is_ghost = m_eMesh.isGhostElement(element);
               s_element_is_ghost = element_is_ghost;
-              if (element_is_ghost)
-                {
-                  //std::cout << "tmp found ghost" << std::endl;
-                }
-              else
+              if (!element_is_ghost)
                 {
                   if (doPrint)
                     {
@@ -562,8 +490,6 @@
                   nsz = npts;
                   nodes.resize(nsz, stk::mesh::Entity());
                   c_p.resize(fieldDim,0);
-                  //if (npts == 2) doPrint=true;
-                  //double dnpts = elem_nodes.size();
                   for (unsigned ipts = 0; ipts < npts; ipts++)
                     {
                       stk::mesh::Entity node = elem_nodes[ipts].entity();
@@ -617,7 +543,6 @@
             }
 
           {
-            //if ( (spacing_field && (spacing_field != field) && subDimEntity.size() == 2))
             // FIXME for quadratic elements
             if (do_respect_spacing && (nsz <= 8 && spacing_field && (spacing_field != field) ) )
               {
@@ -641,7 +566,6 @@
 
                 double spc[8][3] = {{0,0,0},{0,0,0},{0,0,0},{0,0,0},{0,0,0},{0,0,0},{0,0,0},{0,0,0}};
                 double den = 0.0;
-                // cast to suppress "set but not used warnings" from gcc 4.6.3
                 (void)den;
                 double den_xyz[3] = {0,0,0};
                 double unit_edge_vec[3] = {0,0,0};
@@ -672,14 +596,6 @@
                             spc[ipts][isp] = spc[ipts][0];
                           }
                       }
-
-                    if (0)
-                      for (ipts=0; ipts < nsz; ipts++)
-                        for (int isp = 0; isp < spatialDim; isp++)
-                          {
-                            std::cout << "y = " << coord[ipts][1] << " new spc[" << ipts << "]= " << spc[ipts][0] << std::endl;
-                          }
-
                   }
                 else
                   {
@@ -726,14 +642,10 @@
                         std::cout << m_eMesh.rank() << " bad node found 2.0 node= " << node << std::endl;
                         VERIFY_MSG("prolongate(field): bad node found 2.0");
                       }
-                    //double *  coord = m_eMesh.field_data(field, *node, null_u);
                     double *  field_data = m_eMesh.field_data_inlined(field, node);
 
                     if (doPrint && field_data)
                       {
-                        //const CellTopologyData * const cell_topo_data = m_eMesh.get_cell_topology(element);
-                        //CellTopology cell_topo(cell_topo_data);
-
                         std::cout << "tmp NodeRegistry::prolongate(field) npts= " << subDimEntity.size() << " ipts= " << ipts
                                   << " field_data= " << field_data[0] << " " << field_data[1] << " " << field_data[2] << std::endl;
                       }
@@ -754,7 +666,6 @@
           {
             EXCEPTWATCH;
 
-            //double *  c_coord = m_eMesh.field_data(field, *c_node, null_u);
             double *  c_coord = m_eMesh.field_data_inlined(field, c_node);
 
             if (c_coord)
@@ -768,11 +679,7 @@
                   {
                     std::cout << "tmp NodeRegistry::prolongate(field) for node= " << m_eMesh.identifier(c_node) << " c_coord= " << c_coord[0] << " " << c_coord[1]
                               << " " << (fieldDim == 3 ? c_coord[2] : 0) << " " << m_eMesh.print_entity_compact(c_node) << std::endl;
-                    //std::cout << "tmp NodeRegistry::prolongate(field) for node= " << m_eMesh.identifier(c_node) << " c_coord= " << c_coord[0];
-                    //m_eMesh.print(c_node);
                   }
-
-
               }
           }
         }
@@ -835,8 +742,6 @@
                         {
                           std::cout << "tmp NodeRegistry::prolongate(field) for node= " << m_eMesh.identifier(c_node) << " c_coord= " << c_coord[0] << " " << c_coord[1]
                                     << " " << (fieldDim == 3 ? c_coord[2] : 0) << " " << m_eMesh.print_entity_compact(c_node) << std::endl;
-                          //std::cout << "tmp NodeRegistry::prolongate(field) for node= " << m_eMesh.identifier(c_node) << " c_coord= " << c_coord[0];
-                          //m_eMesh.print(c_node);
                         }
                     }
               }
@@ -884,7 +789,6 @@
           if ( stk::mesh::is_auto_declared_part(*part) )
             continue;
 
-          //bool doThisPart = (block_names_ranks[stk::topology::ELEMENT_RANK].size() == 0);
           bool doThisPart = false;
 
           if (!doThisPart)
@@ -933,7 +837,6 @@
             }
           if (doThisPart)
             {
-              //std::cout << "tmp srk rbar part = " << part->name() << std::endl;
               rbar_parts.insert(part);
             }
         }
@@ -968,7 +871,6 @@
             std::cout << "P[" << m_eMesh.get_rank() << "] Info: Adding rbar elements as requested by user for block[" << ipart << "]= " << part.name()
                       << "\n  NOTE:  This block is automatically ignored during refinement."
                       << std::endl;
-          //std::string part_name = part.name();
 
           if (stk::mesh::is_auto_declared_part(part))
             continue;
@@ -989,25 +891,14 @@
               SubDimCellData& nodeId_elementOwnderId = (*iter).second;
 
               NodeIdsOnSubDimEntityType& nodeIds_onSE = nodeId_elementOwnderId.get<SDC_DATA_GLOBAL_NODE_IDS>();
-              //std::cout << "P[" << p_rank << "] info>     Part[" << ipart << "]= " << part.name()
-              //              << " topology = " << (topology?shards::CellTopology(topology).getName():"null")
-              //              << std::endl;
 
               bool found = false;
-              //stk::mesh::EntityRank needed_entity_rank = stk::topology::NODE_RANK;
-              //
+
               // SPECIAL CASE
-              // SPECIAL CASE
-              // SPECIAL CASE
-              //
               if( subDimEntity.size() == 1)
                 {
-                  //needed_entity_rank = stk::topology::ELEMENT_RANK;
                   continue;
                 }
-
-              //if (subDimEntity.size() == 2) // skip beams  FIXME - need topology
-              //  continue;
 
               // Step 2. for all nodes of this pseudo face/edge...
               stk::mesh::Entity common_node;
@@ -1099,8 +990,8 @@
             } // m_cell_2_data_map iter
 
           // create new beam elements, add to part
-	  unsigned num_new_elems = new_elems.size();
-	  stk::all_reduce( m_eMesh.parallel(), stk::ReduceSum<1>( &num_new_elems ) );
+          unsigned num_new_elems = new_elems.size();
+          stk::all_reduce( m_eMesh.parallel(), stk::ReduceSum<1>( &num_new_elems ) );
           if (num_new_elems)
             {
               if (DEBUG_ADD_RBARS && !m_eMesh.get_rank())
@@ -1123,14 +1014,12 @@
                   if (DEBUG_ADD_RBARS > 1 && !m_eMesh.get_rank())
                     {
                       std::cout << "P[" << m_eMesh.get_rank() << "] adding rbar<" << new_elem.first << ", " << new_elem.second << "> to   Part[" << ipart << "]= " << part.name()
-                        //<< " topology = " << (topology ? shards::CellTopology(topology).getName() : "null")
                                 << std::endl;
                     }
                 }
             }
         }
       if (DEBUG_ADD_RBARS) std::cout << "tmp add_rbars " << std::endl;
-
     }
 
     void NodeRegistry::init_comm_all()
@@ -1198,7 +1087,6 @@
                 continue;
               }
               stk::mesh::EntityId id_check = m_eMesh.identifier(nodeIds_onSE[inode]);
-              //VERIFY_OP_ON(id_check, ==, id, "NodeRegistry::clear_dangling_nodes id");
               if (id != id_check)
                 continue;
 
@@ -1379,8 +1267,6 @@
 
       if (CHECK_DB) checkDB("endRegistration");
 
-      //communicate_marks();
-
       removeUnmarkedSubDimEntities();
 
       if (CHECK_DB) checkDB("endRegistration - after removeUnmarkedSubDimEntities");
@@ -1420,10 +1306,6 @@
       m_state = NRS_START_CHECK_FOR_REMOTE;
       if (m_debug)
         std::cout << "P[" << m_eMesh.get_rank() << "] tmp NodeRegistry::beginCheckForRemote " << std::endl;
-
-      //stk::mesh::par_verify_print_comm_list( *m_eMesh.get_bulk_data(), true, "beginCheckForRemote");
-
-
     }
 
     void NodeRegistry::
@@ -1454,10 +1336,8 @@
       m_state = NRS_START_GET_FROM_REMOTE;
       if (m_debug)
         std::cout << "P[" << m_eMesh.get_rank() << "] tmp NodeRegistry::beginGetFromRemote  " << std::endl;
-
-      //stk::mesh::par_verify_print_comm_list( *m_eMesh.get_bulk_data(), true, "beginGetFromRemote");
-
     }
+
     void NodeRegistry::
     endGetFromRemote(int ireg, int nreg)
     {
@@ -1476,8 +1356,6 @@
 
       if (m_useCustomGhosting)
         {
-          //stk::mesh::Ghosting & ghosting = m_eMesh.get_bulk_data()->create_ghosting( std::string("new_nodes")+toString(ireg) );
-
           // make sure all is cleaned up with the end/begin cycle
           if (m_ghosting)
             {
@@ -1516,14 +1394,15 @@
 
       if (m_useAddNodeSharing)
         {
+          bool dbg=false;
           size_t old_size = m_nodes_to_ghost.size();
           std::sort(m_nodes_to_ghost.begin(), m_nodes_to_ghost.end());
           stk::mesh::EntityProcVec::iterator del = std::unique(m_nodes_to_ghost.begin(), m_nodes_to_ghost.end());
           m_nodes_to_ghost.resize(std::distance(m_nodes_to_ghost.begin(), del));
           size_t new_size = m_nodes_to_ghost.size();
-          if (0) std::cout << "P[" << m_eMesh.get_rank() << "] old_size= " << old_size << " new_size= " << new_size << std::endl;
+          if (dbg) std::cout << "P[" << m_eMesh.get_rank() << "] old_size= " << old_size << " new_size= " << new_size << std::endl;
 
-          if (0)
+          if (dbg)
             {
               std::ostringstream sout;
               sout << "P[" << m_eMesh.get_rank() << "] ghost list (entity,proc)= ";
@@ -1533,29 +1412,30 @@
                 }
               std::cout << sout.str() << std::endl;
             }
-          MPI_Barrier( MPI_COMM_WORLD );
 
           for (size_t ii=0; ii < m_nodes_to_ghost.size(); ++ii)
             {
               int proc = m_nodes_to_ghost[ii].second;
-              //if (proc != m_eMesh.get_rank() && m_eMesh.get_bulk_data()->state(m_nodes_to_ghost[ii].first) == stk::mesh::Created)
               if (proc != m_eMesh.get_rank())
                 {
                   if (m_eMesh.bucket(m_nodes_to_ghost[ii].first).shared())
                     {
-                      if (0) std::cout << "error already in P(" << m_eMesh.get_rank() << ", " << proc << ", " << m_eMesh.identifier(m_nodes_to_ghost[ii].first) << std::endl;
+                      if (dbg) std::cout << m_eMesh.rank() << " ANS: error already in P(" << m_eMesh.get_rank() << ", " << proc << ", " << m_eMesh.identifier(m_nodes_to_ghost[ii].first) << std::endl;
                     }
                   else
                     {
-                      if (0) std::cout << "P(" << m_eMesh.get_rank() << ", " << proc << ", " << m_eMesh.identifier(m_nodes_to_ghost[ii].first) << std::endl;
+                      if (dbg)
+                        std::cout << "P(" << m_eMesh.get_rank() << "] ANS: add_node_sharing " << proc << ", " << m_eMesh.identifier(m_nodes_to_ghost[ii].first)
+                                  << " O: " << m_eMesh.owner_rank(m_nodes_to_ghost[ii].first)
+                                  <<  m_eMesh.print_entity_parts_string(m_nodes_to_ghost[ii].first)
+                                  << std::endl;
+
                       m_eMesh.get_bulk_data()->add_node_sharing(m_nodes_to_ghost[ii].first, m_nodes_to_ghost[ii].second);
                     }
                 }
             }
 
           do_add_node_sharing_comm();
-
-          setAllReceivedNodeData();
         }
 
       failed = 0;
@@ -1566,7 +1446,7 @@
 
       if (CHECK_DB) checkDB("endGetFromRemote after mod end");
 
-      if (m_useCustomGhosting)
+      if (m_useCustomGhosting || m_useAddNodeSharing)
         {
           m_eMesh.get_bulk_data()->modification_begin();
           setAllReceivedNodeData();
@@ -1579,12 +1459,7 @@
       if (m_debug)
         std::cout << "P[" << m_eMesh.get_rank() << "] tmp NodeRegistry::endGetFromRemote end " << std::endl;
 
-        MPI_Barrier( MPI_COMM_WORLD );
-
       m_state = NRS_END_GET_FROM_REMOTE;
-
-      //void verify_parallel_consistency(bool requireMarks, bool requireNodeIds, bool requireNodes, bool requireSubDimExists);
-      //verify_parallel_consistency(true, true, true, false);
     }
 
     void NodeRegistry::setAllReceivedNodeData()
@@ -1617,7 +1492,7 @@
                 }
               else
                 {
-                  stk::mesh::Entity node = get_entity_node_I(*m_eMesh.get_bulk_data(), stk::topology::NODE_RANK, nodeIds_onSE.m_entity_id_vector[ii]);  // FIXME
+                  stk::mesh::Entity node = get_entity(*m_eMesh.get_bulk_data(), stk::topology::NODE_RANK, nodeIds_onSE.m_entity_id_vector[ii]);
                   if (!m_eMesh.is_valid(node))
                     {
                       stk::mesh::EntityId db_id = nodeId_elementOwnderId.get<SDC_DATA_OWNING_ELEMENT_KEY>().id();
@@ -1635,68 +1510,140 @@
 
     void NodeRegistry::do_add_node_sharing_comm()
     {
+      bool dbg=false;
+
+      typedef std::map<stk::mesh::EntityId, std::set<int> > EntitySharedProcsMap;
+      EntitySharedProcsMap entityIdToSharedProcs;
+
+      for (size_t ii=0; ii < m_nodes_to_ghost.size(); ++ii)
+        {
+          int proc = m_nodes_to_ghost[ii].second;
+          if (proc != m_eMesh.get_rank())
+            {
+              std::set<int>& procs = entityIdToSharedProcs[m_eMesh.id(m_nodes_to_ghost[ii].first)];
+              procs.insert(proc);
+            }
+        }
+
       stk::mesh::PartVector empty_parts, add_sharing_part;
       stk::mesh::Part& nodePart = m_eMesh.get_fem_meta_data()->get_cell_topology_root_part(stk::mesh::get_cell_topology(stk::topology::NODE));
       add_sharing_part.push_back(&nodePart);
+      stk::mesh::Part* new_nodes_part = m_eMesh.get_non_const_part("refine_new_nodes_part");
 
-      stk::CommAll comm_all(m_eMesh.parallel());
-      unsigned proc_rank = comm_all.parallel_rank();
-      unsigned proc_size = comm_all.parallel_size();
+      VERIFY_OP_ON(new_nodes_part, !=, 0, "new_nodes_part");
+      add_sharing_part.push_back(new_nodes_part);
+
+      stk::CommSparse comm_sparse(m_eMesh.parallel());
+      unsigned proc_rank = comm_sparse.parallel_rank();
+      unsigned proc_size = comm_sparse.parallel_size();
 
       for (int stage=0; stage < 2; ++stage)
         {
-          for (size_t ii=0; ii < m_nodes_to_ghost.size(); ++ii)
+          for (auto& iter : entityIdToSharedProcs)
             {
-              int proc = m_nodes_to_ghost[ii].second;
-              if (proc != m_eMesh.get_rank())
+              const stk::mesh::EntityId entity_id = iter.first;
+              VERIFY_OP_ON(entity_id, !=, 0, "bad entity_id");
+              std::set<int>& procs = iter.second;
+              for (auto& proc : procs)
                 {
-                  comm_all.send_buffer( proc ).pack< stk::mesh::EntityId > (m_eMesh.identifier(m_nodes_to_ghost[ii].first));
+                  VERIFY_OP_ON (proc, !=, m_eMesh.get_rank(), "bad proc");
+                  {
+                    comm_sparse.send_buffer( proc ).pack< stk::mesh::EntityId > (entity_id);
+                    comm_sparse.send_buffer( proc ).pack< size_t > (procs.size() - 1);
+                    size_t cnt = 0;
+                    for (auto& procj : procs)
+                      {
+                        if (procj == proc) continue;
+                        comm_sparse.send_buffer( proc ).pack< int > (procj);
+                        ++cnt;
+                      }
+                    VERIFY_OP_ON(cnt, ==, procs.size() - 1, "bad cnt");
+                  }
                 }
             }
           if (stage == 0)
             {
-              bool local = true;
-              unsigned num_msg_bounds = proc_size < 4 ? proc_size : proc_size/4 ;
-              bool global = comm_all.allocate_buffers(num_msg_bounds , false, local );
-              VERIFY_OP_ON(global, ==, true, "comm error");
+              comm_sparse.allocate_buffers();
             }
           else
             {
-              comm_all.communicate();
+              if (dbg)
+                {
+                  std::ostringstream str;
+                  str << m_eMesh.rank() << " buf:";
+                  for (int ip=0; ip < m_eMesh.get_parallel_size(); ++ip)
+                    {
+                      if (ip == m_eMesh.get_rank()) continue;
+                      str << "\np: " << ip << " sz: " << comm_sparse.send_buffer(ip).size();
+                    }
+                  std::cout << str.str() << std::endl;
+                }
+              comm_sparse.communicate();
             }
         }
 
+      stk::mesh::EntityVector new_nodes_list;
+      std::ostringstream str;
+      if (dbg) str << m_eMesh.rank() << " recvbuf:";
       for(unsigned from_proc = 0; from_proc < proc_size; ++from_proc )
         {
           if (from_proc == proc_rank)
             continue;
-          stk::CommBuffer & recv_buffer = comm_all.recv_buffer( from_proc );
+          stk::CommBuffer & recv_buffer = comm_sparse.recv_buffer( from_proc );
+          if (dbg)
+            {
+              str << "\np: " << from_proc << " sz: " << recv_buffer.size();
+            }
 
           while ( recv_buffer.remaining() )
             {
-              stk::mesh::EntityId id;
+              stk::mesh::EntityId id = 0;
               recv_buffer.unpack< stk::mesh::EntityId >( id );
+              size_t nprocs = 0;
+              recv_buffer.unpack<size_t>(nprocs);
 
+              VERIFY_OP_ON(id, !=, 0, "bad id in do_add_node_sharing_comm");
               stk::mesh::Entity node = m_eMesh.get_bulk_data()->get_entity(m_eMesh.node_rank(), id);
-              if (m_eMesh.is_valid(node))
-                {
-                  // std::cout << "already exists: U(" << from_proc << ", " << m_eMesh.get_rank() << ", " << m_eMesh.identifier(node) << std::endl;
-                  // throw std::runtime_error("already exists");
-                }
-              else
+              if (!m_eMesh.is_valid(node))
                 {
                   node = m_eMesh.get_bulk_data()->declare_entity(m_eMesh.node_rank(), id, add_sharing_part);
-                }
-              if (m_eMesh.bucket(node).shared())
-                {
-                  if (0) std::cout << "error already in U(" << from_proc << ", " << m_eMesh.get_rank() << ", " << m_eMesh.identifier(node) << std::endl;
-                }
-              else
-                {
-                  m_eMesh.get_bulk_data()->add_node_sharing(node, from_proc);
+                  new_nodes_list.push_back(node);
                 }
 
-              if (0) std::cout << "U(" << from_proc << ", " << m_eMesh.get_rank() << ", " << m_eMesh.identifier(node) << std::endl;
+                {
+                  m_eMesh.get_bulk_data()->add_node_sharing(node, from_proc);
+                  if (dbg) std::cout << m_eMesh.rank() <<  " DANS: U(" << from_proc << ", " << m_eMesh.identifier(node) << " "
+                                     <<  m_eMesh.print_entity_parts_string(node)
+                                     << std::endl;
+                  for (unsigned iproc = 0; iproc < nprocs; ++iproc)
+                    {
+                      int proc2 = -1;
+                      recv_buffer.unpack<int>(proc2);
+                      if (dbg)
+                        std::cout << m_eMesh.rank() <<  " DANS: UV(" << proc2 << ", " << m_eMesh.identifier(node) << " "
+                                  << std::endl;
+                      m_eMesh.get_bulk_data()->add_node_sharing(node, proc2);
+                    }
+                }
+            }
+        }
+      if (dbg) std::cout << str.str() << std::endl;
+
+      // set new nodes field
+      if (m_eMesh.m_new_nodes_field)
+        {
+          stk::mesh::Part* refine_new_nodes_part = m_eMesh.get_non_const_part("refine_new_nodes_part");
+          VERIFY_OP_ON(refine_new_nodes_part, !=, 0, "bad refine_new_nodes_part");
+
+          std::vector<stk::mesh::Part*> add_parts(1, refine_new_nodes_part);
+          std::vector<stk::mesh::Part*> remove_parts;
+
+          for (auto& node : new_nodes_list)
+            {
+              m_eMesh.get_bulk_data()->change_entity_parts( node, add_parts, remove_parts );
+              NewNodesType_type *ndata = stk::mesh::field_data(*m_eMesh.m_new_nodes_field, node);
+              VERIFY_OP_ON(ndata, !=, 0, "bad new_nodes");
+              ndata[0] = static_cast<NewNodesType_type>(1);
             }
         }
     }
@@ -1712,7 +1659,6 @@
       for (iter = m_cell_2_data_map.begin(); iter != m_cell_2_data_map.end(); ++iter)
         {
           SubDimCellData& nodeId_elementOwnderId = (*iter).second;
-          //const SubDimCell_SDCEntityType& subDimEntity = (*iter).first;
           NodeIdsOnSubDimEntityType& nodeIds_onSE = nodeId_elementOwnderId.get<SDC_DATA_GLOBAL_NODE_IDS>();
           if (debug) std::cout << "tmp SRK nodeIds_onSE.size= " << nodeIds_onSE.size() << std::endl;
           if (nodeIds_onSE.size())
@@ -1740,7 +1686,7 @@
                         }
                     }
 
-                  if (debug) // && m_eMesh.identifier(nodeIds_onSE[0]) == 37)
+                  if (debug)
                     std::cout << "P[" << m_eMesh.get_rank() << " removeUnmarkedSubDimEntities:: tmp SRK for node= " << m_eMesh.identifier(nodeIds_onSE[0])  << " FOUND mark = " << mark
                               << " NR_MARK =" << NR_MARK << " NR_MARK_NONE= " << NR_MARK_NONE
                               << " resize to 0 (delete unmarked entity) = " << (!found)
@@ -1771,8 +1717,6 @@
       putInMap(subDimEntity, data);
     }
 
-    //bool is_empty( const stk::mesh::Entity element, stk::mesh::EntityRank needed_entity_rank, unsigned iSubDimOrd);
-
     static bool isSame(PerceptMesh& eMesh, SubDimCell_SDCEntityType& subDimEntity, std::vector<stk::mesh::EntityId>& vids)
     {
       if (subDimEntity.size() != vids.size())
@@ -1784,6 +1728,7 @@
         }
       return true;
     }
+
     /// Register the need for a new node on the sub-dimensional entity @param subDimEntity on element @param element.
     /// If the element is a ghost element, the entity is still registered: the locality/ownership of the new entity
     /// can be determined by the locality of the element (ghost or not).
@@ -1794,17 +1739,6 @@
       bool foundGhostNode = getSubDimEntity(subDimEntity, element, needed_entity_rank.first, iSubDimOrd, bucket_topo_data);
       if (foundGhostNode)
         return ret_val;
-
-      // if (m_eMesh.topology(element) == stk::topology::WEDGE_6 && needed_entity_rank.first == m_eMesh.side_rank() && iSubDimOrd >= 3)
-      //   {
-      //     //needNodes = false;
-      //     return false;
-      //   }
-      // if (m_eMesh.topology(element) == stk::topology::PYRAMID_5 && needed_entity_rank.first == m_eMesh.side_rank() && iSubDimOrd <= 3)
-      //   {
-      //     //needNodes = false;
-      //     return false;
-      //   }
 
       static SubDimCellData empty_SubDimCellData;
 
@@ -1857,9 +1791,6 @@
       ///
       if (is_empty || is_not_empty_but_data_cleared || should_put_in)
         {
-          // new SubDimCellData SDC_DATA_OWNING_ELEMENT_KEY
-          // CHECK
-
           // create SubDimCellData for the map rhs
           // add one to iSubDimOrd for error checks later
           VERIFY_OP_ON(m_eMesh.identifier(element), !=, 0, "hmmm registerNeedNewNode #1");
@@ -1868,18 +1799,6 @@
             {
               unsigned numNewNodes = needed_entity_rank.second;
 
-#if 0
-              NodeIdsOnSubDimEntityType nid_new(numNewNodes, stk::mesh::Entity(), smark);
-              if (needNodes)
-                nid_new.m_mark |= NR_MARK;
-              else
-                nid_new.m_mark |= NR_MARK_NONE;
-
-              smark = nid_new.m_mark;
-
-              //nid_new.m_is_remotely_shared = false;
-              SubDimCellData data(nid_new, stk::mesh::EntityKey(m_eMesh.entity_rank(element), m_eMesh.identifier(element)), needed_entity_rank.first, iSubDimOrd+1 );
-#else
               SubDimCellData data( NodeIdsOnSubDimEntityType(numNewNodes, stk::mesh::Entity(), smark),
                                    stk::mesh::EntityKey(m_eMesh.entity_rank(element), m_eMesh.identifier(element)), needed_entity_rank.first, iSubDimOrd+1 );
               NodeIdsOnSubDimEntityType& nid_new = data.get<SDC_DATA_GLOBAL_NODE_IDS>();
@@ -1889,8 +1808,6 @@
                 nid_new.m_mark |= NR_MARK_NONE;
 
               smark = nid_new.m_mark;
-
-#endif
               putInMap(subDimEntity,  data);
             }
           else
@@ -1898,14 +1815,12 @@
               stk::mesh::Entity owning_element = m_eMesh.get_entity(db_rank, db_id);
               VERIFY_OP_ON(m_eMesh.is_valid(owning_element), ==, true, "hmmm");
               NodeIdsOnSubDimEntityType& nid = nodeId_elementOwnderId.get<SDC_DATA_GLOBAL_NODE_IDS>();
-              //nid.m_is_remotely_shared = m_eMesh.isGhostElement(element) != m_eMesh.isGhostElement(owning_element);
-              //putInMap(subDimEntity, SubDimCellData(nid, stk::mesh::EntityKey(m_eMesh.entity_rank(element), m_eMesh.identifier(element)), needed_entity_rank.first, iSubDimOrd+1 ));
               m_cell_2_data_map[subDimEntity] = SubDimCellData(nid, stk::mesh::EntityKey(m_eMesh.entity_rank(element), m_eMesh.identifier(element)), needed_entity_rank.first, iSubDimOrd+1 );
             }
           ret_val = true;
         }
 
-      if (debug) // || (m_eMesh.identifier(subDimEntity[0]) == 13 && m_eMesh.identifier(subDimEntity[1]) == 14))
+      if (debug)
         {
           SubDimCellData* a_nodeId_elementOwnderId_ptr = getFromMapPtr(subDimEntity);
           SubDimCellData& a_nodeId_elementOwnderId = (a_nodeId_elementOwnderId_ptr ? *a_nodeId_elementOwnderId_ptr : empty_SubDimCellData);
@@ -1917,7 +1832,6 @@
           sout << "P[" << m_eMesh.get_rank() << "] registerNeedNewNode:: element= " << m_eMesh.identifier(element) << " nidSize= " << nidSize
                << " nid= " << (nidSize ? (int)m_eMesh.identifier(nodeId_elementOwnderId.get<SDC_DATA_GLOBAL_NODE_IDS>()[0]) : -1);
 
-          //m_eMesh.print(sout, element,false,true);
           sout << " smark= " << smark << " gotMark= " << gotMark << " needNodes= " << needNodes << " isG= " << m_eMesh.isGhostElement(element)
                << " is_empty= " << is_empty
                << " a_is_empty= " << a_is_empty
@@ -2015,14 +1929,13 @@
             }
         }
 
-      if (1 | DEBUG_NR_DEEP) // && (m_eMesh.identifier(subDimEntity[0]) == 19 && m_eMesh.identifier(subDimEntity[1]) == 20))
+      if (1 | DEBUG_NR_DEEP)
         {
           unsigned& gotMark = nodeId_elementOwnderId.get<SDC_DATA_GLOBAL_NODE_IDS>().m_mark;
           unsigned nidSize = nodeId_elementOwnderId.get<SDC_DATA_GLOBAL_NODE_IDS>().size();
 
           stk::mesh::EntityId nid = (nidSize ? m_eMesh.identifier(nodeId_elementOwnderId.get<SDC_DATA_GLOBAL_NODE_IDS>()[0]) : 0);
           stk::mesh::EntityId nid0 = (nidSize ? nodeId_elementOwnderId.get<SDC_DATA_GLOBAL_NODE_IDS>().m_entity_id_vector[0] : 0);
-          //bool is_remotely_shared = nodeId_elementOwnderId.get<SDC_DATA_GLOBAL_NODE_IDS>().m_is_remotely_shared;
           std::ostringstream sout;
           sout << "P[" << m_eMesh.get_rank() << "] query:: " << msg << " info= " << Util::getInfo()
                << " element= " << m_eMesh.identifier(element) << " iSubDimOrd= " << iSubDimOrd;
@@ -2040,11 +1953,10 @@
           stk::mesh::EntityId db_id = nodeId_elementOwnderId.get<SDC_DATA_OWNING_ELEMENT_KEY>().id();
           stk::mesh::EntityId db_rank = nodeId_elementOwnderId.get<SDC_DATA_OWNING_ELEMENT_KEY>().rank();
           sout << " db_id= " << db_id << " db_rank= " << db_rank;
-            //<< " is_remotely_shared= " << is_remotely_shared;
+
           if (nid > 0)
             {
               sout << " get_entity(nid).is_valid = " << m_eMesh.is_valid( m_eMesh.get_bulk_data()->get_entity(stk::topology::NODE_RANK, nid));
-              //sout << " entity_id_from_vec = " << nid0;
             }
 
           sout << " smark= " << smark << " gotMark= " << gotMark
@@ -2064,7 +1976,7 @@
         }
     }
 
-    /// Replace element ownership - FIXME for parallel
+    /// Replace element ownership
     /// When remeshing during unrefinement, replace ownership of sub-dim entities by non-deleted elements
     bool NodeRegistry::replaceElementOwnership(const stk::mesh::Entity element, NeededEntityType& needed_entity_rank, unsigned iSubDimOrd, bool needNodes_notUsed,const CellTopologyData * const bucket_topo_data)
     {
@@ -2271,7 +2183,6 @@
                       throw std::logic_error("NodeRegistry::checkForRemote logic err #0.2");
                     }
 
-                  //stk::mesh::Entity new_node = get_entity_node_Ia(*m_eMesh.get_bulk_data(), Node, nodeIds_onSE, iid);
                   stk::mesh::Entity new_node = nodeIds_onSE[iid];
                   if (!m_eMesh.is_valid(new_node))
                     {
@@ -2311,7 +2222,6 @@
     void NodeRegistry::prolongateCoordsAllSubDims(stk::mesh::Entity element)
     {
       const CellTopologyData * const element_topo_data = m_eMesh.get_cell_topology(m_eMesh.bucket(element));
-      //shards::CellTopology cell_topo(element_topo_data);
 
       this->prolongateCoords(element, m_eMesh.element_rank(), 0);
       for (unsigned iedge=0; iedge < element_topo_data->edge_count; ++iedge)
@@ -2415,8 +2325,6 @@
 
     void NodeRegistry::prolongateField(const stk::mesh::Entity element,  stk::mesh::EntityRank needed_entity_rank, unsigned iSubDimOrd, stk::mesh::FieldBase *field)
     {
-      //EXCEPTWATCH;
-
       int spatialDim = m_eMesh.get_spatial_dim();
       stk::mesh::EntityRank field_rank = stk::topology::NODE_RANK;
       {
@@ -2463,7 +2371,6 @@
       NodeIdsOnSubDimEntityType& nodeIds_onSE = nodeId_elementOwnderId.get<SDC_DATA_GLOBAL_NODE_IDS>();
       if (nodeIds_onSE.size() != 1)
         {
-          //std::cout << "error: needed_entity_rank= " << needed_entity_rank << " iSubDimOrd= " << iSubDimOrd << std::endl;
           if (nodeIds_onSE.size() > 1)
             throw std::logic_error("logic error: prolongateField not ready for multiple nodes, or there are 0 nodes on the marked quantity");
           return;
@@ -2794,7 +2701,6 @@
                 }
             }
         }
-      //std::cout << "tmp addToExistingPartsNew...done " << std::endl;
     }
 
     void NodeRegistry::
@@ -2960,8 +2866,6 @@
 
     //========================================================================================================================
     // low-level interface
-    // FIXME
-
     void NodeRegistry::checkDB(std::string msg)
     {
       if (0)
@@ -3148,7 +3052,7 @@
                   VERIFY_OP_ON(m_eMesh.identifier(node_0), ==, nodeId, "checkDB #11.4 "+msg);
                 }
             }
-          if (m_eMesh.get_rank()==0) 
+          if (m_eMesh.get_rank()==0)
             std::cout << "P[" << m_eMesh.get_rank() << "] NodeRegistry::checkDB end msg= " << msg << std::endl;
         }
 
@@ -3338,7 +3242,6 @@
       if (m_useCustomGhosting || m_useAddNodeSharing)
         {
           m_eMesh.createEntities( stk::topology::NODE_RANK, num_nodes_needed, new_nodes);
-          //m_eMesh.createNodes( num_nodes_needed, new_nodes);
         }
 
       std::vector<stk::mesh::EntityId> ids(num_nodes_needed);
@@ -3468,41 +3371,7 @@
       SubDimCellData& subDimCellData = getNewNodeAndOwningElement(subDimEntity);
       NodeIdsOnSubDimEntityType& nodeIds_onSE_existing = subDimCellData.get<SDC_DATA_GLOBAL_NODE_IDS>();
       nodeIds_onSE.m_mark |= nodeIds_onSE_existing.m_mark;
-      //nodeIds_onSE.m_is_remotely_shared = nodeIds_onSE_existing.m_is_remotely_shared;
       subDimCellData.get<SDC_DATA_GLOBAL_NODE_IDS>() = nodeIds_onSE;
-
-      //#ifndef NDEBUG
-#if 0
-      stk::mesh::EntityId owning_element_id = subDimCellData.get<SDC_DATA_OWNING_ELEMENT_KEY>().id();
-      stk::mesh::EntityRank owning_element_rank = subDimCellData.get<SDC_DATA_OWNING_ELEMENT_KEY>().rank();
-
-      bool cond = (owning_element_rank == non_owning_elementRank) && (owning_element_id == non_owning_elementId);
-      cond = true;
-      if (cond)
-        {
-          NR_PRINT(owning_element_id);
-          NR_PRINT(non_owning_elementId);
-          NR_PRINT(owning_element_rank);
-
-          {
-            std::cout << "P[" << m_eMesh.get_rank() << "] unpacking edge, from_proc= " << from_proc
-                      << " with new node.size= " << nodeIds_onSE.size() << " id(node)= " << m_eMesh.identifier(nodeIds_onSE[0])
-                      << " buffer_entry= " << buffer_entry
-                      << " new node id= " << nodeIds_onSE.m_entity_id_vector[0]
-                      << " is_valid(nid) = " << m_eMesh.is_valid(m_eMesh.get_bulk_data()->get_entity(0, nodeIds_onSE.m_entity_id_vector[0]))
-                      << " owning_element_id= " << owning_element_id << " owning_element_rank= " << owning_element_rank
-                      << " SDC.id= " << subDimCellData.get<SDC_DATA_GLOBAL_NODE_IDS>().m_entity_id_vector[0]
-                      << " subdim.size()= " << subDimEntity.size()
-                      << " edge= " << m_eMesh.identifier(subDimEntity[0])
-                      << " " << m_eMesh.identifier(subDimEntity[1])
-                      << std::endl;
-          }
-          VERIFY_OP(owning_element_id, !=, non_owning_elementId, "createNodeAndConnect:: bad elem ids");
-          VERIFY_OP(owning_element_id, !=, non_owning_elementId, "createNodeAndConnect:: bad elem ids");
-          VERIFY_OP(owning_element_id, < , non_owning_elementId, "createNodeAndConnect:: bad elem ids 2");
-        }
-#endif
-
     }
 
     // remove any sub-dim entities from the map that have a node in deleted_nodes
@@ -3735,521 +3604,5 @@
       return mem;
     }
 
-    void NodeRegistry::communicate_marks()
-    {
 
-      // stage 1: send my mark to owning element
-      {
-        stk::CommAll commAll (m_eMesh.parallel());
-
-        communicate_marks_pack(commAll);
-
-        {
-          unsigned proc_size = commAll.parallel_size();
-          unsigned proc_rank = commAll.parallel_rank();
-
-          bool local = true;
-          unsigned num_msg_bounds = proc_size < 4 ? proc_size : proc_size/4 ;
-          bool global = commAll.allocate_buffers(num_msg_bounds , false, local );
-          if ( not global )
-            {
-              std::cout << "P[" << proc_rank << "] : not global" << std::endl;
-            }
-        }
-
-        communicate_marks_pack(commAll);
-        commAll.communicate();
-        communicate_marks_unpack(commAll, true);
-      }
-
-      // stage 2: send mark back to non-owning elements after accumulating
-      {
-        stk::CommAll commAll (m_eMesh.parallel());
-
-        communicate_marks_pack_stage_2(commAll);
-
-        {
-          unsigned proc_size = commAll.parallel_size();
-          unsigned proc_rank = commAll.parallel_rank();
-
-          bool local = true;
-          unsigned num_msg_bounds = proc_size < 4 ? proc_size : proc_size/4 ;
-          bool global = commAll.allocate_buffers(num_msg_bounds , false, local );
-          if ( not global )
-            {
-              std::cout << "P[" << proc_rank << "] : not global" << std::endl;
-            }
-        }
-
-        communicate_marks_pack_stage_2(commAll);
-        commAll.communicate();
-        communicate_marks_unpack(commAll, false);
-      }
-
-    }
-
-    void NodeRegistry::communicate_marks_pack(stk::CommAll& commAll)
-    {
-      CommDataType buffer_entry;
-
-      // stage 1: send my mark to owning element
-
-      SubDimCellToDataMap& map = m_cell_2_data_map;
-
-      for (SubDimCellToDataMap::iterator iter = map.begin(); iter != map.end(); ++iter)
-        {
-          //const SubDimCell_SDCEntityType& subDimEntity = (*iter).first;
-          SubDimCellData& nodeId_elementOwnderId = (*iter).second;
-
-          stk::mesh::EntityRank owning_element_rank= nodeId_elementOwnderId.get<SDC_DATA_OWNING_ELEMENT_KEY>().rank();
-          stk::mesh::EntityId owning_element_id = nodeId_elementOwnderId.get<SDC_DATA_OWNING_ELEMENT_KEY>().id();
-          stk::mesh::EntityRank owning_element_subDim_rank = static_cast<stk::mesh::EntityRank>(nodeId_elementOwnderId.get<SDC_DATA_OWNING_SUBDIM_RANK>());
-          unsigned owning_element_subDim_ordinal = nodeId_elementOwnderId.get<SDC_DATA_OWNING_SUBDIM_ORDINAL>();
-          VERIFY_OP_ON(owning_element_subDim_ordinal, !=, 0, "hmmm");
-          --owning_element_subDim_ordinal;
-
-          NodeIdsOnSubDimEntityType& nodeIds_onSE = nodeId_elementOwnderId.get<SDC_DATA_GLOBAL_NODE_IDS>();
-
-          if (nodeIds_onSE.size())
-            {
-              unsigned mark = nodeIds_onSE.m_mark;
-              unsigned is_marked = mark & NR_MARK;
-              unsigned is_not_marked = mark & NR_MARK_NONE;
-              // only need to send if it's got non-zero mark info
-              if (is_marked || is_not_marked)
-                {
-
-                  stk::mesh::Entity owning_element = m_eMesh.get_bulk_data()->get_entity(owning_element_rank, owning_element_id);
-                  VERIFY_OP_ON(m_eMesh.is_valid(owning_element), ==, true, "not valid");
-
-                  // I'm not the owner, so send it to the owner
-                  if (m_eMesh.isGhostElement(owning_element))
-                    {
-                      int owning_element_proc_rank = m_eMesh.owner_rank(owning_element);
-
-                      buffer_entry = CommDataType(
-                                                  owning_element_subDim_rank,
-                                                  owning_element_subDim_ordinal,
-                                                  m_eMesh.key(owning_element)
-                                                  );
-
-                      commAll.send_buffer( owning_element_proc_rank ).pack< CommDataType > (buffer_entry);
-                      commAll.send_buffer( owning_element_proc_rank ).pack<unsigned>(mark);
-                    }
-                }
-            }
-        }
-    }
-
-    void NodeRegistry::communicate_marks_pack_stage_2(stk::CommAll& commAll)
-    {
-      CommDataType buffer_entry;
-
-      // stage 2
-
-      SubDimCell_SDCEntityType subDimEntity(m_eMesh);
-      unsigned numSubDimNeededEntities = 0;
-
-      const stk::mesh::BucketVector & buckets = m_eMesh.get_bulk_data()->buckets( m_eMesh.element_rank() );
-      for ( stk::mesh::BucketVector::const_iterator k = buckets.begin() ; k != buckets.end() ; ++k )
-        {
-          stk::mesh::Bucket & bucket = **k ;
-
-          // only ghosts...
-          if (!bucket.owned() && !bucket.shared())
-            {
-              const CellTopologyData * const cell_topo_data = m_eMesh.get_cell_topology(bucket);
-              CellTopology cell_topo(cell_topo_data);
-              if (!cell_topo_data)
-                continue;
-
-              const unsigned num_elements_in_bucket = bucket.size();
-              for (unsigned iElement = 0; iElement < num_elements_in_bucket; iElement++)
-                {
-                  stk::mesh::Entity element = bucket[iElement];
-                  VERIFY_OP_ON(m_eMesh.isGhostElement(element), ==, true, "hmmm");
-
-                  for (stk::mesh::EntityRank needed_entity_rank = stk::topology::EDGE_RANK; needed_entity_rank <= m_eMesh.side_rank(); needed_entity_rank++)
-                    {
-                      if (needed_entity_rank == m_eMesh.edge_rank())
-                        {
-                          numSubDimNeededEntities = cell_topo_data->edge_count;
-                        }
-                      else if (needed_entity_rank == m_eMesh.face_rank())
-                        {
-                          numSubDimNeededEntities = cell_topo_data->side_count;
-                        }
-                      else if (needed_entity_rank == stk::topology::ELEMENT_RANK)
-                        {
-                          numSubDimNeededEntities = 1;
-                        }
-
-                      for (unsigned iSubDimOrd = 0; iSubDimOrd < numSubDimNeededEntities; iSubDimOrd++)
-                        {
-                          getSubDimEntity(subDimEntity, element, needed_entity_rank, iSubDimOrd,cell_topo_data);
-
-                          static SubDimCellData empty_SubDimCellData;
-
-                          SubDimCellData* nodeId_elementOwnderId_ptr = getFromMapPtr(subDimEntity);
-                          SubDimCellData& nodeId_elementOwnderId = (nodeId_elementOwnderId_ptr ? *nodeId_elementOwnderId_ptr : empty_SubDimCellData);
-                          bool is_empty = nodeId_elementOwnderId_ptr == 0;
-                          if (is_empty)
-                            continue;
-
-                          stk::mesh::EntityRank owning_element_rank= nodeId_elementOwnderId.get<SDC_DATA_OWNING_ELEMENT_KEY>().rank();
-                          stk::mesh::EntityId owning_element_id = nodeId_elementOwnderId.get<SDC_DATA_OWNING_ELEMENT_KEY>().id();
-                          stk::mesh::EntityRank owning_element_subDim_rank = static_cast<stk::mesh::EntityRank>(nodeId_elementOwnderId.get<SDC_DATA_OWNING_SUBDIM_RANK>());
-                          VERIFY_OP_ON(needed_entity_rank, ==, owning_element_subDim_rank, "hmmm");
-                          unsigned owning_element_subDim_ordinal = nodeId_elementOwnderId.get<SDC_DATA_OWNING_SUBDIM_ORDINAL>();
-                          VERIFY_OP_ON(owning_element_subDim_ordinal, !=, 0, "hmmm");
-                          --owning_element_subDim_ordinal;
-
-                          NodeIdsOnSubDimEntityType& nodeIds_onSE = nodeId_elementOwnderId.get<SDC_DATA_GLOBAL_NODE_IDS>();
-
-                          if (nodeIds_onSE.size())
-                            {
-                              unsigned mark = nodeIds_onSE.m_mark;
-                              unsigned is_marked = mark & NR_MARK;
-                              unsigned is_not_marked = mark & NR_MARK_NONE;
-                              // only need to send if it's got non-zero mark info
-                              if (is_marked || is_not_marked)
-                                {
-
-                                  stk::mesh::Entity owning_element = m_eMesh.get_bulk_data()->get_entity(owning_element_rank, owning_element_id);
-                                  VERIFY_OP_ON(m_eMesh.is_valid(owning_element), ==, true, "not valid");
-
-                                  // I'm the owner, so send it to the non-owner
-                                  if (!m_eMesh.isGhostElement(owning_element))
-                                    {
-                                      int non_owning_element_proc_rank = m_eMesh.owner_rank(element);
-
-                                      buffer_entry = CommDataType(
-                                                                  owning_element_subDim_rank,
-                                                                  owning_element_subDim_ordinal,
-                                                                  m_eMesh.key(owning_element)
-                                                                  );
-
-                                      commAll.send_buffer( non_owning_element_proc_rank ).pack< CommDataType > (buffer_entry);
-                                      commAll.send_buffer( non_owning_element_proc_rank ).pack<unsigned>(mark);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    void NodeRegistry::communicate_marks_unpack(stk::CommAll& commAll, bool recv_from_non_owner)
-    {
-      stk::ParallelMachine pm = m_eMesh.parallel();
-      unsigned proc_size = m_eMesh.get_parallel_size();
-      unsigned proc_rank = commAll.parallel_rank();
-
-      int failed=0;
-      std::string msg;
-
-      CommDataType buffer_entry;
-
-      try
-        {
-          for(unsigned from_proc = 0; from_proc < proc_size; ++from_proc )
-            {
-              stk::CommBuffer & recv_buffer = commAll.recv_buffer( from_proc );
-
-              while ( recv_buffer.remaining() )
-                {
-                  recv_buffer.unpack< CommDataType >( buffer_entry );
-                  unsigned mark=0;
-                  recv_buffer.unpack< unsigned > (mark);
-
-                  //createNodeAndConnect(buffer_entry, nodeIds_onSE, from_proc, nodes_to_ghost);
-                  {
-                    stk::mesh::EntityRank  needed_entity_rank                    = buffer_entry.get<CDT_NEEDED_ENTITY_RANK>();
-                    unsigned    iSubDimOrd                                       = buffer_entry.get<CDT_SUB_DIM_ENTITY_ORDINAL>();
-                    // note: NON here is not true - this is the owning element
-                    stk::mesh::EntityKey   owning_elementKey                 = buffer_entry.get<CDT_NON_OWNING_ELEMENT_KEY>();
-                    stk::mesh::EntityId    owning_elementId                  = owning_elementKey.id();
-                    stk::mesh::EntityRank  owning_elementRank                = owning_elementKey.rank();
-
-                    stk::mesh::EntityRank erank = owning_elementRank;
-                    stk::mesh::Entity owning_element = get_entity_element(*m_eMesh.get_bulk_data(), erank, owning_elementId);
-                    VERIFY_OP_ON(m_eMesh.is_valid(owning_element), == , true, "hmmm");
-                    if (recv_from_non_owner)
-                      VERIFY_OP_ON(m_eMesh.isGhostElement(owning_element), ==, false, "hmmm22");
-                    else
-                      VERIFY_OP_ON(m_eMesh.isGhostElement(owning_element), ==, true, "hmmm23");
-
-                    SubDimCell_SDCEntityType subDimEntity(m_eMesh);
-                    getSubDimEntity(subDimEntity, owning_element, needed_entity_rank, iSubDimOrd);
-
-                    static SubDimCellData empty_SubDimCellData;
-
-                    SubDimCellData* nodeId_elementOwnderId_ptr = getFromMapPtr(subDimEntity);
-                    SubDimCellData& nodeId_elementOwnderId = (nodeId_elementOwnderId_ptr ? *nodeId_elementOwnderId_ptr : empty_SubDimCellData);
-                    bool is_empty = nodeId_elementOwnderId_ptr == 0;
-
-                    VERIFY_OP_ON(is_empty, !=, true, "hmmm");
-
-                    NodeIdsOnSubDimEntityType& nodeIds_onSE = nodeId_elementOwnderId.get<SDC_DATA_GLOBAL_NODE_IDS>();
-
-                    // accumulation from all other procs
-                    if (owning_elementId == 11 && iSubDimOrd == 0)
-                      {
-                        std::ostringstream omsg;
-                        omsg << " P[" << m_eMesh.get_rank() << "] from_proc= " << from_proc
-                             << " owning_elementId= " << owning_elementId
-                             << " recv_from_non_owner = " << recv_from_non_owner
-                             << " my mark= " << nodeIds_onSE.m_mark
-                             << " recv mark= " << mark
-                             << " subdim.size()= " << subDimEntity.size()
-                             << " edge= " << m_eMesh.identifier(subDimEntity[0])
-                             << " " << m_eMesh.identifier(subDimEntity[1]);
-                        std::string emsg = omsg.str();
-                        std::cout << "tmp srk unpack mark: " << emsg << std::endl;
-                      }
-                    nodeIds_onSE.m_mark |= mark;
-                  }
-                }
-            }
-        }
-      catch ( std::exception &x )
-        {
-          failed = 1;
-          msg = std::string("unpack error: ")+x.what();
-        }
-
-      stk::all_reduce( pm, stk::ReduceSum<1>( &failed ) );
-      if ( failed )
-        {
-          throw std::runtime_error( msg+" from mark unpack error, rank = "+toString(proc_rank) );
-        }
-    }
-
-    void NodeRegistry::verify_parallel_consistency(bool requireMarks, bool requireNodeIds, bool requireNodes, bool requireSubDimExists)
-    {
-      // send my info to all procs
-      {
-        stk::CommAll commAll (m_eMesh.parallel());
-
-        verify_parallel_consistency_pack(commAll);
-
-        {
-          unsigned proc_size = commAll.parallel_size();
-          unsigned proc_rank = commAll.parallel_rank();
-
-          bool local = true;
-          unsigned num_msg_bounds = proc_size < 4 ? proc_size : proc_size/4 ;
-          bool global = commAll.allocate_buffers(num_msg_bounds , false, local );
-          if ( not global )
-            {
-              std::cout << "P[" << proc_rank << "] : not global" << std::endl;
-            }
-        }
-
-        verify_parallel_consistency_pack(commAll);
-        commAll.communicate();
-        verify_parallel_consistency_unpack(commAll,  requireMarks,  requireNodeIds,  requireNodes,  requireSubDimExists);
-      }
-
-    }
-
-    void NodeRegistry::verify_parallel_consistency_pack(stk::CommAll& commAll)
-    {
-      CommDataType buffer_entry;
-      SubDimCellToDataMap& map = m_cell_2_data_map;
-      //unsigned proc_size = m_eMesh.get_parallel_size();
-      int proc_rank = commAll.parallel_rank();
-
-      for (SubDimCellToDataMap::iterator iter = map.begin(); iter != map.end(); ++iter)
-        {
-          const SubDimCell_SDCEntityType& subDimEntity = (*iter).first;
-          SubDimCellData& nodeId_elementOwnderId = (*iter).second;
-
-          stk::mesh::EntityRank owning_element_rank= nodeId_elementOwnderId.get<SDC_DATA_OWNING_ELEMENT_KEY>().rank();
-          stk::mesh::EntityId owning_element_id = nodeId_elementOwnderId.get<SDC_DATA_OWNING_ELEMENT_KEY>().id();
-          stk::mesh::EntityRank owning_element_subDim_rank = static_cast<stk::mesh::EntityRank>(nodeId_elementOwnderId.get<SDC_DATA_OWNING_SUBDIM_RANK>());
-          unsigned owning_element_subDim_ordinal = nodeId_elementOwnderId.get<SDC_DATA_OWNING_SUBDIM_ORDINAL>();
-          VERIFY_OP_ON(owning_element_subDim_ordinal, !=, 0, "hmmm");
-          --owning_element_subDim_ordinal;
-
-          NodeIdsOnSubDimEntityType& nodeIds_onSE = nodeId_elementOwnderId.get<SDC_DATA_GLOBAL_NODE_IDS>();
-
-          //if (!nodeIds_onSE.m_is_remotely_shared)
-          //  continue;
-
-          unsigned nidSize= nodeIds_onSE.size();
-          unsigned mark = nodeIds_onSE.m_mark;
-          unsigned is_marked = mark & NR_MARK;
-          (void) is_marked;
-          unsigned is_not_marked = mark & NR_MARK_NONE;
-          (void) is_not_marked;
-
-          stk::mesh::Entity owning_element = m_eMesh.get_bulk_data()->get_entity(owning_element_rank, owning_element_id);
-          VERIFY_OP_ON(m_eMesh.is_valid(owning_element), ==, true, "not valid");
-
-          int owning_element_proc_rank = m_eMesh.owner_rank(owning_element);
-          if (owning_element_proc_rank == proc_rank)
-            continue;
-
-          {
-
-            buffer_entry = CommDataType(
-                                        owning_element_subDim_rank,
-                                        owning_element_subDim_ordinal,
-                                        m_eMesh.key(owning_element)
-                                        );
-
-            commAll.send_buffer( owning_element_proc_rank ).pack< CommDataType > (buffer_entry);
-            commAll.send_buffer( owning_element_proc_rank ).pack<unsigned>(mark);
-            commAll.send_buffer( owning_element_proc_rank ).pack<unsigned>(nidSize);
-
-            if (nidSize)
-              {
-                stk::mesh::EntityId id=1234567890ull;
-                bool is_valid = m_eMesh.is_valid(nodeIds_onSE[0]);
-                if (is_valid) id = m_eMesh.identifier(nodeIds_onSE[0]);
-                commAll.send_buffer( owning_element_proc_rank ).pack<bool>(is_valid);
-                commAll.send_buffer( owning_element_proc_rank ).pack<stk::mesh::EntityId>(id);
-                commAll.send_buffer( owning_element_proc_rank ).pack<stk::mesh::EntityId>(nodeIds_onSE.m_entity_id_vector[0]);
-              }
-
-            commAll.send_buffer( owning_element_proc_rank ).pack<unsigned>(subDimEntity.size());
-            if (subDimEntity.size())
-              {
-                for (unsigned ii=0; ii < subDimEntity.size(); ++ii)
-                  {
-                    commAll.send_buffer( owning_element_proc_rank ).pack<stk::mesh::EntityId>(m_eMesh.identifier(subDimEntity[ii]));
-                  }
-              }
-          }
-        }
-    }
-
-    //#define VERIFY(l,cond,r,msg,
-    void NodeRegistry::verify_parallel_consistency_unpack(stk::CommAll& commAll, bool requireMarks, bool requireNodeIds, bool requireNodes, bool requireSubDimExists)
-    {
-      stk::ParallelMachine pm = m_eMesh.parallel();
-      unsigned proc_size = m_eMesh.get_parallel_size();
-      unsigned proc_rank = commAll.parallel_rank();
-
-      int failed=0;
-      std::string msg;
-
-      CommDataType buffer_entry;
-
-      try
-        {
-          for(unsigned from_proc = 0; from_proc < proc_size; ++from_proc )
-            {
-              stk::CommBuffer & recv_buffer = commAll.recv_buffer( from_proc );
-
-              while ( recv_buffer.remaining() )
-                {
-                  recv_buffer.unpack< CommDataType >( buffer_entry );
-                  unsigned remote_mark=0;
-                  recv_buffer.unpack< unsigned > (remote_mark);
-                  unsigned remote_nidSize=0;
-                  recv_buffer.unpack<unsigned> (remote_nidSize);
-                  stk::mesh::EntityId remote_nid=0, remote_nidEV=0;
-                  bool my_is_valid = false, remote_is_valid=false;
-                  if (remote_nidSize)
-                    {
-                      recv_buffer.unpack<bool>(remote_is_valid);
-                      recv_buffer.unpack<stk::mesh::EntityId> (remote_nid);
-                      recv_buffer.unpack<stk::mesh::EntityId> (remote_nidEV);
-                    }
-
-                  unsigned remote_subDimEntity_size=0;
-                  recv_buffer.unpack<unsigned>(remote_subDimEntity_size);
-                  std::vector<stk::mesh::EntityId> remote_sde(remote_subDimEntity_size);
-                  if (remote_subDimEntity_size)
-                    {
-                      for (unsigned ii=0; ii < remote_sde.size(); ++ii)
-                        {
-                          recv_buffer.unpack<stk::mesh::EntityId>(remote_sde[ii]);
-                        }
-                    }
-
-                  stk::mesh::EntityRank  needed_entity_rank                    = buffer_entry.get<CDT_NEEDED_ENTITY_RANK>();
-                  unsigned    iSubDimOrd                                       = buffer_entry.get<CDT_SUB_DIM_ENTITY_ORDINAL>();
-                  // note: NON here is not true - this is the owning element
-                  stk::mesh::EntityKey   owning_elementKey                 = buffer_entry.get<CDT_NON_OWNING_ELEMENT_KEY>();
-                  stk::mesh::EntityId    owning_elementId                  = owning_elementKey.id();
-                  stk::mesh::EntityRank  owning_elementRank                = owning_elementKey.rank();
-
-                  stk::mesh::EntityRank erank = owning_elementRank;
-                  stk::mesh::Entity owning_element = get_entity_element(*m_eMesh.get_bulk_data(), erank, owning_elementId);
-                  VERIFY_OP_ON(m_eMesh.is_valid(owning_element), == , true, "hmmm");
-                  VERIFY_OP_ON(m_eMesh.isGhostElement(owning_element), ==, false, "hmmm22");
-
-                  SubDimCell_SDCEntityType subDimEntity(m_eMesh);
-                  getSubDimEntity(subDimEntity, owning_element, needed_entity_rank, iSubDimOrd);
-
-                  static SubDimCellData empty_SubDimCellData;
-
-                  SubDimCellData* nodeId_elementOwnderId_ptr = getFromMapPtr(subDimEntity);
-                  SubDimCellData& nodeId_elementOwnderId = (nodeId_elementOwnderId_ptr ? *nodeId_elementOwnderId_ptr : empty_SubDimCellData);
-                  bool is_empty = nodeId_elementOwnderId_ptr == 0;
-
-                  VERIFY_OP_ON(is_empty, !=, true, "hmmm");
-
-                  NodeIdsOnSubDimEntityType& nodeIds_onSE = nodeId_elementOwnderId.get<SDC_DATA_GLOBAL_NODE_IDS>();
-
-                  std::ostringstream omsg;
-                  omsg << " P[" << m_eMesh.get_rank() << "] from_proc= " << from_proc
-                       << " owning_elementId= " << owning_elementId
-                       << " mark = " << nodeIds_onSE.m_mark
-                       << " remote_nid= " << remote_nid << " remote_nidEV= " << remote_nidEV
-                       << " remote iSubDimOrd= " << iSubDimOrd;
-                  if (subDimEntity.size()==2)
-                    omsg << " subdim.size()= " << subDimEntity.size()
-                         << " edge= " << m_eMesh.identifier(subDimEntity[0])
-                         << " " << m_eMesh.identifier(subDimEntity[1]);
-                  if (remote_subDimEntity_size == 2)
-                    omsg << " remote edge= " << remote_sde[0]
-                         << " " << remote_sde[1];
-
-                  std::string emsg = omsg.str();
-                  if (requireMarks)
-                    VERIFY_OP_ON(nodeIds_onSE.m_mark, ==, remote_mark, "mark not consistent"+emsg);
-
-                  if (remote_subDimEntity_size)
-                    {
-                      VERIFY_OP_ON(remote_subDimEntity_size, ==, subDimEntity.size(), "subDimEntity size not consistent"+emsg);
-                      for (unsigned ii=0; ii < remote_sde.size(); ++ii)
-                        {
-                          VERIFY_OP_ON(remote_sde[ii], ==, m_eMesh.identifier(subDimEntity[ii]), "subDimEntity id not consistent"+emsg);
-                        }
-                    }
-
-                  VERIFY_OP_ON(remote_nidSize, ==, nodeIds_onSE.size(), "remote_nidSize not consistent"+emsg);
-                  if (remote_nidSize)
-                    {
-                      if (requireNodes)
-                        {
-                          my_is_valid = m_eMesh.is_valid(nodeIds_onSE[0]);
-                          VERIFY_OP_ON(my_is_valid, ==, remote_is_valid, "is valid mismatch"+emsg);
-                          VERIFY_OP_ON(my_is_valid, ==, true, "nodeIds_onSE[0] is not valid"+emsg);
-                          VERIFY_OP_ON(m_eMesh.identifier(nodeIds_onSE[0]), ==, remote_nid, "nid is not consistent"+emsg);
-                        }
-                      if (requireNodeIds)
-                        VERIFY_OP_ON(nodeIds_onSE.m_entity_id_vector[0], ==, remote_nidEV, "nidEV is not consistent"+emsg);
-                    }
-                }
-            }
-        }
-      catch ( std::exception &x )
-        {
-          failed = 1;
-          msg = std::string("unpack error: ")+x.what();
-        }
-
-      stk::all_reduce( pm, stk::ReduceSum<1>( &failed ) );
-      if ( failed )
-        {
-          throw std::runtime_error( msg+" from verify unpack error, rank = "+toString(proc_rank) );
-        }
-    }
   }

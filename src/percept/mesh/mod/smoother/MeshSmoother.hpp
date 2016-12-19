@@ -12,6 +12,7 @@
 #if !defined(NO_GEOM_SUPPORT)
 
 #include <percept/PerceptMesh.hpp>
+#include <percept/MeshType.hpp>
 
 #if defined(STK_PERCEPT_HAS_GEOMETRY)
 #include <percept/mesh/geometry/kernel/MeshGeometry.hpp>
@@ -22,6 +23,8 @@
 #ifdef USE_CALLGRIND_MESH_SMOOTHER
 #include "/usr/netpub/valgrind-3.8.1/include/valgrind/callgrind.h"
 #endif
+
+
 
   namespace percept {
 
@@ -43,7 +46,8 @@
     };
 
     /// Abstract base class smoother
-    class MeshSmoother
+    template<typename MeshType>
+    class MeshSmootherImpl
     {
 
     protected:
@@ -51,24 +55,16 @@
       int innerIter;
       double gradNorm;
       int parallelIterations;
-      stk::mesh::Selector *m_boundarySelector;
+      typename MeshType::MTSelector *m_boundarySelector;
     public:
-      MeshGeometry *m_meshGeometry;
+      typename MeshType::MTMeshGeometry *m_meshGeometry;
 
     public:
 
-      MeshSmoother(PerceptMesh *eMesh,
-                   stk::mesh::Selector *boundary_selector=0,
-                   MeshGeometry *meshGeometry=0,
-                   int innerIter=100, double gradNorm = 1.e-8, int parallelIterations=20) :
-        m_eMesh(eMesh), innerIter(innerIter), gradNorm(gradNorm), parallelIterations(parallelIterations),
-        m_boundarySelector(boundary_selector), m_meshGeometry(meshGeometry)
-      {
-#if defined(STK_PERCEPT_HAS_GEOMETRY)
-        if (m_meshGeometry)
-          m_meshGeometry->m_cache_classify_bucket_is_active = true;
-#endif
-      }
+      MeshSmootherImpl(PerceptMesh *eMesh,
+                   typename MeshType::MTSelector *boundary_selector=0,
+                   typename MeshType::MTMeshGeometry *meshGeometry=0,
+                       int innerIter=100, double gradNorm = 1.e-8, int parallelIterations=20);
 
       /// @deprecated
       static size_t count_invalid_elements();
@@ -78,19 +74,24 @@
       void run( bool always_smooth=true, int debug=0);
       virtual void run_algorithm() = 0;
 
-      static bool select_bucket(stk::mesh::Bucket& bucket, PerceptMesh *eMesh);
-      std::pair<bool,int> get_fixed_flag(stk::mesh::Entity node_ptr);
-      int classify_node(stk::mesh::Entity node, size_t& curveOrSurfaceEvaluator) const;
-      void project_delta_to_tangent_plane(stk::mesh::Entity node, double *delta, double *norm=0);
-      void enforce_tangent_plane(stk::mesh::Entity node, double rhs[3], double lhs[3][3], double *norm=0);
+      static bool select_bucket(typename MeshType::MTBucket& bucket, PerceptMesh *eMesh);
+
+      std::pair<bool,int> get_fixed_flag(typename MeshType::MTNode node_ptr);
+
+      int classify_node(typename MeshType::MTNode node, size_t& curveOrSurfaceEvaluator) const;
+      void project_delta_to_tangent_plane(typename MeshType::MTNode node, double *delta, double *norm=0);
+      void enforce_tangent_plane(typename MeshType::MTNode node, double rhs[3], double lhs[3][3], double *norm=0);
       /// if reset is true, don't actually modify the node's coordinates and only
       /// return the snapped position in @param coordinate
-      void snap_to(stk::mesh::Entity node_ptr,  double *coordinate, bool reset=false) const;
+      void snap_to(typename MeshType::MTNode node_ptr,  double *coordinate, bool reset=false) const;
 
 
     };
 
+
+    using MeshSmoother = MeshSmootherImpl<STKMesh>;
   }
+
 
 #endif
 #endif

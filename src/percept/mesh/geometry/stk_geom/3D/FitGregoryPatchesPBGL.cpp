@@ -55,6 +55,25 @@
 
 #include <boost/random.hpp>
 
+#include <boost/version.hpp>
+#if (BOOST_VERSION / 100 % 1000) > 55
+#include <boost/optional/optional_io.hpp>
+namespace boost {
+  namespace detail { 
+    namespace parallel {
+      template<class CharType, class CharTrait, class LocalDescriptor>
+      inline
+      std::basic_ostream<CharType, CharTrait>&
+      operator<<(std::basic_ostream<CharType, CharTrait>& out, global_descriptor<LocalDescriptor> const& descriptor)
+      {
+        out << "(proc=" << descriptor.owner << ", id=" << descriptor.local << ")";
+        return out;
+      }
+    }
+  }
+}
+#endif
+
 #include <iostream>
 #include <cstdlib>
 #include <string>

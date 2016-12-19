@@ -5,29 +5,27 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-#ifndef ReferenceMeshSmoother2_hpp
-#define ReferenceMeshSmoother2_hpp
+#ifndef ReferenceMeshSmootherLocalNewton_hpp
+#define ReferenceMeshSmootherLocalNewton_hpp
 
 #include <percept/Percept.hpp>
 #if !defined(NO_GEOM_SUPPORT)
 
-#include <percept/mesh/mod/smoother/ReferenceMeshSmoother1.hpp>
+#include <percept/mesh/mod/smoother/ReferenceMeshSmootherConjugateGradient.hpp>
 
   namespace percept {
 
-    class ReferenceMeshSmoother2 : public ReferenceMeshSmoother1 {
+    class ReferenceMeshSmootherLocalNewton : public ReferenceMeshSmootherConjugateGradientImpl<STKMesh> {
 
     public:
 
       /// max_edge_length_factor: used for scaling gradients to approximately this value times local edge length
-      ReferenceMeshSmoother2(PerceptMesh *eMesh,
+      ReferenceMeshSmootherLocalNewton(PerceptMesh *eMesh,
                             stk::mesh::Selector *boundary_selector=0,
                             MeshGeometry *meshGeometry=0,
                             int inner_iterations = 100,
                             double grad_norm =1.e-8,
-                            int parallel_iterations = 20)
-        : ReferenceMeshSmoother1(eMesh, boundary_selector, meshGeometry, inner_iterations, grad_norm, parallel_iterations)
-      {}
+                                       int parallel_iterations = 20);
 
     protected:
 

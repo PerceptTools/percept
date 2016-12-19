@@ -97,10 +97,21 @@
 #if WRITE_DIAGRAM
 
 #endif
+        bool use_declare_element_side = UniformRefinerPatternBase::USE_DECLARE_ELEMENT_SIDE &&  m_primaryEntityRank == eMesh.side_rank();
 
         for (unsigned ielem=0; ielem < elems.size(); ielem++)
           {
-            stk::mesh::Entity newElement = *element_pool;
+            stk::mesh::Entity newElement = stk::mesh::Entity();
+            if (!use_declare_element_side)
+              newElement = *element_pool;
+
+            stk::mesh::Entity nodes[4] = {
+              eMesh.createOrGetNode(elems[ielem].get<0>()),
+              eMesh.createOrGetNode(elems[ielem].get<1>()),
+              eMesh.createOrGetNode(elems[ielem].get<2>()),
+              eMesh.createOrGetNode(elems[ielem].get<3>()) };
+
+            create_side_element(eMesh, use_declare_element_side, nodes, 4, newElement);
 
             if (proc_rank_field)
               {
@@ -111,23 +122,11 @@
 
             eMesh.get_bulk_data()->change_entity_parts( newElement, add_parts, remove_parts );
 
-            {
-              if (!elems[ielem].get<0>())
-                {
-                  std::cout << "P[" << eMesh.get_rank() << " nid = 0 << " << std::endl;
-                  exit(1);
-                }
-
-            }
-            eMesh.get_bulk_data()->declare_relation(newElement, eMesh.createOrGetNode(elems[ielem].get<0>()), 0);
-            eMesh.get_bulk_data()->declare_relation(newElement, eMesh.createOrGetNode(elems[ielem].get<1>()), 1);
-            eMesh.get_bulk_data()->declare_relation(newElement, eMesh.createOrGetNode(elems[ielem].get<2>()), 2);
-            eMesh.get_bulk_data()->declare_relation(newElement, eMesh.createOrGetNode(elems[ielem].get<3>()), 3);
-
             set_parent_child_relations(eMesh, element, newElement, *ft_element_pool, ielem);
 
             ft_element_pool++;
-            element_pool++;
+            if (!use_declare_element_side)
+              element_pool++;
 
           }
 

@@ -132,6 +132,9 @@ namespace percept {
       std::pair<UInt,UInt> child_edge(const UInt edge_ordinal ,
                                       const UInt edge_child_ordinal) const;
 
+      std::vector< std::pair<UInt,UInt> >
+      get_children_on_ordinal(const UInt face_ordinal) const;
+
     private:
       CellTopology                          m_cellTopology;
       UInt                                  m_numChild;

@@ -291,9 +291,23 @@ namespace percept {
                   << " num_new_elems= " << num_new_elems
                   << std::endl;
 
+      bool use_declare_element_side = UniformRefinerPatternBase::USE_DECLARE_ELEMENT_SIDE &&  m_primaryEntityRank == eMesh.side_rank();
+
       for (unsigned ielem=0; ielem < elems.size(); ielem++)
         {
-          stk::mesh::Entity newElement = *element_pool;
+          stk::mesh::Entity newElement = stk::mesh::Entity();
+          if (!use_declare_element_side)
+            newElement = *element_pool;
+
+
+          // 3 nodes of the new tris
+          stk::mesh::Entity n0 = eMesh.createOrGetNode(elems[ielem].get<0>());
+          stk::mesh::Entity n1 = eMesh.createOrGetNode(elems[ielem].get<1>());
+          stk::mesh::Entity n2 = eMesh.createOrGetNode(elems[ielem].get<2>());
+
+          stk::mesh::Entity nodes[3] = {n0, n1, n2};
+
+          create_side_element(eMesh, use_declare_element_side, nodes, 3, newElement);
 
           if (m_transition_element_field)
             {
@@ -319,22 +333,6 @@ namespace percept {
             }
 
           change_entity_parts(eMesh, element, newElement);
-
-          {
-            if (!elems[ielem].get<0>())
-              {
-                std::cout << "P[" << eMesh.get_rank() << "] nid = 0 << " << std::endl;
-                //exit(1);
-              }
-          }
-
-          // 3 nodes of the new tris
-          stk::mesh::Entity n0 = eMesh.createOrGetNode(elems[ielem].get<0>());
-          stk::mesh::Entity n1 = eMesh.createOrGetNode(elems[ielem].get<1>());
-          stk::mesh::Entity n2 = eMesh.createOrGetNode(elems[ielem].get<2>());
-          eMesh.get_bulk_data()->declare_relation(newElement, n0, 0);
-          eMesh.get_bulk_data()->declare_relation(newElement, n1, 1);
-          eMesh.get_bulk_data()->declare_relation(newElement, n2, 2);
 
           unsigned nchild = eMesh.numChildren(element);
           //set_parent_child_relations(eMesh, element, newElement, ielem);
@@ -519,9 +517,22 @@ namespace percept {
           elems[ielem] = quad_to_quad_tuple_type( Q_CV_EV(elems_local[ielem].get<0>() ), Q_CV_EV(elems_local[ielem].get<1>() ), Q_CV_EV(elems_local[ielem].get<2>() ), Q_CV_EV(elems_local[ielem].get<3>() ) );
         }
 
+      bool use_declare_element_side = UniformRefinerPatternBase::USE_DECLARE_ELEMENT_SIDE &&  m_primaryEntityRank == eMesh.side_rank();
+
       for (unsigned ielem=0; ielem < elems.size(); ielem++)
         {
-          stk::mesh::Entity newElement = *element_pool;
+          stk::mesh::Entity newElement = stk::mesh::Entity();
+          if (!use_declare_element_side)
+            newElement = *element_pool;
+
+          // 4 nodes of the new quads
+          stk::mesh::Entity nodes[4] = {
+            eMesh.createOrGetNode(elems[ielem].get<0>()),
+            eMesh.createOrGetNode(elems[ielem].get<1>()),
+            eMesh.createOrGetNode(elems[ielem].get<2>()),
+            eMesh.createOrGetNode(elems[ielem].get<3>()) };
+
+          create_side_element(eMesh, use_declare_element_side, nodes, 4, newElement);
 
           if (m_transition_element_field)
             {
@@ -546,11 +557,6 @@ namespace percept {
 
           change_entity_parts(eMesh, element, newElement);
 
-          // 4 nodes of the new quads
-          eMesh.get_bulk_data()->declare_relation(newElement, eMesh.createOrGetNode(elems[ielem].get<0>()), 0);
-          eMesh.get_bulk_data()->declare_relation(newElement, eMesh.createOrGetNode(elems[ielem].get<1>()), 1);
-          eMesh.get_bulk_data()->declare_relation(newElement, eMesh.createOrGetNode(elems[ielem].get<2>()), 2);
-          eMesh.get_bulk_data()->declare_relation(newElement, eMesh.createOrGetNode(elems[ielem].get<3>()), 3);
 
           unsigned nchild = eMesh.numChildren(element);
           //set_parent_child_relations(eMesh, element, newElement, ielem);
@@ -561,7 +567,8 @@ namespace percept {
           eMesh.prolongateElementFields( elements, newElement);
 
           ft_element_pool++;
-          element_pool++;
+          if (!use_declare_element_side)
+            element_pool++;
 
         }
     }

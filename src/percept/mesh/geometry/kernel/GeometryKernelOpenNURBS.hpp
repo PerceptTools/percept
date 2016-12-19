@@ -9,7 +9,7 @@
 #define GEOMETRYKERNEL_OPENNURBS_HPP
 
 #include <opennurbs.h>
-#include "GeometryKernel.hpp"
+#include <percept/mesh/geometry/kernel/GeometryKernel.hpp>
 
 namespace percept {
 

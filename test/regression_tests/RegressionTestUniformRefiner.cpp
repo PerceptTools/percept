@@ -61,10 +61,14 @@
 
 // smoothing tests
 #include <percept/mesh/mod/smoother/MeshSmoother.hpp>
-#include <percept/mesh/mod/smoother/ReferenceMeshSmoother1.hpp>
+#include <percept/mesh/mod/smoother/ReferenceMeshSmootherConjugateGradient.hpp>
 
 #include <adapt/UniformRefinerPattern_def.hpp>
 #include <stk_mesh/base/MeshUtils.hpp>
+
+#if defined(STK_BUILT_IN_SIERRA)
+#include "stk_unit_test_utils/ReadWriteSidesetTester.hpp"
+#endif
 
 // this is for testing the local-refine refactoring
 #define UNIFORM_REFINER UniformRefiner
@@ -136,7 +140,7 @@
             std::string input_mesh = input_files_loc+"pyramid_0.e";
             if (p_size > 1)
               {
-                RunEnvironment::doLoadBalance(pm, input_mesh);
+                doLoadBalance(pm, input_mesh);
               }
 
             // refine the mesh
@@ -188,7 +192,7 @@
             std::string input_mesh = input_files_loc+"shell-tests"+path_sep+"freshell_quad4.g";
             if (p_size > 1)
               {
-                RunEnvironment::doLoadBalance(pm, input_mesh);
+                doLoadBalance(pm, input_mesh);
               }
 
             percept::PerceptMesh eMesh(3u);
@@ -435,7 +439,7 @@
             std::string input_mesh = input_files_loc+"shell-tests"+path_sep+"freshell_quad4.g";
             if (p_size > 1)
               {
-                RunEnvironment::doLoadBalance(pm, input_mesh);
+                doLoadBalance(pm, input_mesh);
               }
 
             percept::PerceptMesh eMesh(3u);
@@ -517,7 +521,7 @@
             std::string input_mesh = input_files_loc+"shell-tests"+path_sep+"freshell_quad4.g";
             if (p_size > 1)
               {
-                RunEnvironment::doLoadBalance(pm, input_mesh);
+                doLoadBalance(pm, input_mesh);
               }
 
             percept::PerceptMesh eMesh(3u);
@@ -599,7 +603,7 @@
             std::string input_mesh = input_files_loc+"shell-tests"+path_sep+"freshell_quad4.g";
             if (p_size > 1)
               {
-                RunEnvironment::doLoadBalance(pm, input_mesh);
+                doLoadBalance(pm, input_mesh);
               }
 
             percept::PerceptMesh eMesh(3u);
@@ -646,7 +650,7 @@
             std::string input_mesh = input_files_loc+"shell-tests"+path_sep+"freshell_tri3.g";
             if (p_size > 1)
               {
-                RunEnvironment::doLoadBalance(pm, input_mesh);
+                doLoadBalance(pm, input_mesh);
               }
 
             percept::PerceptMesh eMesh(3u);
@@ -1157,7 +1161,7 @@
             std::string input_mesh = input_files_loc+"tetwedge_0.e";
             if (p_size > 1)
               {
-                RunEnvironment::doLoadBalance(pm, input_mesh);
+                doLoadBalance(pm, input_mesh);
               }
 
             // refine the mesh
@@ -2518,7 +2522,7 @@
 
             if (p_size > 1)
               {
-                RunEnvironment::doLoadBalance(pm, file_in);
+                doLoadBalance(pm, file_in);
               }
 
             eMesh.open(file_in);
@@ -2706,7 +2710,7 @@
             std::string input_mesh = input_files_loc+"heterogeneous_0.e";
             if (p_size > 1)
               {
-                RunEnvironment::doLoadBalance(pm, input_mesh);
+                doLoadBalance(pm, input_mesh);
               }
 
             // refine the mesh
@@ -2771,7 +2775,7 @@
             std::string input_mesh = input_files_loc+"heterogeneous_sideset_0.e";
             if (p_size > 1)
               {
-                RunEnvironment::doLoadBalance(pm, input_mesh);
+                doLoadBalance(pm, input_mesh);
               }
 
             // refine the mesh
@@ -2896,7 +2900,7 @@
             std::string input_mesh = input_files_loc+"pyramid_enrich_0.e";
             if (p_size > 1)
               {
-                RunEnvironment::doLoadBalance(pm, input_mesh);
+                doLoadBalance(pm, input_mesh);
               }
 
             // enrich the mesh
@@ -3030,7 +3034,7 @@
 
             if (p_size > 1)
               {
-                RunEnvironment::doLoadBalance(pm, input_mesh);
+                doLoadBalance(pm, input_mesh);
               }
 
             percept::PerceptMesh eMesh(3u);
@@ -3077,7 +3081,7 @@
             std::string input_mesh = input_files_loc+"shell-tests"+path_sep+"tet_shell3_tet.g";
             if (p_size > 1)
               {
-                RunEnvironment::doLoadBalance(pm, input_mesh);
+                doLoadBalance(pm, input_mesh);
               }
 
             percept::PerceptMesh eMesh(3u);
@@ -3126,7 +3130,7 @@
             std::string input_mesh = input_files_loc+"shell-tests"+path_sep+"hex_shell4_hex.g";
             if (p_size > 1)
               {
-                RunEnvironment::doLoadBalance(pm, input_mesh);
+                doLoadBalance(pm, input_mesh);
               }
 
             percept::PerceptMesh eMesh(3u);
@@ -3189,7 +3193,7 @@
             std::string input_mesh = input_files_loc+"heterogeneous_enrich_0.e";
             if (p_size > 1)
               {
-                RunEnvironment::doLoadBalance(pm, input_mesh);
+                doLoadBalance(pm, input_mesh);
               }
 
             // enrich the mesh
@@ -3555,7 +3559,7 @@
             int innerIter = 1001;
 
             {
-              percept::ReferenceMeshSmoother1 pmmpsi(&eMesh, &boundarySelector, 0, innerIter, 1.e-4, 1);
+              percept::ReferenceMeshSmootherConjugateGradientImpl<STKMesh> pmmpsi(&eMesh, &boundarySelector, 0, innerIter, 1.e-4, 1);
               pmmpsi.run( always_smooth, msq_debug);
             }
 

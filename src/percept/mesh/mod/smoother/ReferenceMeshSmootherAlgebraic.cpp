@@ -8,7 +8,7 @@
 #include <percept/Percept.hpp>
 #if !defined(NO_GEOM_SUPPORT)
 
-#include <percept/mesh/mod/smoother/ReferenceMeshSmoother4.hpp>
+#include <percept/mesh/mod/smoother/ReferenceMeshSmootherAlgebraic.hpp>
 #include <percept/mesh/mod/smoother/MeshSmoother.hpp>
 #include <percept/mesh/mod/smoother/JacobianUtil.hpp>
 #include <percept/math/DenseMatrix.hpp>
@@ -29,7 +29,7 @@
 
 namespace percept {
 
-  int ReferenceMeshSmoother4::find_new_value(stk::mesh::Entity node, int valOld, WallDistanceFieldType *wall_distance_field, CoordinatesFieldType *coord_field_orig)
+  int ReferenceMeshSmootherAlgebraic::find_new_value(stk::mesh::Entity node, int valOld, WallDistanceFieldType *wall_distance_field, CoordinatesFieldType *coord_field_orig)
   {
     CoordinatesFieldType_type *coord = stk::mesh::field_data<CoordinatesFieldType>(*coord_field_orig, node);
     int valNew = valOld;
@@ -63,7 +63,7 @@ namespace percept {
   }
 
   /// find (integer) distance to wall
-  void ReferenceMeshSmoother4::get_wall_distances()
+  void ReferenceMeshSmootherAlgebraic::get_wall_distances()
   {
     PerceptMesh *eMesh = m_eMesh;
     stk::mesh::FieldBase *cg_edge_length_field    = eMesh->get_field(stk::topology::NODE_RANK, "cg_edge_length");
@@ -172,7 +172,7 @@ namespace percept {
   }
 
   // fills cg_s
-  void ReferenceMeshSmoother4::get_step()
+  void ReferenceMeshSmootherAlgebraic::get_step()
   {
     PerceptMesh *eMesh = m_eMesh;
     CoordinatesFieldType *coord_field   = static_cast<CoordinatesFieldType*>(eMesh->get_coordinates_field());
@@ -386,7 +386,7 @@ namespace percept {
     }
   }
 
-  double ReferenceMeshSmoother4::run_one_iteration()
+  double ReferenceMeshSmootherAlgebraic::run_one_iteration()
   {
     PerceptMesh *eMesh = m_eMesh;
 
@@ -409,17 +409,17 @@ namespace percept {
       }
 
     if (m_eMesh->get_rank() == 0)
-      std::cout << "ReferenceMeshSmoother4: get_wall_distances" << std::endl;
+      std::cout << "ReferenceMeshSmootherAlgebraic: get_wall_distances" << std::endl;
     get_wall_distances();
     if (m_stage == 0 && m_iter== 0)
       eMesh->save_as("wall.e");
 
     if (m_eMesh->get_rank() == 0)
-      std::cout << "ReferenceMeshSmoother4: get_step" << std::endl;
+      std::cout << "ReferenceMeshSmootherAlgebraic: get_step" << std::endl;
     get_step();
 
     if (m_eMesh->get_rank() == 0)
-      std::cout << "ReferenceMeshSmoother4: get_step done" << std::endl;
+      std::cout << "ReferenceMeshSmootherAlgebraic: get_step done" << std::endl;
 
     eMesh->copy_field(cg_g_field, cg_s_field);
     eMesh->nodal_field_axpby(-1.0, cg_g_field, 0.0, cg_r_field);

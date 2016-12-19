@@ -8,8 +8,9 @@
 #ifndef MESHGEOMETRY_HPP
 #define MESHGEOMETRY_HPP
 
-#include <percept/PerceptMesh.hpp>
-#include "GeometryKernel.hpp"
+
+#include <stk_mesh/base/MetaData.hpp>
+#include <stk_mesh/base/BulkData.hpp>
 
 #include <boost/unordered_map.hpp>
 
@@ -17,6 +18,7 @@
 
 namespace percept {
 
+  class PerceptMesh;
 
 typedef std::vector<double> PointSet;
 typedef int GeometryHandle;
@@ -28,6 +30,8 @@ struct GeometryEvaluator
     stk::mesh::Selector mMesh;
     stk::mesh::Part *mPart;
 };
+
+class GeometryKernel;
 
 class MeshGeometry
 {

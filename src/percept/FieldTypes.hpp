@@ -25,6 +25,7 @@ namespace percept {
   typedef stk::mesh::Field<double, stk::mesh::Cartesian>    VectorFieldType ;
   typedef stk::mesh::Field<int, stk::mesh::Cartesian>       VectorIntFieldType ;
   typedef stk::mesh::Field<double, shards::ArrayDimension>  ArrayDimType;
+  typedef stk::mesh::Field<int64_t, shards::ArrayDimension>  ArrayEntityIdDimType;
 
   typedef ScalarIntFieldType      RefineFieldType;
   typedef ScalarIntFieldType      RefineLevelType;
@@ -42,6 +43,7 @@ namespace percept {
   typedef ScalarIntFieldType      WallDistanceFieldType;
   //typedef ArrayDimType            NodeRegistryFieldType;
   typedef GenericFieldType        NodeRegistryFieldType;
+  typedef ArrayEntityIdDimType    SGCellNodeIdsType;
 
   typedef stk::mesh::FieldTraits<RefineFieldType>::data_type       RefineFieldType_type;
   typedef stk::mesh::FieldTraits<RefineLevelType>::data_type       RefineLevelType_type;
@@ -52,6 +54,7 @@ namespace percept {
   typedef stk::mesh::FieldTraits<WallDistanceFieldType>::data_type WallDistanceFieldType_type;
   typedef stk::mesh::FieldTraits<CoordinatesFieldType>::data_type  CoordinatesFieldType_type;
   typedef stk::mesh::FieldTraits<NodeRegistryFieldType>::data_type NodeRegistryFieldType_type;
+  typedef stk::mesh::FieldTraits<SGCellNodeIdsType>::data_type     SGCellNodeIdsType_type;
 
 }
 

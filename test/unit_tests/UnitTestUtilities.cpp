@@ -741,9 +741,7 @@ void process_surface_entity(const Ioss::SideSet* io ,
         // subsetted out of the analysis mesh. Only process if
         // non-null.
         if (bulk.is_valid(elem)) {
-	  stk::mesh::EntityId side_id = (int64_t)10 * elem_side[is*2] + elem_side[is*2+1];
-          stk::mesh::Entity side =
-            stk::mesh::declare_element_side(bulk, side_id, elem, side_ordinal);
+          stk::mesh::Entity side = bulk.declare_element_side(elem, side_ordinal);
           bulk.change_entity_parts( side, add_parts );
           sides[is] = side;
         } else {
@@ -995,7 +993,7 @@ int myMain(int argc, char** argv)
 
   std::string mesh = "";
   run_environment.clp.setOption("mesh",         &mesh, "mesh file" );
-  run_environment.processCommandLine();
+  percept::processCommandLine(run_environment.clp, argc, argv);
 
   //----------------------------------
 

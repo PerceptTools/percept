@@ -636,6 +636,8 @@
                 if (eMesh.get_rank()==0) std::cout << eMesh.rank() << " check_sides_on_same_proc_as_owned_element: "
                                                    << " failed, doing fix_side_sets_2" << std::endl;
                 Base::fix_side_sets_2();
+                eMesh.get_bulk_data()->modification_end();
+                Base::require_sides_on_same_proc_as_pos_perm_element();
               }
             Base::check_sides_on_same_proc_as_owned_element("TEA:start refine after fix_side_sets_2", true);
             //require_sides_on_same_proc_as_pos_perm_element(true);
@@ -697,7 +699,7 @@
             STOP_TIMER(0Refine_getOrCheckTransitionElementSet);
           }
 
-        if (1 || m_debug)
+        if (m_debug)
           print_counts("before enforce te consistency");
 
 
@@ -725,7 +727,7 @@
                       throw std::runtime_error("too many iterations");
                     }
                 }
-              if (1 || m_debug)
+              if (m_debug)
                 print_counts("after ute-globalIter");
               if (m_debug)
                 if (Base::m_eMesh.get_rank()==0)

@@ -27,19 +27,17 @@
 
     void MeshDifference::run(int argc, char** argv)
     {
-      //stk::ParallelMachine parallel_machine = stk::parallel_machine_init(&argc, &argv);
-
       std::string file_name1, file_name2;
 
       bool debug_re=true;
       ParallelMachineFinalize pmf(true);
       RunEnvironment run_environment(&argc, &argv, debug_re);
       process_options(run_environment);
-      run_environment.processCommandLine();
+      processCommandLine(run_environment.clp, argc, argv);
 
       {
         if (run_environment.help_opt) {
-          run_environment.printHelp();
+          printHelp(run_environment.clp);
           std::exit(EXIT_SUCCESS);
         }
 
@@ -73,8 +71,6 @@
           }
 
       }
-
-      //RunEnvironment::doLoadBalance(run_environment.m_comm, file_name);
 
       PerceptMesh mesh1(3, run_environment.m_comm);
       PerceptMesh mesh2(3, run_environment.m_comm);

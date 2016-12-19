@@ -12,6 +12,7 @@
 #if !defined(NO_GEOM_SUPPORT)
 
 #include <percept/PerceptMesh.hpp>
+#include <percept/MeshType.hpp>
 #include <percept/mesh/mod/smoother/JacobianUtil.hpp>
 #include <percept/math/DenseMatrix.hpp>
 #include <percept/math/Math.hpp>
@@ -24,46 +25,83 @@
       COP_MAX
     };
 
-    class SmootherMetric
+    template<typename MeshType>
+    class SmootherMetricBase
     {
+
     public:
-      SmootherMetric(PerceptMesh *eMesh) : m_topology_data(0), m_eMesh(eMesh), m_node(), m_is_nodal(false), m_combine(COP_SUM), m_debug(false)
-      {
-        m_coord_field_current   = eMesh->get_coordinates_field();
-        m_coord_field_original  = eMesh->get_field(stk::topology::NODE_RANK, "coordinates_NM1");
-        VERIFY_OP_ON(m_coord_field_original, !=, 0, "m_coord_field_original");
-      }
+
+      SmootherMetricBase(PerceptMesh *eMesh) : m_topology_data(0), m_eMesh(eMesh), m_node(), m_is_nodal(false), m_combine(COP_SUM), m_debug(false) {}
+
       virtual double length_scaling_power() { return 1.0; }
-      virtual double metric(stk::mesh::Entity element, bool& valid)=0;
-      virtual double grad_metric(stk::mesh::Entity element, bool& valid, double grad[8][4]) {
+      virtual double metric(typename MeshType::MTElement element, bool& valid)=0;
+      virtual double grad_metric(typename MeshType::MTElement element, bool& valid, double grad[8][4]) {
         throw std::runtime_error("not impl SmootherMetric::grad_metric");
         return 0.0;
       }
-      virtual double grad_and_hessian(stk::mesh::Entity element, bool& valid, double grad[8][4], double hess[8][4][8][4], const bool getGrad=false, const bool getHess=false)
+      virtual bool has_gradient() { return false; }
+      void set_combine_op(CombineOp combine) { m_combine= combine; }
+      CombineOp get_combine_op() { return m_combine; }
+
+      // ------ VVVVVVV --------
+      virtual double grad_and_hessian(typename MeshType::MTElement element, bool& valid, double grad[8][4], double hess[8][4][8][4], const bool getGrad=false, const bool getHess=false)
       {
         throw std::runtime_error("not impl SmootherMetric::grad_and_hessian");
         return 0.0;
       }
 
-      virtual bool has_gradient() { return false; }
       virtual bool has_gradient_and_hessian() { return false; }
-      const CellTopologyData * m_topology_data ;
-      virtual void set_node(stk::mesh::Entity node) { m_node=node; }
-      stk::mesh::Entity get_node() { return m_node; }
-      void set_combine_op(CombineOp combine) { m_combine= combine; }
-      CombineOp get_combine_op() { return m_combine; }
+      const typename MeshType::MTCellTopology * m_topology_data ;
+      virtual void set_node(typename MeshType::MTNode node) { m_node=node; }
+      typename MeshType::MTNode get_node() { return m_node; }
       bool is_nodal() { return m_is_nodal; }
 
-    protected:
+    public:
       PerceptMesh *m_eMesh;
-      stk::mesh::Entity m_node; // for metrics that are node-based
+      typename MeshType::MTNode m_node; // for metrics that are node-based
       bool m_is_nodal;
       CombineOp m_combine;
-      stk::mesh::FieldBase *m_coord_field_current;
-      stk::mesh::FieldBase *m_coord_field_original;
+      typename MeshType::MTField *m_coord_field_current;
+      typename MeshType::MTField *m_coord_field_original;
     public:
       bool m_debug;
     };
+
+
+    template<typename MeshType>
+    class SmootherMetricImpl : public SmootherMetricBase<MeshType>
+    {
+    public:
+      SmootherMetricImpl(PerceptMesh *eMesh);
+    };
+
+    template<>
+    class SmootherMetricImpl<STKMesh> : public SmootherMetricBase<STKMesh>
+    {
+    public:
+      SmootherMetricImpl(PerceptMesh *eMesh) : SmootherMetricBase<STKMesh>(eMesh)
+      {
+        m_coord_field_current   = eMesh->get_coordinates_field();
+        m_coord_field_original  = eMesh->get_field(stk::topology::NODE_RANK, "coordinates_NM1");
+        VERIFY_OP_ON(m_coord_field_original, !=, 0, "m_coord_field_original");
+      }
+    };
+
+    template<>
+    class SmootherMetricImpl<StructuredGrid> : public SmootherMetricBase<StructuredGrid>
+    {
+    public:
+      SmootherMetricImpl(PerceptMesh *eMesh) : SmootherMetricBase<StructuredGrid>(eMesh)
+      {
+        std::shared_ptr<BlockStructuredGrid> bsg = eMesh->get_block_structured_grid();
+        m_coord_field_current                      = bsg->m_fields["coordinates"].get();
+        m_coord_field_original                     = bsg->m_fields["coordinates_NM1"].get();
+
+        VERIFY_OP_ON(m_coord_field_current, !=, 0, "m_coord_field_current");
+        VERIFY_OP_ON(m_coord_field_original, !=, 0, "m_coord_field_original");
+      }
+    };
+    using SmootherMetric = SmootherMetricImpl<STKMesh>;
 
     class SmootherMetricFunction : public SmootherMetric {
     public:
@@ -185,7 +223,7 @@
         m_ndim = unsigned(eMesh->get_spatial_dim());
         m_ndof = m_ndim;
         m_extraLambdaDof = 0;
-        if (m_eMesh->get_smooth_surfaces() && m_eMesh->getProperty("ReferenceMeshSmoother3.use_lambda") == "true")
+        if (m_eMesh->get_smooth_surfaces() && m_eMesh->getProperty("ReferenceMeshSmootherNewton.use_lambda") == "true")
           {
             m_extraLambdaDof = 1;
             m_ndof++;
@@ -558,13 +596,24 @@
 
     };
 
-    class SmootherMetricUntangle : public SmootherMetric
+    // template<typename MeshType>
+    // std::string field_name(typename MeshType::MTField *field);
+
+    // template<>
+    // std::string field_name<STKMesh>(typename STKMesh::MTField *field) {return field->name(); }
+
+
+    template<typename MeshType>
+    class SmootherMetricUntangleImpl : public SmootherMetricImpl<MeshType>
     {
     protected:
       double m_beta_mult;
-      JacobianUtil jacA, jacW;
+      JacobianUtilImpl<MeshType> jacA, jacW;
     public:
-      SmootherMetricUntangle(PerceptMesh *eMesh) : SmootherMetric(eMesh) {
+      //using MeshType = STKMesh;
+      using Base = SmootherMetricImpl<MeshType>;
+
+      SmootherMetricUntangleImpl(PerceptMesh *eMesh) : Base(eMesh) {
         //int spatialDim= eMesh->get_spatial_dim();
         m_beta_mult = 0.05;
       }
@@ -572,13 +621,13 @@
 
       virtual double length_scaling_power() { return 3.0; }
 
-      virtual double metric(stk::mesh::Entity element, bool& valid)
+      virtual double metric(typename MeshType::MTElement element, bool& valid)
       {
         valid = true;
 
         double A_ = 0.0, W_ = 0.0; // current and reference detJ
-        jacA(A_, *m_eMesh, element, m_coord_field_current, m_topology_data);
-        jacW(W_, *m_eMesh, element, m_coord_field_original, m_topology_data);
+        jacA(A_, *Base::m_eMesh, element, Base::m_coord_field_current, Base::m_topology_data);
+        jacW(W_, *Base::m_eMesh, element, Base::m_coord_field_original, Base::m_topology_data);
         double val=0.0, val_untangle=0.0;
 
         for (int i=0; i < jacA.m_num_nodes; i++)
@@ -587,14 +636,17 @@
             double detWi = jacW.m_detJ[i];
             if (detWi <= 0.0)
               {
-                std::cout << "detWi= 0, i = " << i << " detAi= " << detAi << " m_topology_data= " << m_topology_data << std::endl;
-                m_eMesh->print_entity(element);
-                m_eMesh->print_entity(element, m_coord_field_original);
-                if (m_topology_data)
+                std::cout << "detWi<= 0, i = " << i << " detWi= " << detWi << " detAi= " << detAi << " m_coord_field_original= " << Base::m_coord_field_original
+                          << " name= " << Base::m_coord_field_original->name() << " m_topology_data= " << Base::m_topology_data << std::endl;
+#if 0
+                Base::m_eMesh->print_entity(element);
+                Base::m_eMesh->print_entity(element, Base::m_coord_field_original);
+                if (Base::m_topology_data)
                   {
-                    shards::CellTopology topology(m_topology_data);
+                    shards::CellTopology topology(Base::m_topology_data);
                     std::cout << "topology = " << topology.getName() << std::endl;
                   }
+#endif
               }
             VERIFY_OP_ON(detWi, >, 0.0, "bad reference mesh");
             if (detAi <= 0.)
@@ -611,11 +663,11 @@
       }
 
       /// computes metric and its gradient - see Mesquite::TShapeB1, TQualityMetric, TargetMetricUtil
-      virtual double grad_metric(stk::mesh::Entity element, bool& valid, double grad[8][4])
+      virtual double grad_metric(typename MeshType::MTElement element, bool& valid, double grad[8][4])
       {
         double A_ = 0.0, W_ = 0.0; // current and reference detJ
-        jacA(A_, *m_eMesh, element, m_coord_field_current, m_topology_data);
-        jacW(W_, *m_eMesh, element, m_coord_field_original, m_topology_data);
+        jacA(A_, *Base::m_eMesh, element, Base::m_coord_field_current, Base::m_topology_data);
+        jacW(W_, *Base::m_eMesh, element, Base::m_coord_field_original, Base::m_topology_data);
         double val=0.0;
 
         const int nn = jacA.m_num_nodes;
@@ -636,7 +688,7 @@
               {
                 wrt_A = -2.0*vv*transpose_adj(A);
 
-                if (m_eMesh->get_spatial_dim() == 2)
+                if (Base::m_eMesh->get_spatial_dim() == 2)
                   {
                     for (unsigned ii=0; ii < 3; ++ii)
                       {
@@ -651,9 +703,9 @@
           }
 
         // compute grad for all nodes
-        jacA.grad_metric_util( *m_eMesh, element, m_coord_field_current, m_topology_data);
+        jacA.grad_metric_util( *Base::m_eMesh, element, Base::m_coord_field_current, Base::m_topology_data);
 
-        int spatialDim = m_eMesh->get_spatial_dim();
+        int spatialDim = Base::m_eMesh->get_spatial_dim();
 
         // combine into total
         for (int i=0; i < nn; i++)
@@ -669,6 +721,7 @@
       }
 
     };
+    using SmootherMetricUntangle = SmootherMetricUntangleImpl<STKMesh>;
 
     class SmootherMetricShapeSizeOrient : public SmootherMetric
     {
@@ -819,29 +872,31 @@
       }
     };
 
-    class SmootherMetricShapeB1 : public SmootherMetric
+    template<typename MeshType>
+    class SmootherMetricShapeB1Impl : public SmootherMetricImpl<MeshType>
     {
     protected:
       DenseMatrix<3,3> Ident;
       DenseMatrix<3,3> WI, T, WIT, TAT;
-      JacobianUtil jacA, jacW;
+      JacobianUtilImpl<MeshType> jacA, jacW;
       const int spatialDim;
       bool m_use_ref_mesh;
     public:
-      SmootherMetricShapeB1(PerceptMesh *eMesh, bool use_ref_mesh=true) : SmootherMetric(eMesh), spatialDim( m_eMesh->get_spatial_dim()), m_use_ref_mesh(use_ref_mesh) {
+      using Base = SmootherMetricImpl<MeshType>;
+      SmootherMetricShapeB1Impl(PerceptMesh *eMesh, bool use_ref_mesh=true) : Base(eMesh), spatialDim( Base::m_eMesh->get_spatial_dim()), m_use_ref_mesh(use_ref_mesh) {
         identity(Ident);
       }
 
       virtual bool has_gradient() { return true; }
 
       virtual double length_scaling_power() { return 1.0; }
-      virtual double metric(stk::mesh::Entity element, bool& valid)
+      virtual double metric(typename MeshType::MTElement element, bool& valid)
       {
         valid = true;
 
         double A_ = 0.0, W_ = 0.0; // current and reference detJ
-        jacA(A_, *m_eMesh, element, m_coord_field_current, m_topology_data);
-        jacW(W_, *m_eMesh, element, m_coord_field_original, m_topology_data);
+        jacA(A_, *Base::m_eMesh, element, Base::m_coord_field_current, Base::m_topology_data);
+        jacW(W_, *Base::m_eMesh, element, Base::m_coord_field_original, Base::m_topology_data);
         double val=0.0, val_shape=0.0;
 
         const int nn = jacA.m_num_nodes;
@@ -906,7 +961,7 @@
                     double den = fac * d;
                     shape_metric = (f*f)/den - 1.0;
                     shape_metric = shape_metric*detWiC;
-                    if (m_debug)
+                    if (Base::m_debug)
                       {
                         std::cout << "nan: shape_metric= " << shape_metric << " f= " << f << " den= " << den << " detWi= " << detWi << " detAi= " << detAi << std::endl;
                       }
@@ -921,7 +976,7 @@
                   }
               }
             val_shape += shape_metric;
-            if (m_debug)
+            if (Base::m_debug)
               {
                 std::cout << "0nan: shape_metric= " << shape_metric << " detWi= " << detWi << " detAi= " << detAi << std::endl;
               }
@@ -931,11 +986,11 @@
       }
 
       /// computes metric and its gradient - see Mesquite::TShapeB1, TQualityMetric, TargetMetricUtil
-      virtual double grad_metric(stk::mesh::Entity element, bool& valid, double grad[8][4])
+      virtual double grad_metric(typename MeshType::MTElement element, bool& valid, double grad[8][4])
       {
         double A_ = 0.0, W_ = 0.0; // current and reference detJ
-        jacA(A_, *m_eMesh, element, m_coord_field_current, m_topology_data);
-        jacW(W_, *m_eMesh, element, m_coord_field_original, m_topology_data);
+        jacA(A_, *Base::m_eMesh, element, Base::m_coord_field_current, Base::m_topology_data);
+        jacW(W_, *Base::m_eMesh, element, Base::m_coord_field_original, Base::m_topology_data);
         //jacW(W_, *m_eMesh, element, m_coord_field_original, m_topology_data);
         double val=0.0, val_shape=0.0;
 
@@ -1039,7 +1094,7 @@
           }
 
         // compute grad for all nodes
-        jacA.grad_metric_util( *m_eMesh, element, m_coord_field_current, m_topology_data);
+        jacA.grad_metric_util( *Base::m_eMesh, element, Base::m_coord_field_current, Base::m_topology_data);
 
         // combine into total
         for (int i=0; i < nn; i++)
@@ -1056,6 +1111,8 @@
       }
 
     };
+
+    using SmootherMetricShapeB1 = SmootherMetricShapeB1Impl<STKMesh>;
 
     /* 2d: Frob^2(T) / 2*(|T|) - 1 */
     /* 3d: Frob^2(T) / 3*(|T|^2/3) - 1 */

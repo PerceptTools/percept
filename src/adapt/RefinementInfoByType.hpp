@@ -40,7 +40,6 @@
       {}
 
       typedef uint64_t RefinementInfoCount ;
-      //typedef unsigned RefinementInfoCount ;
 
       RefinementInfoCount m_numOrigElems;
       RefinementInfoCount m_numNewElems;

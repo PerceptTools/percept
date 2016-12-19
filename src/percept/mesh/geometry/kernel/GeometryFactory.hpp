@@ -9,8 +9,8 @@
 #define GEOMETRYFACTORY_HPP
 
 #include <string>
-#include "GeometryKernel.hpp"
-#include "MeshGeometry.hpp"
+#include <percept/mesh/geometry/kernel/GeometryKernel.hpp>
+#include <percept/mesh/geometry/kernel/MeshGeometry.hpp>
 #include <percept/PerceptMesh.hpp>
 
 namespace percept {

@@ -34,7 +34,7 @@
 //#include <percept/mesh/geometry/kernel/GeometryFactory.hpp>
 
 #include <percept/mesh/mod/smoother/MeshSmoother.hpp>
-#include <percept/mesh/mod/smoother/ReferenceMeshSmoother1.hpp>
+#include <percept/mesh/mod/smoother/ReferenceMeshSmootherConjugateGradient.hpp>
 #include <percept/mesh/mod/smoother/SpacingFieldUtil.hpp>
 
 #include <iostream>

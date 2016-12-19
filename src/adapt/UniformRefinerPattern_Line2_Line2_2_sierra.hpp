@@ -132,10 +132,16 @@
 #if WRITE_DIAGRAM
 
 #endif
+        bool use_declare_element_side = UniformRefinerPatternBase::USE_DECLARE_ELEMENT_SIDE &&  m_primaryEntityRank == eMesh.side_rank();
 
         for (unsigned ielem=0; ielem < elems.size(); ielem++)
           {
-            stk::mesh::Entity newElement = *element_pool;
+            stk::mesh::Entity newElement = stk::mesh::Entity();
+            if (!use_declare_element_side)
+              newElement = *element_pool;
+
+            stk::mesh::Entity nodes[2] = {eMesh.createOrGetNode(elems[ielem].get<0>()), eMesh.createOrGetNode(elems[ielem].get<1>())};
+            create_side_element(eMesh, use_declare_element_side, nodes, 2, newElement);
 
 #if 0
             if (proc_rank_field && proc_rank_field->field_array_rank() == m_eMesh.edge_rank()) //&& m_eMesh.get_spatial_dim()==1)
@@ -145,12 +151,13 @@
                 fdata[0] = double(eMesh.owner_rank(newElement));
               }
 #endif
+
             stk::mesh::FieldBase * proc_rank_field_edge = m_eMesh.get_field(stk::topology::EDGE_RANK, "proc_rank_edge");
             if (proc_rank_field_edge && proc_rank_field_edge->field_array_rank() != m_eMesh.edge_rank())
               {
                 if (0)
-                  std::cout << "P[" << m_eMesh.get_rank() << "] tmp newElement.entity_rank = " << m_eMesh.entity_rank(newElement) 
-                            << " proc_rank_field_edge->rank() = " << proc_rank_field_edge->field_array_rank() 
+                  std::cout << "P[" << m_eMesh.get_rank() << "] tmp newElement.entity_rank = " << m_eMesh.entity_rank(newElement)
+                            << " proc_rank_field_edge->rank() = " << proc_rank_field_edge->field_array_rank()
                             << " m_eMesh.edge_rank() = " << m_eMesh.edge_rank() << std::endl;
               }
             else if (proc_rank_field_edge && proc_rank_field_edge->field_array_rank() == m_eMesh.edge_rank())
@@ -168,22 +175,11 @@
 
             change_entity_parts(eMesh, element, newElement);
 
-            {
-              if (!elems[ielem].get<0>())
-                {
-                  std::cout << "P[" << eMesh.get_rank() << " nid = 0  " << std::endl;
-                  exit(1);
-                }
-
-            }
-
-            eMesh.get_bulk_data()->declare_relation(newElement, eMesh.createOrGetNode(elems[ielem].get<0>()), 0);
-            eMesh.get_bulk_data()->declare_relation(newElement, eMesh.createOrGetNode(elems[ielem].get<1>()), 1);
-
             set_parent_child_relations(eMesh, element, newElement, *ft_element_pool, ielem);
 
             ft_element_pool++;
-            element_pool++;
+            if (!use_declare_element_side)
+              element_pool++;
 
           }
 

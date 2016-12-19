@@ -14,12 +14,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#define USE_GETCWD 1
-#if USE_GETCWD
 #include <unistd.h>
 #include <sys/stat.h>
 #include <errno.h>
-#endif
 
 #if defined( STK_HAS_MPI )
 #include <mpi.h>
@@ -29,6 +26,7 @@
 #include <stk_util/diag/PrintTimer.hpp>
 #include <stk_util/util/Bootstrap.hpp>
 #include <stk_util/util/IndentStreambuf.hpp>
+#include <stk_util/environment/Env.hpp>
 
 #include <percept/RunEnvironment.hpp>
 #include <percept/Util.hpp>
@@ -165,7 +163,7 @@ namespace {
         m_need_to_finalize(true), m_debug(debug), m_processCommandLine_invoked(false), m_argv_new(0),m_argc(0),m_argv(0)
         //,m_par_finalize(false)
     {
-      internal_initialize(*argc, *argv);
+      //internal_initialize(*argc, *argv);
     }
 
     RunEnvironment::RunEnvironment(
@@ -178,7 +176,7 @@ namespace {
         //,m_par_finalize(false)
 
     {
-      internal_initialize(*argc, *argv);
+      //internal_initialize(*argc, *argv);
     }
 
     void RunEnvironment::internal_initialize(int argc, char** argv)
@@ -252,17 +250,6 @@ namespace {
 
       stk::Bootstrap::bootstrap();
 
-      if (0)
-        for (int i = 0; i < m_argc; ++i) {
-          const std::string s(m_argv[i]);
-          if ( s == "-h" || s == "-help" || s == "--help") {
-            //std::cout << "Found Help:: Usage: " << (*argv)[0] << " [options...]" << std::endl;
-            printHelp();
-            std::exit(0);
-            return;
-          }
-        }
-
       Util::setRank(parallel_rank);
       stk::BroadcastArg b_arg(m_comm, argc, argv);
 
@@ -272,10 +259,10 @@ namespace {
 
     }
 
-    int RunEnvironment::processCommandLine(int argc, char** argv)
+    int processCommandLine(Teuchos::CommandLineProcessor& clp_in, int argc, char** argv)
     {
-      int parallel_rank = stk::parallel_machine_rank(m_comm);
-      int parallel_size = stk::parallel_machine_size(m_comm);
+      int parallel_rank = stk::parallel_machine_rank(sierra::Env::parallel_comm());
+      //int parallel_size = stk::parallel_machine_size(sierra::Env::parallel_comm());
 
       bool found_help = false;
       if (!parallel_rank) {
@@ -288,14 +275,12 @@ namespace {
         }
       }
 
-      int error = processCLP(parallel_rank, argc, argv);
+      int error = processCLP(clp_in, parallel_rank, argc, argv);
 
       if (found_help)
         {
-          //printHelp();
 #if defined( STK_HAS_MPI )
-          MPI_Barrier( m_comm );
-          MPI_Finalize();
+          stk::parallel_machine_finalize();
 #endif
           std::exit(0);
         }
@@ -310,25 +295,27 @@ namespace {
                 {
                   std::cout << "failed = 1, arg[" << ii  << "] = " << (argv)[ii] << std::endl;
                 }
-              //printHelp();
             }
 #if defined( STK_HAS_MPI )
-          MPI_Barrier( m_comm );
-          MPI_Finalize();
+          stk::parallel_machine_finalize();
 #endif
           //stk::RuntimeDoomedSymmetric() << "parse_command_line";
           exit(1);
         }
 
+      /*
       // Parse diagnostic messages to display
+      std::string dw_opt = "";
       dw().setPrintMask(dw_option_mask.parse(dw_opt.c_str()));
 
       // Parse timer metrics and classes to display
       stk::diag::setEnabledTimerMetricsMask(stk::diag::METRICS_CPU_TIME | stk::diag::METRICS_WALL_TIME);
+      std::string timer_opt = "";
       timerSet().setEnabledTimerMask(timer_option_mask.parse(timer_opt.c_str()));
 
       // Set working directory
-      m_workingDirectory = "./";
+      std::string m_workingDirectory = "./";
+      std::string directory_opt = "";
       m_workingDirectory = directory_opt;
 
       if (m_workingDirectory.length() && m_workingDirectory[m_workingDirectory.length() - 1] != '/')
@@ -337,10 +324,11 @@ namespace {
       std::string output_description = build_log_description( m_workingDirectory, parallel_rank, parallel_size);
 
       stk::bind_output_streams(output_description);
+      */
 
       // Start percept root timer
       timer().start();
-      m_processCommandLine_invoked = true;
+      //m_processCommandLine_invoked = true;
 
       return 0;
     }
@@ -385,12 +373,6 @@ namespace {
       }
     }
 
-    void RunEnvironment::printHelp()
-    {
-      //std::cout << "Usage: stk_adapt_exe  [options...]" << std::endl;
-      clp.printHelpMessage("RunEnvironment",std::cout);
-    }
-
     void
     RunEnvironment::bootstrap()
     {
@@ -402,6 +384,8 @@ namespace {
     void RunEnvironment::
     setSierraOpts(int procRank, int argc, char* argv[])
     {
+      const bool m_debug = false;
+
       Teuchos::oblackholestream blackhole;
       std::ostream &out = ( procRank == 0 ? std::cout : blackhole );
 
@@ -423,9 +407,10 @@ namespace {
 
     }
 
-    int RunEnvironment::
-    processCLP(int procRank, int argc, char* argv[])
+    int processCLP(Teuchos::CommandLineProcessor& clp_in, int procRank, int argc, char* argv[])
     {
+      const bool m_debug = false;
+
       Teuchos::oblackholestream blackhole;
       std::ostream &out = ( procRank == 0 ? std::cout : blackhole );
 
@@ -439,7 +424,7 @@ namespace {
            only have a warning printed), use:
         */
 
-        clp.recogniseAllOptions(true);
+        clp_in.recogniseAllOptions(true);
 
         /* Second, by default, if the parser finds a command line option it
            doesn't recognize or finds the --help option, it will throw an
@@ -448,7 +433,7 @@ namespace {
            we don't have an try/catch around this) when it encounters a
            unrecognized option or help is printed, use:
         */
-        clp.throwExceptions(false);
+        clp_in.throwExceptions(false);
 
         /* We now parse the command line where argc and argv are passed to
            the parse method.  Note that since we have turned off std::exception
@@ -457,7 +442,7 @@ namespace {
         */
         Teuchos::CommandLineProcessor::EParseCommandLineReturn parseReturn= Teuchos::CommandLineProcessor::PARSE_SUCCESSFUL ;
         try {
-          parseReturn = clp.parse( argc, argv );
+          parseReturn = clp_in.parse( argc, argv );
           //std::cout << "tmp srk parseReturn = " << parseReturn << std::endl;
         }
         catch (std::exception exc)
@@ -493,13 +478,14 @@ namespace {
           {
             out << "\nPrinting help message with new values of command-line arguments ...\n\n";
 
-            clp.throwExceptions(false);
+            clp_in.throwExceptions(false);
 
-            clp.printHelpMessage(argv[0],out);
+            clp_in.printHelpMessage(argv[0],out);
 
-            clp.throwExceptions(true);
+            clp_in.throwExceptions(true);
           }
 
+        /*
         // Now we will print the option values
         if (procRank == 0 && m_debug) {
           out << "\nPrinting user options after parsing ...\n\n";
@@ -509,6 +495,7 @@ namespace {
           out << " directory_opt= " <<  directory_opt << std::endl;
           out << " help_opt= " <<  help_opt << std::endl;
         }
+        */
 
       } // try
       TEUCHOS_STANDARD_CATCH_STATEMENTS(true,std::cerr,success);
@@ -612,51 +599,6 @@ namespace {
       return output_description.str();
     }
 
-    // broken - do not use - for reference purposes only
-    void RunEnvironment::
-    doSierraLoadBalance(stk::ParallelMachine comm, std::string meshFileName)
-    {
-      unsigned p_size = stk::parallel_machine_size(comm);
-      unsigned p_rank = stk::parallel_machine_rank(comm);
-      if (!p_rank)
-        {
-          FILE *fpipe;
-          std::string tmp_file = "percept_tmp_loadbal.i";
-          std::string command="sierra -i "+tmp_file;
-          command += " -j "+toString(p_size);
-          command += +" percept_verifier_mesh -O\"--exit\"";
-          //const char *command="sierra -i percept_tmp_loadbal.i";
-          char line[256];
-
-          std::ofstream fout((std::string("./"+tmp_file)).c_str());
-          fout << "Begin Sierra Percept\n"
-               << "  Title None\n"
-               << "  Begin Finite Element Model 3d_model\n"
-               << "     Database Name = " << meshFileName << "\n"
-               << "  End\n"
-               << "End\n" << std::endl;
-          fout.close();
-
-          std::cout << "command= " << command << std::endl;
-          if ( !(fpipe = (FILE*)popen(command.c_str(),"r")) )
-            {  // If fpipe is NULL
-              perror("Problems with pipe");
-              exit(1);
-            }
-
-          while ( fgets( line, sizeof line, fpipe))
-            {
-              //printf("%s", line);
-              std::cout << line << std::endl;
-            }
-          pclose(fpipe);
-        }
-#if defined(STK_HAS_MPI)
-      MPI_Barrier( comm );
-#endif
-    }
-
-#if USE_GETCWD
     static void panic()
     {
       (void)perror("Unexpected library error");
@@ -665,8 +607,7 @@ namespace {
 
 #define MAX_PATH 256
     //: Returns the name of the current working directory
-    std::string RunEnvironment::
-    get_working_directory()
+    std::string get_working_directory()
     {
       int size = MAX_PATH;
 
@@ -686,33 +627,6 @@ namespace {
         size += MAX_PATH;
       }
     }
-#else
-    std::string RunEnvironment::get_working_directory()
-    {
-      return m_workingDirectory;
-    }
-
-#endif
-
-
-    void RunEnvironment::runCommand(std::string command)
-    {
-      char line[256];
-
-      FILE *fpipe;
-      if ( !(fpipe = (FILE*)popen(command.c_str(),"r")) )
-        {  // If fpipe is NULL
-          perror("Problems with pipe");
-          exit(1);
-        }
-
-      while ( fgets( line, sizeof line, fpipe))
-        {
-          //printf("%s", line);
-          std::cout << line; // << std::endl;
-        }
-      pclose(fpipe);
-    }
 
     /**
      *
@@ -723,8 +637,7 @@ namespace {
      *
      */
 
-    int RunEnvironment::
-    setFileNames(std::string& fullpath, std::string& meshFileName, std::string& errString)
+    int setFileNames(std::string& fullpath, std::string& meshFileName, std::string& errString)
     {
       int err=0;
       fullpath = get_working_directory() + meshFileName;
@@ -766,10 +679,27 @@ namespace {
       return err;
     }
 
-    void RunEnvironment::
-    doLoadBalance(stk::ParallelMachine comm, std::string meshFileName)
+    void runCommand(std::string command)
     {
+      char line[256];
 
+      FILE *fpipe;
+      if ( !(fpipe = (FILE*)popen(command.c_str(),"r")) )
+        {  // If fpipe is NULL
+          perror("Problems with pipe");
+          exit(1);
+        }
+
+      while ( fgets( line, sizeof line, fpipe))
+        {
+          //printf("%s", line);
+          std::cout << line; // << std::endl;
+        }
+      pclose(fpipe);
+    }
+
+    void doLoadBalance(stk::ParallelMachine comm, std::string meshFileName)
+    {
       if (meshFileName.length() == 0) return;
 
       unsigned p_size = stk::parallel_machine_size(comm);
@@ -781,16 +711,11 @@ namespace {
         {
           std::string fullpath = meshFileName;
 
-          std::cout << "tmp get_working_directory= " << get_working_directory() << std::endl;
-          std::cout << "tmp fullpath before= " << fullpath << std::endl;
-
           err = setFileNames(fullpath, meshFileName, errString);
 
           if (!err)
             {
-              std::cout << "tmp fullpath= " << fullpath << std::endl;
-              std::cout << "tmp meshFileName= " << meshFileName << std::endl;
-	      std::string command="decomp --nolaunch -p "+toString(p_size)+ " -R " +fullpath+" " + meshFileName;
+              std::string command="decomp --nolaunch -p "+toString(p_size)+ " -R " +fullpath+" " + meshFileName;
 
               std::cout << "RunEnvironment::doLoadBalance: command= " << command << std::endl;
 
@@ -811,4 +736,10 @@ namespace {
       MPI_Barrier( comm );
 #endif
     }
+
+    void printHelp(Teuchos::CommandLineProcessor& clp_in)
+    {
+      clp_in.printHelpMessage("RunEnvironment",std::cout);
+    }
+
   } // namespace percept
