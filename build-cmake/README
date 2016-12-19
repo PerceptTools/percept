@@ -7,8 +7,8 @@ First, have a look at the .sh files in this director and modify as necessary.
 
 Some steps are manual, see each of thse files.
 
-0. you will need an MPI installation, such as OpenMPI: https://www.open-mpi.org
-Download, configure and build OpenMPI first, then do the following:
+0. you will need an MPI installation, such as OpenMPI: https://www.open-mpi.org, and a Cmake installation, https://cmake.org
+If you don't already have these in your path, download, configure and build OpenMPI and Cmake first, then do the following:
 
 1. module-file - sets this directory path, and paths to MPI and gcc - edit it as necessary
 
