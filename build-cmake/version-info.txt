@@ -1,0 +1,2 @@
+The current github/percept version is mostly in sync with Sierra 281a7db.
+
