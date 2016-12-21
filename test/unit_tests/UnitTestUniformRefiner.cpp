@@ -27,6 +27,7 @@
 #include <adapt/UniformRefinerPattern.hpp>
 #include <adapt/UniformRefiner.hpp>
 #include <adapt/RefinerUtil.hpp>
+#include <adapt/UniformRefinerPattern_def.hpp>
 
 #include <percept/fixtures/SingleTetFixture.hpp>
 
@@ -72,7 +73,7 @@
   namespace percept {
     namespace unit_tests {
 
-#define DO_TESTS 0
+#define DO_TESTS 1
 #if DO_TESTS
       static int print_infoLevel = 0;
 
@@ -232,13 +233,13 @@
         std::cout << "Running numprocs = " << numprocs << " rank = " << rank << std::endl;
 
         stk::mesh::fixtures::HexFixture hf(MPI_COMM_WORLD,3,3,3);
-        ProcIdFieldType & processorIdField = hf.m_fem_meta.declare_field<ProcIdFieldType>(stk::topology::ELEMENT_RANK, "PROC_ID");
-        stk::mesh::put_field( processorIdField , stk::topology::ELEMENT_RANK, hf.m_fem_meta.universal_part());
+        ProcIdFieldType & processorIdField = hf.m_meta.declare_field<ProcIdFieldType>(stk::topology::ELEMENT_RANK, "PROC_ID");
+        stk::mesh::put_field( processorIdField , stk::topology::ELEMENT_RANK, hf.m_meta.universal_part());
 
-        percept::PerceptMesh eMesh(&hf.m_fem_meta,&hf.m_bulk_data,false);
+        percept::PerceptMesh eMesh(&hf.m_meta,&hf.m_bulk_data,false);
         percept::Hex8_Hex8_8 break_quad(eMesh);
 
-        hf.m_fem_meta.commit();
+        hf.m_meta.commit();
         hf.generate_mesh();
 
         const stk::mesh::BucketVector & buckets = hf.m_bulk_data.buckets(3);
@@ -276,16 +277,16 @@
         // local scope to make sure we don't re-use hf
         {
           stk::mesh::fixtures::HexFixture hf(MPI_COMM_WORLD,3,3,3);
-          ProcIdFieldType & processorIdField = hf.m_fem_meta.declare_field<ProcIdFieldType>(stk::topology::ELEMENT_RANK, "PROC_ID");
-          stk::mesh::put_field( processorIdField , stk::topology::ELEMENT_RANK, hf.m_fem_meta.universal_part());
+          ProcIdFieldType & processorIdField = hf.m_meta.declare_field<ProcIdFieldType>(stk::topology::ELEMENT_RANK, "PROC_ID");
+          stk::mesh::put_field( processorIdField , hf.m_meta.universal_part());
 
           // to get any output we must tell I/O about this part
-          stk::io::put_io_part_attribute( hf.m_hex_part);
+          stk::io::put_io_part_attribute( hf.m_meta.universal_part());
 
-          hf.m_fem_meta.commit();
+          hf.m_meta.commit();
           hf.generate_mesh();
 
-          const stk::mesh::BucketVector & buckets = hf.m_bulk_data.buckets(3);
+          const stk::mesh::BucketVector & buckets = hf.m_bulk_data.buckets(stk::topology::ELEMENT_RANK);
           for(std::size_t i=0;i<buckets.size();++i) {
             stk::mesh::Bucket & b = *buckets[i];
             for(std::size_t j=0;j<b.size();++j) {
@@ -298,7 +299,7 @@
 
           // save and then re-open - this is a workaround until MetaData is changed to natively support adaptivity
           //   by either initializing always to use rank-4 entities and/or allowing a re-init
-          percept::PerceptMesh eMesh_TMP(&hf.m_fem_meta,&hf.m_bulk_data,true);
+          percept::PerceptMesh eMesh_TMP(&hf.m_meta,&hf.m_bulk_data,true);
           eMesh_TMP.save_as("./hex_init.e");
         }
 
@@ -3045,15 +3046,15 @@
             }
 
             std::string input_mesh = input_files_loc+"heterogeneous_0.e";
-            if (p_size > 1)
-              {
-                RunEnvironment::doLoadBalance(pm, input_mesh);
-              }
-
             // refine the mesh
             if (1)
               {
                 percept::PerceptMesh eMesh1(3);
+
+                if (p_size > 1)
+                  {
+                    eMesh1.set_ioss_read_options("auto-decomp:yes");
+                  }
 
                 eMesh1.open(input_files_loc+"heterogeneous_0.e");
 
@@ -3126,15 +3127,16 @@
             }
 
             std::string input_mesh = input_files_loc+"heterogeneous_enrich_0.e";
-            if (p_size > 1)
-              {
-                RunEnvironment::doLoadBalance(pm, input_mesh);
-              }
 
             // enrich the mesh
             if (1)
               {
                 percept::PerceptMesh eMesh1(3);
+
+                if (p_size > 1)
+                  {
+                    eMesh1.set_ioss_read_options("auto-decomp:yes");
+                  }
 
                 eMesh1.open(input_files_loc+"heterogeneous_enrich_0.e");
                 //eMesh1.print_info("hetero_enrich_2", 4);
