@@ -35,4 +35,19 @@ sample-percept-lite-release.config file as a starting point - the lite
 version doesn't use OpenNURBS or Intrepid and results in a smaller
 executable, but with less functionality.
 
+7. see VERSION file for extra info on builds
+
+Running Percept
+===============
+Percept's main executable is mesh_adapt.  The unit test executable is
+percept_utest.
+
+
+1. Create a new directory and run percept_utest - this will use
+fixtures to create output meshes - when run a second time, these are
+then used as a "regression" test - if the file exists, it will be used
+to for a mesh comparison - if the file doesn't exist, it will
+be created.
+
+2. See mesh-adapt-help.txt
 

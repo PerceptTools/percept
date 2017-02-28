@@ -1,0 +1,348 @@
+Example usage of mesh_adapt executable (auto-decomp:yes setting reads in and
+parallel-decomposes hex8.e)
+
+mpiexec -n 3 ./mesh_adapt --input_mesh=hex8.e --output_mesh=hex8-ref.e \
+  --number_refines=2 --refine=DEFAULT \
+  --ioss_read_options="large:auto-decomp:yes" --ioss_write_options="large"
+
+Output from 'mesh_adapt -H' :
+
+Usage: RunEnvironment [options]
+  options:
+  --help                                            Prints this help message
+  --pause-for-debugging                             Pauses for user input to allow attaching a debugger
+  --echo-command-line                               Echo the command-line but continue as normal
+  --help                              int           print this usage message
+                                                    (default: --help=0)
+  --version                           int           print version and exit
+                                                    (default: --version=0)
+  --input_mesh                        string        input mesh name
+                                                    (default: --input_mesh="")
+  --output_mesh                       string        output mesh name
+                                                    (default: --output_mesh="")
+  --load_balance                      int           load balance (decomp/slice/spread) input mesh file
+                                                    (default: --load_balance=0)
+  --previous_adapted_mesh             string        previous adapted mesh name for offline adaptivity (INTERNAL USE)
+                                                    (default: --previous_adapted_mesh="")
+  --next_adapted_mesh                 string        next adapted mesh name for offline adaptivity (INTERNAL USE)
+                                                    (default: --next_adapted_mesh="")
+  --save_intermediate_meshes          int           save meshes in refinement sequence to 'refined_mesh_I.e' for each I <= number_refines
+  Note: if < 0, save in animation format: refined_mesh.e, refined_mesh.e-s0001, ...
+                                                    (default: --save_intermediate_meshes=0)
+  --refine                            string        DEFAULT, Quad4_Quad4_4, Tri3_Tri3_4, Tet4_Tet4_8, Hex8_Hex8_8, Wedge6_Wedge6_8, Pyramid5_Pyramid5_10, Tri6_Tri6_4, Quad9_Quad9_4, Hex27_Hex27_8, Tet10_Tet10_8, Wedge15_Wedge15_8, Pyramid13_Pyramid13_10, ShellTri3_ShellTri3_4, ShellQuad4_ShellQuad4_4
+                                                    (default: --refine="")
+  --number_refines                    int           number of refinement passes
+  Note: must be set to be >= max of any 'N' in the --blocks=<block-name>:Nx,... option.
+  Note: if the :Nx optional specification is not used for a block, it is equivalent
+    to specifying :<number_refines>x for that block.
+                                                    (default: --number_refines=1)
+  --convert                           string        Quad4_Tri3_2, Quad4_Tri3_6, Quad4_Tri3_4, Tri3_Quad4_3, Tet4_Wedge6_Hex8, Wedge6_Hex8_6, Tet4_Hex8_4, Hex8_Tet4_24, Hex8_Tet4_6
+                                                    (default: --convert="")
+  --enrich                            string        DEFAULT, Quad4_Quad8_1, Quad4_Quad9_1, Tri3_Tri6_1, Tet4_Tet10_1, Hex8_Hex20_1, Hex8_Hex27_1, Wedge6_Wedge15_1, Wedge6_Wedge18_1, Pyramid5_Pyramid13_1, Beam2_Beam3_1
+                                                    (default: --enrich="")
+  --RAR_info                          string        name of input file for advanced usage
+                                                    (default: --RAR_info="")
+  --respect_spacing                   int           respect the initial mesh spacing during refinement
+                                                    (default: --respect_spacing=1)
+  --verify_meshes                     string        verify positive volumes for input and output meshes, set to 1 for finite element volume checks, FV for finite volume checks
+                                                    (default: --verify_meshes="0")
+  --query_only                        int           query only, no refinement done
+                                                    (default: --query_only=0)
+  --progress_meter                    int           progress meter on or off
+                                                    (default: --progress_meter=0)
+  --print_timers                      int           print more detailed timing info
+                                                    (default: --print_timers=0)
+  --print_info                        int           >= 0  (higher values print more info)
+                                                    (default: --print_info=0)
+  --skin_mesh                         int           produce a boundary sideset for any exposed boundaries
+                                                    (default: --skin_mesh=0)
+  --dihedral_angle_check              int           >= 0  check dihedral angles of a tetrahedral mesh, print those that are larger than 90 deg. (higher values print more info)
+
+                                                    (default: --dihedral_angle_check=0)
+  --print_memory_usage                int           print memory usage
+                                                    (default: --print_memory_usage=0)
+  --precheck_memory_usage             int           before refinement, check there's enough memory by using an estimated number of bytes per element (1000)
+
+If set to 1, we internally estimate how many cores/node using a list of SNL hostnames, but it can be set
+explicitly to the number of cores/node, e.g. on chama, cores/node is 16
+                                                    (default: --precheck_memory_usage=0)
+  --estimate_memory_usage             int            use internal or memory_multipliers_file values to estimate memory needed.
+   if query_only=1, use multipliers from memory_multipliers_file to estimate memory to be used in refinements, if memory_multipliers_file is set.
+   if query_only=1, and no memory_multipliers_file is set, use internal values for memory_multipliers.
+   If query_only=0, print actual memory data and estimates.
+                                                    (default: --estimate_memory_usage=0)
+  --property_map                      string        YAML-based list of string: string pairs, e.g. {smoother_type: Newton, smoother_niter: 200, smoother_tol: 1.e-3}
+                                                    (default: --property_map="")
+  --input_geometry                    string        input geometry name
+                                                    (default: --input_geometry="")
+  --smooth_geometry                   int           smooth geometry - moves nodes after geometry projection to try to avoid bad meshes
+                                                    (default: --smooth_geometry=0)
+  --smoother_niter                    int           mesh smoother number of iterations
+                                                    (default: --smoother_niter=1000)
+  --smoother_tol                      double        mesh smoother convergence tolerance
+                                                    (default: --smoother_tol=0.0001)
+  --smooth_surfaces                   int           allow nodes to move on surfaces when smoothing
+                                                    (default: --smooth_surfaces=0)
+  --dump_geometry_file                int           debug print geometry (OpenNURBS 3dm) file contents
+                                                    (default: --dump_geometry_file=0)
+  --fit_geometry_file                 string        for 2D meshes, create an OpenNURBS 3dm file fitting cubic splines to all boundaries
+                                                    (default: --fit_geometry_file="")
+  --fit_angle                         double        for 2D meshes, specify angle criterion for determining corners - defined by the
+   angle between the two adjacent faces, so a flat surface has angle 180.
+   Specified in degrees - if the included angle is less than fit_angle, the
+   node is considered a corner and a hard corner will be enforced.
+                                                    (default: --fit_angle=115)
+  --fit_3d_file                       string        for 3D meshes, fit bi-cubics to mesh surface geometry, store in fields for evaluation
+  specify a YAML file to read with control information on which surfaces
+  to fit and how to treat seams in the surface using an angle criterion
+  a sample YAML file will be printed if fit_3d_file is set to sample.yaml.
+Note: if the YAML file has 'QA: ... data ...' set, then the surfaces will be
+  converted to shells, and all seams will be detected and put in a
+  special edge part and saved to the file specified - this is
+  for QA'ing of the input data before doing the actual fit.
+                                                    (default: --fit_3d_file="")
+  --convert_geometry_parts_OpenNURBS  string        remove beam and shell elements, place nodes in similarly-named nodesets, save to specified new file in this option
+                                                    (default: --convert_geometry_parts_OpenNURBS="")
+  --smooth_use_reference_mesh         int           for most cases, set to 1 (default) - can be used for smoothing with no reference mesh
+                                                    (default: --smooth_use_reference_mesh=1)
+  --fix_all_block_boundaries          int           when smoothing without geometry, fix all inner and outer block boundaries
+                                                    (default: --fix_all_block_boundaries=0)
+  --compute_hmesh                     string        compute mesh parameter using method eigens|edges
+                                                    (default: --compute_hmesh="")
+  --print_hmesh_surface_normal        int           prints a table of normal mesh spacing at each surface
+                                                    (default: --print_hmesh_surface_normal=0)
+  --blocks                            string        which blocks to include, specified as: block name(s) to convert: there are several options
+  (1) empty string or option not specified: convert all blocks in the input mesh file
+  (2) file:my_filename.my_ext (e.g. file:filelist.dat) which will read input block names
+            from the given file
+  (3) [+]block_name_1,[+]block_name_2, etc ,block_name_n to include only these blocks, plus sign is optional
+  (4) a single input block name (e.g. block_3) to be converted
+  (5) -block_3,-block_5 to exclude blocks from those included (all blocks or include-only blocks), minus sign is mandatory
+  (6) block_1..block_10 include the range of blocks #1 to #10
+  (7) any combination of [+] and - options and range (..) option can be specified
+  (8) Note: you can add the optional specification :Nx or :NX of the number of times to refine
+        a particular block to any block name specification, e.g. --blocks=1..3:2x,5,6:3x would refine
+        blocks 1,2 and 3 twice, block 5 'number_refines' times, block 6 three times.
+Note: wherever you specify block_# this can be replaced with just the #, e.g. "1,2,4,5"
+                                                    (default: --blocks="")
+  --use_transition_elements           int           when specifying --blocks option, set this to 1 to enable conformal meshes
+by introducing so-called transition elements in the border region between
+a refined and unrefined block
+                                                    (default: --use_transition_elements=0)
+  --histogram                         string        options for histograms:
+  either a single filename, which reads further commands in YAML format (yaml.org) from that file, or
+  a string of the form "{ fields: [field_1,...,field_n], file_root: my_histograms,
+     mesh: [edge_length, quality_edge, quality_vol_edge_ratio, volume], time: 0.1, step: 2 }"
+  where field_i are field names to get stats for, file_root is a root filename,
+  and mesh: gives options for mesh quality histograms.
+  time: or step: options allow specifying which timestep in the database should be used.
+  If read from a file, file format is like this:
+    fields:
+      - pressure
+      - velocity
+      - temperature
+    file_root: my_histograms
+    mesh:
+      - edge_length
+      - quality_edge
+      - quality_vol_edge_ratio
+      - volume
+                                                    (default: --histogram="")
+  --histogram_file_root               string         if cout, use screen, else use this as the root name of histogram files.
+                                                    (default: --histogram_file_root="cout")
+  --ioss_read_options                 string        options to IOSS/Exodus for e.g. large files | auto-decomp | auto-join
+to use, set the string to a combination of
+{"large", "auto-decomp:yes",  "auto-decomp:no",
+   "auto-join:yes", "auto-join:no" }
+   e.g. "large,auto-decomp:yes"
+ Note: set options for read and/or write (ioss_write_options)
+                                                    (default: --ioss_read_options="")
+  --ioss_write_options                string        see ioss_read_options
+                                                    (default: --ioss_write_options="")
+  --debug                             int            turn on debug printing
+                                                    (default: --debug=0)
+  --use_side_map                      int            experimental - for shell-based meshes
+                                                    (default: --use_side_map=0)
+  --proc_rank_field                   int            add an element field to show processor rank
+                                                    (default: --proc_rank_field=0)
+  --remove_original_elements          int            remove original elements (default=true)
+                                                    (default: --remove_original_elements=1)
+  --remove_geometry_blocks            int           remove geometry blocks from output Exodus file after refinement/geometry projection
+                                                    (default: --remove_geometry_blocks=0)
+  --delete_parents                    int           DEBUG: delete parents from a nested, multi-refine mesh - used for debugging
+                                                    (default: --delete_parents=1)
+  --snap_geometry                     int           project nodes to geometry - used for internal testing only
+                                                    (default: --snap_geometry=0)
+  --internal_test                     string        run the specified internal test
+                                                    (default: --internal_test="")
+  --sync_io_regions                   int           synchronize input/output region's Exodus id's (default=0)
+   use this option if you want to ensure output mesh has
+   the same block ids and names as the input mesh, which
+   only makes sense if in refine (not enrich or convert) mode
+                                                    (default: --sync_io_regions=1)
+  --save_internal_fields              int           save internally created fields to the output file
+                                                    (default: --save_internal_fields=0)
+  --memory_multipliers_file           string        [experimental]  filename with 3 space-separated entries, with estimate for bytes-per-hex8 tet4 and nodes, e.g. 300 280 200
+  If not set, use internal estimates for memory multipliers.
+                                                    (default: --memory_multipliers_file="")
+  --test_memory_elements              int            give a number of elements
+                                                    (default: --test_memory_elements=0)
+  --test_memory_nodes                 int            give a number of nodes
+                                                    (default: --test_memory_nodes=0)
+  --serialized_io_group_size          int           [experimental] set to non-zero to use this many i/o groups to minimize disk contention
+                                                    (default: --serialized_io_group_size=0)
+  --streaming_size                    int           INTERNAL use only by python script streaming refinement interface:
+  run in streaming mode - this number specifies how many virtual procs the mesh is split into
+    i.e. we expect to see files like file.e.N.iN where N = streaming_size iN=0..N
+                                                    (default: --streaming_size=0)
+  --streaming_rank                    int           INTERNAL use only by python script streaming refinement interface:
+  run in streaming mode - this number specifies which virtual proc this is.
+                                                    (default: --streaming_rank=0)
+  --streaming_pass_start              int           INTERNAL use only by python script streaming refinement interface:
+                                                    (default: --streaming_pass_start=-2)
+  --streaming_pass_end                int           INTERNAL use only by python script streaming refinement interface:
+                                                    (default: --streaming_pass_end=-2)
+  --streaming_W                       int           INTERNAL use only by python script streaming refinement interface:
+                                                    (default: --streaming_W=0)
+  --streaming_iW                      int           INTERNAL use only by python script streaming refinement interface:
+                                                    (default: --streaming_iW=0)
+
+DETAILED DOCUMENTATION:
+
+Welcome to Percept's command-line interface.  Percept can uniformly refine a mesh in parallel to
+create very large simulation inputs, while respecting the geometry of the original model using CAD
+data. It can convert a mesh from one topology to another (eg Tetrahedra to Hexahedra) or enrich a
+linear mesh to quadratic (eg Quad4 to Quad9). It contains an option to project new nodes to CAD
+geometry and smooth the resulting mesh including surface nodes.  Percept can operate in parallel or
+in streaming mode where the mesh is subdivided on M pseudo-processors and refined/converted/enriched
+in pieces in sequence (this allows large meshes to be created on smaller machines). An option exists
+to load balance the mesh (read it in and split it over M processors) on input.  Percept can be used
+to smooth an existing mesh using the Mesquite shape-based quality measure.
+
+The basic usage is to specify an input and output mesh and an operation to perform on the mesh:
+
+mesh_adapt --input_mesh=in.e --output_mesh=out.e --refine=DEFAULT
+
+(these are the minimal options).  If DEFAULT is chose for the refine or enrich option, the input
+mesh will be examined for each type of element and an appropriate refine/enrich option will be
+chosen automatically; therefore, hybrid meshes can be processed.  To convert topology, an option for
+--convert must be chosen, and the input mesh is required to have one topology.
+
+Respecting Spacing
+
+The option --respect_spacing is on by default; it computes a spacing value on each edge of the
+original mesh, averages this to the nodes, then uses this value to determine a location on the edge
+(or face) to place new nodes to respect the spacing/grading of the original mesh.  Thus, for a
+boundary-layer type mesh in a flow simulation, refinement will produce nodes with the same grading
+as the original mesh.  This option does not currently work with some topologies (e.g. quadratic
+elements), thus you may need to turn it off if Percept gives an error message about a small or
+negative Jacobian.
+
+Geometry Enforcement
+
+Percept can refine/convert/enrich a mesh and have new nodes 'snapped' to the original geometry.
+Cubit can be used to output a .3dm (OpenNURBS) file that contains the geometry of the model used to
+create the mesh (see option 'parallel refine' in Cubit).  If your mesh was not created originally in
+Cubit, but you have the .SAT (ACIS) or other geometry file, you can re-associate the mesh with the
+geometry in Cubit and then output the .3dm file required by Percept.  A typical command would then
+be
+
+  mesh_adapt --input_mesh=in.e --output_mesh=out.e --refine=DEFAULT --input_geometry=in.3dm
+
+You can request that the mesh be smoothed after node projection to remove any inverted elements and
+then improve the mesh quality using the Mesquite shape-based quality measure.  Just add
+--smooth_geometry=1 to the command line.  Optionally, add --smooth_surfaces=1 to request nodes be
+moved on the surfaces to further improve mesh quality after projection.
+
+Smoothing an Existing Mesh
+
+An existing mesh can be smoothed using Mesquite's shape-based quality measure.  This is useful, for
+example, to create a mesh with elements that are more uniform in volume which may help increase
+minimum time step sizes in explicit dynamics runs.  Use a command line like this:
+
+  mesh_adapt --input_mesh=in.e --output_mesh=out.e --refine=DEFAULT --number_refines=0
+  --smooth_use_reference_mesh=0 --fix_all_block_boundaries=1 --smooth_geometry=1
+
+The --fix_all_block_boundaries=1 options freezes nodes on block boundaries including those shared
+between two blocks.
+
+Subsetting Operation
+
+Operations can be restricted to a subset of blocks using --blocks=<command> where command is a
+string specifying a list of blocks to include, exclude or both.  See the usage message for full
+details.  An example is
+
+  mesh_adapt --input_mesh=in.e --output_mesh=out.e --refine=DEFAULT
+     --blocks=block_1..block_10,-block_8
+
+which would refine blocks 1-10 but not block_8.  Note that this can cause a mesh to have some blocks
+refined and neighboring blocks not refined, which may result in an invalid mesh.
+
+Streaming Operation
+
+A large mesh can be created on a machine with small memory by decomposing the original mesh (using
+--load_balance=1) and refining each piece in sequence over M pseudo-processes.  This operation can
+also be split across P processors to improve performance.  In this case, the input mesh will be
+split into M*P pieces and refined by P processes in sequence.  A typical command-line is:
+
+  mpiexec -n P mesh_adapt --input_mesh=in.e --output_mesh=out.e
+  --refine=DEFAULT --streaming_size=M
+
+Verify/Query Operations
+
+The element volumes can be verified (on input and output) with --verify_meshes=1. Information about
+the mesh (parts, number of elements, nodes, etc.) can be printed with --print_info={1,2,3} with
+larger numbers giving more info (no other operations are performed if --print_info is non-zero).  If
+one adds --query_only=1, the requested operations will not be performed, but the estimates of
+refined mesh size will be printed.  If --estimate_memory_usage=1 is used, especially with
+--query_only=1, and estimate of required memory will be printed.  If --print_memory_usage=1 is set,
+the actual memory used will be printed.
+
+Mesh Sizing Queries
+
+Use --compute_hmesh={edges,eigens} to print a histogram of mesh edge lengths or Jacobian
+eigenvalues.  This is useful for just an input mesh query, or to compare the before/after refine
+values when doing a mesh refinement sequence in a verification study.  Use
+--print_hmesh_surface_normal=1 to print a histogram of mesh normal spacing at boundaries (useful for
+evaluating the near-wall mesh size in e.g. a turbulent wall calculation).
+
+Mesh/Field Histograms
+
+Percept can probe the mesh and field data of an input Exodus database and compute and print a
+histogram of the results.  Use --histogram=<command> where command is a string with instructions on
+what to print, which are in YAML format (see yaml.org).  The string is specified in yaml 'flow'
+format, e.g.
+
+ { fields: [pressure,temperature], file_root: my_query, time: 0.1 }
+
+will probe the mesh at time value 0.1 and write histograms of pressure and temperature to files
+my_query.pressure.hist, and my_query.temperature.hist. Instead of specifying commands in the string
+to --histogram, <command> can just be a file name which will be read for commands in yaml
+format. Additional options are shown in the usage message.
+
+Ioss Options
+
+Percept can be used to create meshes with billions of elements and nodes using the Exodus large-mesh
+settings (which uses all 64-bit integers internally to allow exa-scale identifiers).  During mesh
+input, Exodus can be instructed to decompose the mesh 'on-the-fly' with the 'auto-decomp' option.
+On output, the mesh can be joined 'on-the-fly' to produce a single output mesh (as opposed to a
+file-per-process as is the Exodus default).  A typical command is
+
+  mpiexec -n P mesh_adapt --input_mesh=in.e --output_mesh=out.e --refine=DEFAULT
+  --ioss_read_options='large,auto-decomp:yes' --ioss_write_options='large,auto-join:no'
+
+which would leave files in their 'split' state.
+
+Debugging/Advanced Options
+
+1. Use --dump_geometry_file to print contents of a .3dm file.
+
+2. --proc_rank_field=1 adds an element-based field with the value of the processor rank
+
+3. --remove_original_elements=0 will keep the input mesh elements present in the output mesh
+
+4. --progress_meter=1 will show a 'percent-complete' progress bar and other progress information
+
+5. --remove_geometry_blocks=1 will remove blocks in the input mesh that contain geometric-associativity information
+
+
