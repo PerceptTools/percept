@@ -13,6 +13,7 @@
 
 namespace percept {
 
+
   using Array4D = typename MTFieldImpl::Array4D;
 
   BlockStructuredGrid::BlockStructuredGrid(PerceptMesh* eMesh, Ioss::Region *region) : m_eMesh(eMesh), m_region(region)
