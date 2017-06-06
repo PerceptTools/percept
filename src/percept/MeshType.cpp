@@ -7,6 +7,7 @@
 
 #include <percept/PerceptMesh.hpp>
 #include <percept/MeshType.hpp>
+#include <percept/structured/BlockStructuredGrid.hpp>
 
 namespace percept {
 
@@ -88,8 +89,7 @@ namespace percept {
   template<>
   void MTcommFields<StructuredGrid>(std::vector<const typename StructuredGrid::MTField*>& fields, PerceptMesh *m_eMesh)
   {
-    //VERIFY_MSG("not impl");
-    m_eMesh->get_block_structured_grid()->comm_fields(fields, m_eMesh);
+    m_eMesh->get_block_structured_grid()->comm_fields(fields);
   }
 
   template<>
@@ -101,7 +101,7 @@ namespace percept {
   template<>
   void MTsum_fields<StructuredGrid>(std::vector<typename StructuredGrid::MTField*>& fields, PerceptMesh *m_eMesh)
   {
-    m_eMesh->get_block_structured_grid()->sum_fields(fields, m_eMesh);
+    m_eMesh->get_block_structured_grid()->sum_fields(fields);
   }
 
   template<>

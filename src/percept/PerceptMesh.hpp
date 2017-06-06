@@ -59,7 +59,6 @@
 #include <stk_io/IossBridge.hpp>
 #include <stk_io/StkMeshIoBroker.hpp>
 #if !STK_PERCEPT_LITE
-#include <percept/BlockStructuredGrid.hpp>
 
 #  if defined(STK_BUILT_IN_SIERRA)
 #    include <cgns/Iocgns_Initializer.h>
@@ -101,6 +100,8 @@
 
   namespace percept {
 
+    class BlockStructuredGrid;
+
     template<typename T> class Histograms;
 
     static const unsigned EntityRankEnd = 6;
@@ -137,7 +138,7 @@
       // ctor constructor
       /// Create a Mesh object that owns its constituent MetaData and BulkData (which are created by this object)
       //PerceptMesh( stk::ParallelMachine comm =  MPI_COMM_WORLD );
-      PerceptMesh(size_t spatialDimension = 3u, stk::ParallelMachine comm =  MPI_COMM_WORLD );
+      PerceptMesh(size_t spatialDimension = 3u, stk::ParallelMachine comm =  MPI_COMM_WORLD);
 
       /// Create a Mesh object that doesn't own its constituent MetaData and BulkData, pointers to which are adopted
       /// by this constructor.
@@ -226,6 +227,9 @@
 
       uint64_t
       get_number_elements();
+
+      uint64_t
+      get_number_sides();
 
       int
       get_number_nodes();
@@ -381,6 +385,11 @@
         return get_bulk_data()->get_entity(rank, id);
       }
 
+      stk::mesh::Entity get_entity( stk::mesh::EntityKey ek)
+      {
+        return get_bulk_data()->get_entity(ek);
+      }
+
       /// find and return pointer to node closest to given point - in parallel, check return for null (if null, closest node is on another proc)
       stk::mesh::Entity get_node(double x, double y, double z=0, double t=0) ;
 
@@ -420,6 +429,7 @@
       }
 
       /// return the rank of a node
+      inline
       stk::mesh::EntityRank node_rank() const
       {
         return stk::topology::NODE_RANK;
@@ -427,6 +437,7 @@
 
       /** \brief Returns the edge rank which changes depending on spatial dimension
        */
+      inline
       stk::mesh::EntityRank edge_rank() const
       {
         return stk::topology::EDGE_RANK;
@@ -434,6 +445,7 @@
 
       /** \brief Returns the face rank which changes depending on spatial dimension
        */
+      inline
       stk::mesh::EntityRank face_rank() const
       {
         return stk::topology::FACE_RANK;
@@ -441,6 +453,7 @@
 
       /** \brief Returns the side rank which changes depending on spatial dimension
        */
+      inline
       stk::mesh::EntityRank side_rank() const
       {
         return m_metaData->side_rank();
@@ -448,6 +461,7 @@
 
       /** \brief Returns the element rank which is always equal to spatial dimension
        */
+      inline
       stk::mesh::EntityRank element_rank() const
       {
         return stk::topology::ELEMENT_RANK;
@@ -551,13 +565,7 @@
 
       /// axpby calculates: y = alpha*x + beta*y
       void nodal_field_axpby(double alpha, stk::mesh::FieldBase* field_x, double beta, stk::mesh::FieldBase* field_y);
-      void nodal_field_axpby(double alpha, typename StructuredGrid::MTField* field_x, double beta, typename StructuredGrid::MTField* field_y)
-      {
-#if !STK_PERCEPT_LITE
-        get_block_structured_grid()->nodal_field_axpby(alpha, field_x, beta, field_y);
-#endif
-      }
-
+      void nodal_field_axpby(double alpha, typename StructuredGrid::MTField* field_x, double beta, typename StructuredGrid::MTField* field_y);
 
       /// axpbypgz calculates: z = alpha*x + beta*y + gamma*z
       void nodal_field_state_axpbypgz(stk::mesh::FieldBase* field, double alpha, unsigned x_state, double beta, unsigned y_state, double gamma, unsigned z_state);
@@ -569,38 +577,16 @@
 
       void nodal_field_axpbypgz(double alpha, typename StructuredGrid::MTField* field_x,
                                 double beta, typename StructuredGrid::MTField* field_y,
-                                double gamma, typename StructuredGrid::MTField* field_z)
-      {
-#if !STK_PERCEPT_LITE
-        get_block_structured_grid()->nodal_field_axpbypgz(alpha, field_x, beta, field_y, gamma, field_z);
-#endif
-      }
+                                double gamma, typename StructuredGrid::MTField* field_z);
 
       /// dot calculates: x.y
       double nodal_field_dot_old(stk::mesh::FieldBase* field_x, stk::mesh::FieldBase* field_y);
-      // long double nodal_field_dot(stk::mesh::FieldBase* field_x, stk::mesh::FieldBase* field_y);
       long double nodal_field_dot(stk::mesh::FieldBase* field_x, stk::mesh::FieldBase* field_y);
-      // template<typename MeshType>
-      // long double nodal_field_dot(typename MeshType::MTField* field_x, typename MeshType::MTField* field_y);
-      long double nodal_field_dot(typename StructuredGrid::MTField* field_x, typename StructuredGrid::MTField* field_y)
-      {
-#if !STK_PERCEPT_LITE
-        return get_block_structured_grid()->nodal_field_dot(field_x, field_y);
-#else
-        return 0;
-#endif
-      }
-
+      long double nodal_field_dot(typename StructuredGrid::MTField* field_x, typename StructuredGrid::MTField* field_y);
 
       /// set field to constant value
       void nodal_field_set_value(stk::mesh::FieldBase* field_x, double value = 0.0);
-      void nodal_field_set_value(typename StructuredGrid::MTField* field_x, double value = 0.0)
-      {
-#if !STK_PERCEPT_LITE
-        get_block_structured_grid()->nodal_field_set_value(field_x, value);
-#endif
-      }
-
+      void nodal_field_set_value(typename StructuredGrid::MTField* field_x, double value = 0.0);
 
       /// remove blocks in the mesh used solely for geometry association, during output of the mesh to Exodus.
       /// @param geometry_file_name = name of the OpenNURBS file (*.3dm) containing the geometry info
@@ -750,9 +736,10 @@
 
       void get_node_node_neighbors(stk::mesh::Entity node, std::set<stk::mesh::Entity>& neighbors, stk::mesh::EntityRank rank = stk::topology::ELEMENT_RANK);
 
-#if PERCEPT_DEPRECATED
-      void get_node_neighbors(stk::mesh::Entity element, boost::unordered_set<stk::mesh::Entity>& neighbors);
-#endif
+      void get_node_neighbors(stk::mesh::Entity element, SetOfEntities& neighbors, stk::mesh::EntityRank rank = stk::topology::ELEMENT_RANK);
+
+      // only for side-rank
+      void get_element_node_neighbors_sharing_side(stk::mesh::Entity side, SetOfEntities& neighbors);
 
       void filter_active_only(std::set<stk::mesh::Entity>& set);
 
@@ -870,8 +857,9 @@
                                       std::string nodal_local_id_name="LOCAL_ID");
 
       // return if two nodes are the same by identifier (use_coordinate_compare=false) or by coordinate.
+      inline
       bool match(stk::mesh::Entity node_0, stk::mesh::Entity node_1, bool use_coordinate_compare,
-                 double ave_edge_length, double tol=1.e-5);
+                 double ave_edge_length, double tol=1.e-5) { return node_0 == node_1; }
 
       void prolongateElementFields(std::vector<stk::mesh::Entity>& old_owning_elements, stk::mesh::Entity newElement);
       void get_load_factor(std::vector<double>&  load_factor, bool print=false, std::string msg="", bool skipParents=true);
@@ -1141,12 +1129,16 @@
       const stk::mesh::PartVector& get_io_omitted_parts() { return m_io_omitted_parts; }
       void add_io_omitted_part(stk::mesh::Part * omitted_part) { m_io_omitted_parts.push_back(omitted_part); }
 
-      void output_active_children_only(bool flag) { m_outputActiveChildrenOnly = flag; }
+      void output_active_children_only(bool flag);
+      bool get_output_active_children_only();
 
       /// set this before reading to avoid adding all input fields to stk's meta data
       void set_avoid_add_all_mesh_fields_as_input_fields(bool val) { m_avoid_add_all_mesh_fields_as_input_fields = val; }
       bool get_avoid_add_all_mesh_fields_as_input_fields() { return m_avoid_add_all_mesh_fields_as_input_fields; }
       void add_input_field(stk::mesh::FieldBase *field);
+      int get_ioss_aliases(const std::string &my_name, std::vector<std::string> &aliases);
+
+      bool checkForPartNameWithAliases(stk::mesh::Part& part, const std::string& bname);
 
       /// Cache internal pointer to coordinate field
       void setCoordinatesField(CoordinatesFieldType * coordinates);
@@ -1319,15 +1311,17 @@
       void *m_nodeRegistry = 0;
 
     private:
-
+      
       bool m_do_print_memory;
 
       bool m_avoid_add_all_mesh_fields_as_input_fields;
+    public:
+      bool m_markNone;
+    private:
 
 #if !STK_PERCEPT_LITE
       std::shared_ptr<Iocgns::Initializer> m_iocgns_init;
 #endif
-
       void checkStateSpec(const std::string& function, bool cond1=true, bool cond2=true, bool cond3=true);
 
       void checkState(const std::string& function) {

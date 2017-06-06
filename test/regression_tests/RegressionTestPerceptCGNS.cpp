@@ -20,17 +20,20 @@
 #include <stk_io/IossBridge.hpp>
 
 #include <percept/Percept.hpp>
+#include <percept/PerceptUtils.hpp>
 #include <percept/Util.hpp>
 #include <percept/ExceptionWatch.hpp>
 
 #if !STK_PERCEPT_LITE
-#include <percept/StructuredGridRefiner.hpp>
+#include <percept/structured/StructuredGridRefiner.hpp>
 #include <percept/mesh/mod/smoother/JacobianUtil.hpp>
 #endif
 
 #include <percept/PerceptMesh.hpp>
 #include <adapt/UniformRefinerPattern.hpp>
 #include <adapt/UniformRefiner.hpp>
+
+#include <percept/mesh/mod/smoother/ReferenceMeshSmootherConjugateGradient.hpp>
 
 // Ioss
 #define NO_XDMF_SUPPORT
@@ -335,46 +338,106 @@ namespace percept
       Ioss::io_info_file_info(intfc, *output_region);
     }
 #endif
+    
+    void do_snap_to_cylinder(std::shared_ptr<BlockStructuredGrid> bsg, const std::string& prefix) 
+    {
+      PerceptMesh eMesh(3u);
 
+      eMesh.set_block_structured_grid(bsg);
+
+      StructuredGrid::MTField *coord_field     = bsg->m_fields["coordinates"].get();
+      StructuredGrid::MTField *coord_field_N   = bsg->m_fields["coordinates_N"].get();
+
+      // snap some nodes at z=0 to a cylindrical boundary 
+      // defined by x*x+z*z=1
+      std::vector<StructuredGrid::MTNode> nodes;
+      bsg->get_nodes(nodes);
+      for (auto node : nodes){
+        double data[3];
+        get_field<StructuredGrid>(data, 3, &eMesh, coord_field, node);
+        if (std::abs(data[2]) < 1e-5) // if (boundarySelector_5(node))
+          {
+            const double x = data[0];
+            data[2] = -std::sqrt(1.0-x*x);
+            set_field<StructuredGrid>(data, 3, &eMesh, coord_field, node);
+          }
+      }
+
+      // save state of projected mesh
+      // field, dst, src:
+      bsg->copy_field(coord_field_N, coord_field);
+      
+      bsg->dump_vtk(prefix+"_snap");
+    }
+
+    void do_smooth_block_structured(std::shared_ptr<BlockStructuredGrid> bsg, const std::string& prefix)
+    {
+      PerceptMesh eMesh(3u);
+
+      bsg->register_field("coordinates", 3);
+      
+      eMesh.set_block_structured_grid(bsg);
+      eMesh.add_coordinate_state_fields(); // for smoothing
+      
+      StructuredGrid::MTField *coord_field     = bsg->m_fields["coordinates"].get();
+      StructuredGrid::MTField *coord_field_NM1 = bsg->m_fields["coordinates_NM1"].get();
+        
+      // save state of original mesh
+      // field, dst, src:
+      bsg->copy_field(coord_field_NM1, coord_field);
+
+      do_snap_to_cylinder(bsg, prefix);
+
+      int  msq_debug     = 0; // 1,2,3 for more debug info
+      bool always_smooth = true;
+      int innerIter      = 10;
+      
+      CubeBoundarySelector boundarySelector (&eMesh);
+      ReferenceMeshSmootherConjugateGradientImpl<StructuredGrid> 
+        pmmpsi(&eMesh, &boundarySelector, 0, innerIter, 1.e-1, 1);
+      pmmpsi.run(always_smooth, msq_debug);
+      
+      bsg->dump_vtk(prefix+"_smooth");
+    }
+    
 #if !STK_PERCEPT_LITE
     TEST(regr_PerceptCGNS, test6_sgrid_refine)
     {
-      int print_level = 0;
       PerceptMesh eMesh(3u);
       if (eMesh.get_parallel_size() > 1) return;
 
-      bool in_memory_write = false;
-      (void) in_memory_write;
+      std::array<unsigned, 3> sizes{{4,4,4}};
+      std::shared_ptr<BlockStructuredGrid> bsg = BlockStructuredGrid::fixture_1(eMesh.parallel(), sizes);
 
-      std::array<unsigned, 3> sizes{{2,2,2}};
-      std::shared_ptr<BlockStructuredGrid> bsg = BlockStructuredGrid::fixture_1(&eMesh, sizes);
+      eMesh.set_block_structured_grid(bsg);
+
       bsg->m_sblocks[0]->dump_vtk("cube");
 
-      StructuredGridRefiner sgr1(eMesh, 0);
+      StructuredGridRefiner sgr1(eMesh.get_block_structured_grid(), 0);
 
-      if (print_level)
-        sgr1.m_input->print(std::cout, print_level-1);
       sgr1.m_input->dump_vtk("cube_init");
+
       sgr1.do_refine();
 
-      //std::cout << "output_xyz=\n" << sgr1.m_output->m_sblocks[0]->m_sgrid_coords << std::endl;
-
       sgr1.m_output->dump_vtk("cube_ref");
-      if (print_level)
-        sgr1.m_output->print(std::cout, print_level-1);
+      
+      do_smooth_block_structured(sgr1.m_output, "cube_ref");
     }
 
     void do_refine_cgns_structured(const std::string& file, int print_level=0, bool allow_parallel=false)
     {
+      stk::diag::Timer     my_timer(file, rootTimerStructured());
+      stk::diag::TimeBlock my_timeblock(my_timer);
+
       PerceptMesh eMesh(3u);
       if (!allow_parallel && eMesh.get_parallel_size() > 1) return;
 
       eMesh.open(file, "cgns_structured");
       eMesh.commit();
 
-      StructuredGridRefiner sgr(eMesh, print_level);
+      StructuredGridRefiner sgr(eMesh.get_block_structured_grid(), print_level);
 
-      unsigned pos = file.find(".cgns");
+      size_t pos = file.find(".cgns");
       VERIFY_OP_ON(pos, !=, std::string::npos, "bad filename: need .cgns extension, file= "+file);
       std::string prefix = file.substr(0,pos);
       if (print_level)
@@ -405,6 +468,10 @@ namespace percept
 
     TEST(regr_PerceptCGNS, test10_sgrid_volume)
     {
+#ifdef KOKKOS_HAVE_CUDA
+      return;
+#endif
+
       int print_level = 0;
       (void)print_level;
       PerceptMesh eMesh(3u);
@@ -413,7 +480,8 @@ namespace percept
       bool in_memory_write = false;
       (void) in_memory_write;
       std::array<unsigned, 3> sizes{{2,2,2}};
-      std::shared_ptr<BlockStructuredGrid> bsg = BlockStructuredGrid::fixture_1(&eMesh, sizes);
+      std::shared_ptr<BlockStructuredGrid> bsg = BlockStructuredGrid::fixture_1(eMesh.parallel(), sizes);
+      eMesh.set_block_structured_grid(bsg);
       bsg->m_sblocks[0]->dump_vtk("cube_vol");
       bsg->dump_vtk("bsg_cube");
 
@@ -456,6 +524,44 @@ namespace percept
         }
     }
 
+    void do_refine_cgns_structured_refinement_only(const std::string& file, int print_level=0, bool allow_parallel=false)
+    {
+      PerceptMesh eMesh(3u,  MPI_COMM_WORLD);
+      if (!allow_parallel && eMesh.get_parallel_size() > 1) return;
+
+      eMesh.open(file, "cgns_structured");
+      eMesh.commit();
+
+      StructuredGridRefiner sgr(eMesh.get_block_structured_grid(), print_level);
+
+      size_t pos = file.find(".cgns");
+      VERIFY_OP_ON(pos, !=, std::string::npos, "bad filename: need .cgns extension, file= "+file);
+      std::string prefix = file.substr(0,pos);
+      if (print_level)
+        sgr.m_input->print(std::cout, print_level-1);
+      sgr.do_refine();
+      if (print_level)
+        sgr.m_output->print(std::cout, print_level-1);
+
+      eMesh.close();
+    }
+
+    TEST(DISABLED_kokkosPerformance, evaluation)
+    {
+      int numRepeats = 20;
+      
+      for (int j=0;j<numRepeats;j++){
+        do_refine_cgns_structured_refinement_only("grv-aero_SI_v04a_3d-h-nw_seq16_struc.cgns");
+      }
+      
+      for (int j=0;j<numRepeats;j++){
+        do_refine_cgns_structured_refinement_only("grv-aero_SI_v04a_3d-h-nw_seq08_struc.cgns");
+      }
+
+      for (int j=0;j<numRepeats;j++){
+        do_refine_cgns_structured_refinement_only("grv-aero_SI_v04a_3d-h-nw_seq04_struc.cgns");
+      }
+    }
 
 #endif // STK_PERCEPT_LITE
 #endif // STK_BUILT_IN_SIERRA

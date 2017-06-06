@@ -8,22 +8,35 @@
 #ifndef ReferenceMeshSmootherConjugateGradientDef_hpp
 #define ReferenceMeshSmootherConjugateGradientDef_hpp
 
+#include <percept/PerceptUtils.hpp>
+
+#include <percept/mesh/mod/smoother/GenericAlgorithm_total_element_metric.hpp>
+#include <percept/mesh/mod/smoother/GenericAlgorithm_update_coordinates.hpp>
+
 namespace percept {
 
-  ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-  ////////
-  ////////  support functions
-  ////////
-  ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+template <typename MeshType>
+ReferenceMeshSmootherConjugateGradientImpl<MeshType>::
+ReferenceMeshSmootherConjugateGradientImpl(PerceptMesh *eMesh,
+                                       typename MeshType::MTSelector *boundary_selector,
+                                       typename MeshType::MTMeshGeometry *meshGeometry,
+                                       int inner_iterations,
+                                       double grad_norm,
+                                       int parallel_iterations)
+  :  Base(eMesh, boundary_selector, meshGeometry, inner_iterations, grad_norm, parallel_iterations), m_max_edge_length_factor(1.0)
+{}
 
-  template<>
-  ReferenceMeshSmootherConjugateGradientImpl< STKMesh >::Double  ReferenceMeshSmootherConjugateGradientImpl< STKMesh >::nodal_edge_length_ave(stk::mesh::Entity node)
+template<>
+  ReferenceMeshSmootherConjugateGradientImpl< STKMesh >::Double
+  ReferenceMeshSmootherConjugateGradientImpl< STKMesh >::
+  nodal_edge_length_ave(stk::mesh::Entity node)
   {
     //int spatialDim = m_eMesh->get_spatial_dim();
     Double nm=0.0;
 
     double min=std::numeric_limits<double>::max();
     const MyPairIterRelation node_elems(*m_eMesh, node, m_eMesh->element_rank() );
+    RMSCG_PRINT("tmp srk1 node_elems.size= " << node_elems.size());
     Double nele = 0.0;
     for (unsigned i_elem=0; i_elem < node_elems.size(); i_elem++)
       {
@@ -32,6 +45,7 @@ namespace percept {
           continue;
         double lmin=0,lmax=0;
         double elem_edge_len = m_eMesh->edge_length_ave(element, m_coord_field_original, &lmin, &lmax);
+        RMSCG_PRINT("tmp srk1 elem_edge_len= " << elem_edge_len);
         if (lmin < min) min=lmin;
         nm += elem_edge_len;
         nele += 1.0;
@@ -49,28 +63,32 @@ namespace percept {
     // const unsigned A0 = sgrid->m_access_ordering[0], A1 = sgrid->m_access_ordering[1], A2 = sgrid->m_access_ordering[2];
     // const unsigned L0 = sgrid->m_loop_ordering[0], L1 = sgrid->m_loop_ordering[1], L2 = sgrid->m_loop_ordering[2];
 
-    unsigned sizes[3] = {sgrid->m_sizes.node_size[0], sgrid->m_sizes.node_size[1], sgrid->m_sizes.node_size[2]};
+    const int sizes[3] = {static_cast<int>(sgrid->m_sizes.node_size[0]),
+                          static_cast<int>(sgrid->m_sizes.node_size[1]),
+                          static_cast<int>(sgrid->m_sizes.node_size[2])};
     //unsigned Asizes[3] = {sgrid->m_sizes.node_size[A0], sgrid->m_sizes.node_size[A1], sgrid->m_sizes.node_size[A2]};
 
     //unsigned indx[3]{0,0,0};
 
-    for (unsigned i0 = node[0]-1; i0 <= node[0]; ++i0)
+    for (int i0 = node[0]-1; i0 <= static_cast<int>(node[0]); ++i0)
       {
         if (i0 < 0 || i0 > sizes[0]-2) continue;
-        for (unsigned i1 = node[1]-1; i1 <= node[1]; ++i1)
+        for (int i1 = node[1]-1; i1 <= static_cast<int>(node[1]); ++i1)
           {
             if (i1 < 0 || i1 > sizes[1]-2) continue;
-            for (unsigned i2 = node[2]-1; i2 <= node[2]; ++i2)
+            for (int i2 = node[2]-1; i2 <= static_cast<int>(node[2]); ++i2)
               {
                 if (i2 < 0 || i2 > sizes[2]-2) continue;
-                cells.push_back( StructuredCellIndex{{i0,i1,i2,iblock}} );
+                cells.emplace_back( StructuredCellIndex{{static_cast<unsigned>(i0),static_cast<unsigned>(i1),static_cast<unsigned>(i2),iblock}} );
               }
           }
       }
   }
 
   template<>
-  ReferenceMeshSmootherConjugateGradientImpl< StructuredGrid >::Double  ReferenceMeshSmootherConjugateGradientImpl< StructuredGrid >::nodal_edge_length_ave(typename StructuredGrid::MTNode node)
+  ReferenceMeshSmootherConjugateGradientImpl< StructuredGrid >::Double
+  ReferenceMeshSmootherConjugateGradientImpl< StructuredGrid >::
+  nodal_edge_length_ave(typename StructuredGrid::MTNode node)
   {
     Double nm=0.0;
 
@@ -78,11 +96,13 @@ namespace percept {
     Double nele = 0.0;
     std::vector<StructuredCellIndex> node_elems;
     find_connected_cells(m_eMesh, node, node_elems);
+    RMSCG_PRINT("tmp srk1 node_elems.size= " << node_elems.size());
     for (unsigned ii=0; ii < node_elems.size(); ++ii)
       {
         StructuredCellIndex element = node_elems[ii];
         double lmin=0,lmax=0;
         double elem_edge_len = m_eMesh->edge_length_ave(element, m_coord_field_original, &lmin, &lmax);
+        RMSCG_PRINT("tmp srk1 elem_edge_len= " << elem_edge_len);
         if (lmin < min) min=lmin;
         nm += elem_edge_len;
         nele += 1.0;
@@ -93,7 +113,8 @@ namespace percept {
 
 
   template<typename MeshType>
-  void ReferenceMeshSmootherConjugateGradientImpl< MeshType >::debug_print(double alpha)
+  void ReferenceMeshSmootherConjugateGradientImpl< MeshType >::
+  debug_print(double alpha)
   {
   }
 
@@ -105,11 +126,11 @@ namespace percept {
   ////////
   ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
   template<typename MeshType>
-  struct GA_snap_nodes
+  struct GenericAlgorithm_snap_nodes
   {
     using RefMeshSmoother =     ReferenceMeshSmootherConjugateGradientImpl<MeshType>;
     using Double = typename RefMeshSmoother::Double;
-    using This = GA_snap_nodes<MeshType>;
+    using This = GenericAlgorithm_snap_nodes<MeshType>;
 
     RefMeshSmoother *m_rms;
     PerceptMesh *m_eMesh;
@@ -123,7 +144,7 @@ namespace percept {
     std::vector<typename MeshType::MTNode> nodes;
     double& dmax;
 
-    GA_snap_nodes(RefMeshSmoother *rms, PerceptMesh *eMesh, double& dm);
+    GenericAlgorithm_snap_nodes(RefMeshSmoother *rms, PerceptMesh *eMesh, double& dm);
 
     void run()
     {
@@ -145,7 +166,8 @@ namespace percept {
 
 
   template<>
-  GA_snap_nodes<STKMesh>::GA_snap_nodes(RefMeshSmoother *rms, PerceptMesh *eMesh, double& dm) : m_rms(rms), m_eMesh(eMesh), dmax(dm)
+  GenericAlgorithm_snap_nodes<STKMesh>::
+  GenericAlgorithm_snap_nodes(RefMeshSmoother *rms, PerceptMesh *eMesh, double& dm) : m_rms(rms), m_eMesh(eMesh), dmax(dm)
   {
     coord_field = m_eMesh->get_coordinates_field();
     coord_field_current   = coord_field;
@@ -156,7 +178,7 @@ namespace percept {
 
     dmax=0.0;
 
-    // node loop - snap...
+    // node loop - build list...
     {
       nodes.resize(0);
       const stk::mesh::BucketVector & buckets = m_eMesh->get_bulk_data()->buckets( m_eMesh->node_rank() );
@@ -179,7 +201,8 @@ namespace percept {
   }
 
   template<>
-  GA_snap_nodes<StructuredGrid>::GA_snap_nodes(RefMeshSmoother *rms, PerceptMesh *eMesh, double& dm) : m_rms(rms), m_eMesh(eMesh), dmax(dm)
+  GenericAlgorithm_snap_nodes<StructuredGrid>::
+  GenericAlgorithm_snap_nodes(RefMeshSmoother *rms, PerceptMesh *eMesh, double& dm) : m_rms(rms), m_eMesh(eMesh), dmax(dm)
   {
     std::shared_ptr<BlockStructuredGrid> bsg = m_eMesh->get_block_structured_grid();
     coord_field = bsg->m_fields["coordinates"].get();
@@ -195,7 +218,8 @@ namespace percept {
   }
 
   template<typename MeshType>
-  void GA_snap_nodes<MeshType>::operator()(int64_t& index)
+  void GenericAlgorithm_snap_nodes<MeshType>::
+  operator()(int64_t& index)
   {
     typename MeshType::MTNode node = nodes[index];
     std::pair<bool,int> fixed = m_rms->get_fixed_flag(node);
@@ -232,7 +256,8 @@ namespace percept {
   }
 
   template<>
-  void ReferenceMeshSmootherConjugateGradientImpl< STKMesh >::snap_nodes()
+  void ReferenceMeshSmootherConjugateGradientImpl< STKMesh >::
+  snap_nodes()
   {
     static int anim_step = 0;
     bool save_anim = m_eMesh->getProperty("ReferenceMeshSmootherConjugateGradientImpl.snap_nodes.save_anim") == "true";
@@ -257,7 +282,7 @@ namespace percept {
 
     double dmax=0.0;
 
-    GA_snap_nodes<STKMesh> ga(this, m_eMesh, dmax);
+    GenericAlgorithm_snap_nodes<STKMesh> ga(this, m_eMesh, dmax);
     ga.run();
 
     if (save_anim)
@@ -282,365 +307,44 @@ namespace percept {
   }
 
   template<>
-  void ReferenceMeshSmootherConjugateGradientImpl< StructuredGrid >::snap_nodes()
+  void ReferenceMeshSmootherConjugateGradientImpl< StructuredGrid >::
+  snap_nodes()
   {
     double dmax=0.0;
 
-    GA_snap_nodes<StructuredGrid> ga(this, m_eMesh, dmax);
+    GenericAlgorithm_snap_nodes<StructuredGrid> ga(this, m_eMesh, dmax);
     ga.run();
   }
 
-  ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-  ////////
-  ////////  total_metric
-  ////////
-  ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
   template<typename MeshType>
-  struct GA_total_metric
+  typename ReferenceMeshSmootherConjugateGradientImpl< MeshType >::Double
+  ReferenceMeshSmootherConjugateGradientImpl< MeshType >::
+  total_metric( Double alpha, double multiplicative_edge_scaling, bool& valid, size_t* num_invalid)
   {
-    using RefMeshSmoother =     ReferenceMeshSmootherConjugateGradientImpl<MeshType>;
-    using Double = typename RefMeshSmoother::Double;
-    using This = GA_total_metric<MeshType>;
+	  Double mtot = 0.0;
+	  size_t n_invalid=0;
 
-    RefMeshSmoother *m_rms;
-    PerceptMesh *m_eMesh;
+	  GenericAlgorithm_update_coordinates<MeshType> ga1(this,m_eMesh,alpha);
+	  ga1.run();
 
-    typename MeshType::MTSelector on_locally_owned_part;
-    typename MeshType::MTSelector on_globally_shared_part;
-    int spatialDim;
-    typename MeshType::MTField *coord_field;
-    typename MeshType::MTField *coord_field_current;
-    typename MeshType::MTField *coord_field_lagged;
+	  valid = true;
 
-    typename MeshType::MTField *cg_s_field;
+	  GenericAlgorithm_total_element_metric<MeshType> ga2(this->m_metric, m_eMesh, valid, num_invalid, mtot, n_invalid);
+	  ga2.run();
 
-    std::vector<typename MeshType::MTNode> nodes;
-    Double alpha;
-    double multiplicative_edge_scaling;
-    bool& valid;
-    size_t *num_invalid;
-    Double& mtot;
-    size_t& n_invalid;
+	  // reset coordinates
+	  m_eMesh->copy_field(ga1.coord_field_current, ga1.coord_field_lagged);
 
-    GA_total_metric(RefMeshSmoother *rms, PerceptMesh *eMesh, Double alpha_in, double multiplicative_edge_scaling_in, bool& valid_in, size_t *num_invalid_in, Double& mtot_in, size_t& n_invalid_in);
+	  stk::all_reduce( m_eMesh->parallel() , stk::ReduceSum<1>( & mtot ) );
+	  stk::all_reduce( m_eMesh->parallel() , stk::ReduceMin<1>( & valid ) );
 
-    void run()
-    {
-      for (int64_t index = 0; index < (int64_t)nodes.size(); ++index)
-        {
-          (*this)(index);
-        }
-    }
+	  if (num_invalid)
+	  {
+		  *num_invalid = n_invalid;
+		  stk::all_reduce( m_eMesh->parallel() , stk::ReduceSum<1>( num_invalid ) );
+	  }
 
-    void operator()(int64_t& index) const
-    {
-      const_cast<This *>(this)->operator()(index);
-    }
-
-    void operator()(int64_t& index);
-
-
-  };
-
-  template<typename MeshType>
-  struct GA_total_metric_2
-  {
-    using RefMeshSmoother =     ReferenceMeshSmootherConjugateGradientImpl<MeshType>;
-    using Double = typename RefMeshSmoother::Double;
-    using This = GA_total_metric_2<MeshType>;
-
-    RefMeshSmoother *m_rms;
-    PerceptMesh *m_eMesh;
-
-    typename MeshType::MTSelector on_locally_owned_part;
-    typename MeshType::MTSelector on_globally_shared_part;
-    int spatialDim;
-    typename MeshType::MTField *coord_field;
-    typename MeshType::MTField *coord_field_current;
-    typename MeshType::MTField *coord_field_lagged;
-
-    typename MeshType::MTField *cg_s_field;
-
-    std::vector<typename MeshType::MTElement> elements;
-    std::vector<const typename MeshType::MTCellTopology *> topos;
-    Double alpha;
-    double multiplicative_edge_scaling;
-    bool& valid;
-    size_t *num_invalid;
-    Double& mtot;
-    size_t& n_invalid;
-
-    GA_total_metric_2(RefMeshSmoother *rms, PerceptMesh *eMesh, Double alpha_in, double multiplicative_edge_scaling_in, bool& valid_in, size_t *num_invalid_in, Double& mtot_in, size_t& n_invalid_in);
-
-    void run()
-    {
-      for (int64_t index = 0; index < (int64_t)elements.size(); ++index)
-        {
-          (*this)(index);
-        }
-    }
-
-    void operator()(int64_t& index) const
-    {
-      const_cast<This *>(this)->operator()(index);
-    }
-
-    void operator()(int64_t& index);
-
-  };
-
-
-
-  template<>
-  GA_total_metric<STKMesh>::GA_total_metric(RefMeshSmoother *rms, PerceptMesh *eMesh, Double alpha_in, double multiplicative_edge_scaling_in, bool& valid_in, size_t *num_invalid_in, Double& mtot_in, size_t& n_invalid_in)
-    : m_rms(rms), m_eMesh(eMesh), alpha(alpha_in), multiplicative_edge_scaling(multiplicative_edge_scaling_in), valid(valid_in), num_invalid(num_invalid_in), mtot(mtot_in), n_invalid(n_invalid_in)
-  {
-    coord_field = m_eMesh->get_coordinates_field();
-    coord_field_current   = coord_field;
-    coord_field_lagged  = m_eMesh->get_field(stk::topology::NODE_RANK, "coordinates_lagged");
-
-    cg_s_field    = m_eMesh->get_field(stk::topology::NODE_RANK, "cg_s");
-
-    on_locally_owned_part =  ( m_eMesh->get_fem_meta_data()->locally_owned_part() );
-    on_globally_shared_part =  ( m_eMesh->get_fem_meta_data()->globally_shared_part() );
-    spatialDim = m_eMesh->get_spatial_dim();
-
-    mtot = 0.0;
-    n_invalid=0;
-
-    {
-      std::vector< const stk::mesh::FieldBase *> fields;
-      fields.push_back(cg_s_field);
-      fields.push_back(coord_field);
-      // stk::mesh::copy_owned_to_shared(*m_eMesh->get_bulk_data(), fields);
-      // stk::mesh::communicate_field_data(m_eMesh->get_bulk_data()->aura_ghosting(), fields);
-      MTcommFields<STKMesh>(fields, m_eMesh);
-    }
-
-    // cache coordinates
-    m_eMesh->copy_field(coord_field_lagged, coord_field_current);
-
-    nodes.resize(0);
-
-    // node loop - update positions
-    {
-      const stk::mesh::BucketVector & buckets = m_eMesh->get_bulk_data()->buckets( m_eMesh->node_rank() );
-      for ( stk::mesh::BucketVector::const_iterator k = buckets.begin() ; k != buckets.end() ; ++k )
-        {
-          // update local and globally shared
-          if (on_locally_owned_part(**k) || on_globally_shared_part(**k))
-            {
-              stk::mesh::Bucket & bucket = **k ;
-              const unsigned num_nodes_in_bucket = bucket.size();
-
-              for (unsigned i_node = 0; i_node < num_nodes_in_bucket; i_node++)
-                {
-                  stk::mesh::Entity node = bucket[i_node];
-                  nodes.push_back(node);
-                }
-            }
-        }
-    }
-  }
-
-  template<>
-  GA_total_metric<StructuredGrid>::GA_total_metric(RefMeshSmoother *rms, PerceptMesh *eMesh, Double alpha_in, double multiplicative_edge_scaling_in, bool& valid_in, size_t *num_invalid_in, Double& mtot_in, size_t& n_invalid_in)
-    : m_rms(rms), m_eMesh(eMesh), alpha(alpha_in), multiplicative_edge_scaling(multiplicative_edge_scaling_in), valid(valid_in), num_invalid(num_invalid_in), mtot(mtot_in), n_invalid(n_invalid_in)
-  {
-    std::shared_ptr<BlockStructuredGrid> bsg = m_eMesh->get_block_structured_grid();
-    coord_field                              = bsg->m_fields["coordinates"].get();
-    coord_field_current                      = coord_field;
-    coord_field_lagged                       = bsg->m_fields["coordinates_lagged"].get();
-    cg_s_field                               = bsg->m_fields["cg_s"].get();
-
-    //on_locally_owned_part =  ( m_eMesh->get_fem_meta_data()->locally_owned_part() );
-    //on_globally_shared_part =  ( m_eMesh->get_fem_meta_data()->globally_shared_part() );
-    spatialDim = 3;
-
-    mtot = 0.0;
-    n_invalid=0;
-
-    {
-      std::vector< const typename StructuredGrid::MTField *> fields;
-      fields.push_back(cg_s_field);
-      fields.push_back(coord_field);
-      // stk::mesh::copy_owned_to_shared(*m_eMesh->get_bulk_data(), fields);
-      // stk::mesh::communicate_field_data(m_eMesh->get_bulk_data()->aura_ghosting(), fields);
-      MTcommFields<StructuredGrid>(fields, m_eMesh);
-    }
-
-    // cache coordinates
-    m_eMesh->copy_field(coord_field_lagged, coord_field_current);
-
-    nodes.resize(0);
-
-    bsg->get_nodes(nodes);
-  }
-
-  template<>
-  GA_total_metric_2<STKMesh>::GA_total_metric_2(RefMeshSmoother *rms, PerceptMesh *eMesh, Double alpha_in, double multiplicative_edge_scaling_in, bool& valid_in, size_t *num_invalid_in, Double& mtot_in, size_t& n_invalid_in)
-    : m_rms(rms), m_eMesh(eMesh), alpha(alpha_in), multiplicative_edge_scaling(multiplicative_edge_scaling_in), valid(valid_in), num_invalid(num_invalid_in), mtot(mtot_in), n_invalid(n_invalid_in)
-  {
-    coord_field = m_eMesh->get_coordinates_field();
-    coord_field_current   = coord_field;
-    coord_field_lagged  = m_eMesh->get_field(stk::topology::NODE_RANK, "coordinates_lagged");
-
-    cg_s_field    = m_eMesh->get_field(stk::topology::NODE_RANK, "cg_s");
-
-    on_locally_owned_part =  ( m_eMesh->get_fem_meta_data()->locally_owned_part() );
-    on_globally_shared_part =  ( m_eMesh->get_fem_meta_data()->globally_shared_part() );
-    spatialDim = m_eMesh->get_spatial_dim();
-
-    {
-      elements.resize(0);
-      topos.resize(0);
-
-      // element loop
-      const stk::mesh::BucketVector & buckets = m_eMesh->get_bulk_data()->buckets( m_eMesh->element_rank() );
-
-      for ( stk::mesh::BucketVector::const_iterator k = buckets.begin() ; k != buckets.end() ; ++k )
-        {
-          if (MeshSmootherImpl<STKMesh>::select_bucket(**k, m_eMesh) && on_locally_owned_part(**k))
-            {
-              stk::mesh::Bucket & bucket = **k ;
-
-              const unsigned num_elements_in_bucket = bucket.size();
-
-              for (unsigned i_element = 0; i_element < num_elements_in_bucket; i_element++)
-                {
-                  stk::mesh::Entity element = bucket[i_element];
-                  if (m_eMesh->hasFamilyTree(element) && m_eMesh->isParentElement(element, true))
-                    continue;
-                  elements.push_back(element);
-                  topos.push_back(m_eMesh->get_cell_topology(bucket));
-                }
-            }
-        }
-    }
-
-  }
-
-  template<>
-  GA_total_metric_2<StructuredGrid>::GA_total_metric_2(RefMeshSmoother *rms, PerceptMesh *eMesh, Double alpha_in, double multiplicative_edge_scaling_in, bool& valid_in, size_t *num_invalid_in, Double& mtot_in, size_t& n_invalid_in)
-    : m_rms(rms), m_eMesh(eMesh), alpha(alpha_in), multiplicative_edge_scaling(multiplicative_edge_scaling_in), valid(valid_in), num_invalid(num_invalid_in), mtot(mtot_in), n_invalid(n_invalid_in)
-  {
-    std::shared_ptr<BlockStructuredGrid> bsg = m_eMesh->get_block_structured_grid();
-    coord_field                              = bsg->m_fields["coordinates"].get();
-    coord_field_current                      = coord_field;
-    coord_field_lagged                       = bsg->m_fields["coordinates_lagged"].get();
-    cg_s_field                               = bsg->m_fields["cg_s"].get();
-
-    //on_locally_owned_part =  ( m_eMesh->get_fem_meta_data()->locally_owned_part() );
-    //on_globally_shared_part =  ( m_eMesh->get_fem_meta_data()->globally_shared_part() );
-    spatialDim = 3;
-
-    bsg->get_elements(elements);
-    topos.resize(elements.size(), static_cast<const typename StructuredGrid::MTCellTopology *>(0));
-
-  }
-
-  template<typename MeshType>
-  void GA_total_metric<MeshType>::operator()(int64_t& index)
-  {
-    typename MeshType::MTNode node = nodes[index];
-
-    std::pair<bool,int> fixed = m_rms->get_fixed_flag(node);
-    if (fixed.first)
-      {
-        return;
-      }
-
-    double coord_current[spatialDim];
-    double cg_s[spatialDim];
-    get_field<MeshType>(coord_current, spatialDim, m_eMesh, coord_field_current, node);
-    get_field<MeshType>(cg_s, spatialDim, m_eMesh, cg_s_field, node);
-
-    // shouldn't be necessary
-#if 0
-    if (0 && fixed.second == MS_SURFACE)
-      {
-        project_delta_to_tangent_plane(node, cg_s);
-      }
-#endif
-
-    //double coord_project[3] = {0,0,0};
-    for (int i=0; i < spatialDim; i++)
-      {
-        Double dt = alpha * cg_s[i];
-        coord_current[i] += dt;
-        //coord_project[i] = coord_current[i];
-      }
-    set_field<MeshType>(coord_current, spatialDim, m_eMesh, coord_field_current, node);
-
-#if 0
-    if (fixed.second == MS_SURFACE && (m_stage == 0 || s_do_snap))
-      {
-        if (0) snap_to(node, coord_project, false);
-      }
-#endif
-  }
-
-
-  template<>
-  void GA_total_metric_2<STKMesh>::
-  operator()(int64_t& index)
-  {
-    typename STKMesh::MTElement element = elements[index];
-    // FIXME
-    m_rms->m_metric->m_topology_data = topos[index];
-
-    bool local_valid=true;
-    Double mm = m_rms->metric(element, local_valid);
-    if (!local_valid) n_invalid++;
-
-    valid = valid && local_valid;
-    mtot += mm;
-  }
-
-  template<>
-  void GA_total_metric_2<StructuredGrid>::
-  operator()(int64_t& index)
-  {
-    typename StructuredGrid::MTElement element = elements[index];
-    // FIXME
-    //m_rms->m_metric->m_topology_data = topos[index];
-
-    bool local_valid=true;
-    Double mm = m_rms->metric(element, local_valid);
-    if (!local_valid) n_invalid++;
-
-    valid = valid && local_valid;
-    mtot += mm;
-  }
-
-  template<typename MeshType>
-  typename ReferenceMeshSmootherConjugateGradientImpl< MeshType >::Double  ReferenceMeshSmootherConjugateGradientImpl< MeshType >::total_metric( Double alpha, double multiplicative_edge_scaling, bool& valid, size_t* num_invalid)
-  {
-    Double mtot = 0.0;
-    size_t n_invalid=0;
-
-    GA_total_metric<MeshType> ga1(this, m_eMesh, alpha, multiplicative_edge_scaling, valid, num_invalid, mtot, n_invalid);
-    ga1.run();
-
-    valid = true;
-
-    GA_total_metric_2<MeshType> ga2(this, m_eMesh, alpha, multiplicative_edge_scaling, valid, num_invalid, mtot, n_invalid);
-    ga2.run();
-
-    // reset coordinates
-    m_eMesh->copy_field(ga1.coord_field_current, ga1.coord_field_lagged);
-
-    stk::all_reduce( m_eMesh->parallel() , stk::ReduceSum<1>( & mtot ) );
-    stk::all_reduce( m_eMesh->parallel() , stk::ReduceMin<1>( & valid ) );
-
-    if (num_invalid)
-      {
-        *num_invalid = n_invalid;
-        stk::all_reduce( m_eMesh->parallel() , stk::ReduceSum<1>( num_invalid ) );
-      }
-
-    return mtot;
-
+	  return mtot;
   }
 
   ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -649,11 +353,11 @@ namespace percept {
   ////////
   ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
   template<typename MeshType>
-  struct GA_update_node_positions
+  struct GenericAlgorithm_update_node_positions
   {
     using RefMeshSmoother =     ReferenceMeshSmootherConjugateGradientImpl<MeshType>;
     using Double = typename RefMeshSmoother::Double;
-    using This = GA_update_node_positions<MeshType>;
+    using This = GenericAlgorithm_update_node_positions<MeshType>;
 
     RefMeshSmoother *m_rms;
     PerceptMesh *m_eMesh;
@@ -667,7 +371,7 @@ namespace percept {
     typename MeshType::MTField *cg_edge_length_field;
     std::vector<typename MeshType::MTNode> nodes;
     Double alpha;
-    GA_update_node_positions(RefMeshSmoother *rms, PerceptMesh *eMesh, Double alp);
+    GenericAlgorithm_update_node_positions(RefMeshSmoother *rms, PerceptMesh *eMesh, Double alp);
 
     void run()
     {
@@ -688,7 +392,8 @@ namespace percept {
   };
 
   template<>
-  GA_update_node_positions<STKMesh>::GA_update_node_positions(RefMeshSmoother *rms, PerceptMesh *eMesh, Double alp) : m_rms(rms), m_eMesh(eMesh), alpha(alp)
+  GenericAlgorithm_update_node_positions<STKMesh>::
+  GenericAlgorithm_update_node_positions(RefMeshSmoother *rms, PerceptMesh *eMesh, Double alp) : m_rms(rms), m_eMesh(eMesh), alpha(alp)
   {
     on_locally_owned_part =  ( eMesh->get_fem_meta_data()->locally_owned_part() );
     on_globally_shared_part =  ( eMesh->get_fem_meta_data()->globally_shared_part() );
@@ -725,7 +430,8 @@ namespace percept {
   }
 
   template<>
-  GA_update_node_positions<StructuredGrid>::GA_update_node_positions(RefMeshSmoother *rms, PerceptMesh *eMesh, Double alp) : m_rms(rms), m_eMesh(eMesh), alpha(alp)
+  GenericAlgorithm_update_node_positions<StructuredGrid>::
+  GenericAlgorithm_update_node_positions(RefMeshSmoother *rms, PerceptMesh *eMesh, Double alp) : m_rms(rms), m_eMesh(eMesh), alpha(alp)
   {
     //on_locally_owned_part =  ( eMesh->get_fem_meta_data()->locally_owned_part() );
     //on_globally_shared_part =  ( eMesh->get_fem_meta_data()->globally_shared_part() );
@@ -745,7 +451,8 @@ namespace percept {
   }
 
   template<typename MeshType>
-  void GA_update_node_positions<MeshType>::operator()(int64_t& index)
+  void GenericAlgorithm_update_node_positions<MeshType>::
+  operator()(int64_t& index)
   {
     PerceptMesh *eMesh = m_eMesh;
     typename MeshType::MTNode node = nodes[index];
@@ -776,9 +483,10 @@ namespace percept {
   }
 
   template<typename MeshType>
-  void ReferenceMeshSmootherConjugateGradientImpl< MeshType >::update_node_positions( Double alpha)
+  void ReferenceMeshSmootherConjugateGradientImpl< MeshType >::
+  update_node_positions( Double alpha)
   {
-    GA_update_node_positions<MeshType> gaun(this, m_eMesh, alpha);
+    GenericAlgorithm_update_node_positions<MeshType> gaun(this, m_eMesh, alpha);
     gaun.run();
 
     stk::all_reduce( m_eMesh->parallel() , stk::ReduceMax<1>( & m_dmax ) );
@@ -797,11 +505,11 @@ namespace percept {
   ////////
   ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
   template<typename MeshType>
-  struct GA_line_search
+  struct GenericAlgorithm_line_search
   {
     using RefMeshSmoother =     ReferenceMeshSmootherConjugateGradientImpl<MeshType>;
     using Double = typename RefMeshSmoother::Double;
-    using This = GA_line_search<MeshType>;
+    using This = GenericAlgorithm_line_search<MeshType>;
 
     RefMeshSmoother *m_rms;
     PerceptMesh *m_eMesh;
@@ -814,12 +522,13 @@ namespace percept {
     double mfac_mult;
     Double alpha;
     bool extra_print;
-    GA_line_search(RefMeshSmoother *rms, PerceptMesh *eMesh, double mf_mult);
+    GenericAlgorithm_line_search(RefMeshSmoother *rms, PerceptMesh *eMesh, double mf_mult);
     void run();
   };
 
   template<>
-  GA_line_search<STKMesh>::GA_line_search(RefMeshSmoother *rms, PerceptMesh *eMesh, double mf_mult) : m_rms(rms), m_eMesh(eMesh), mfac_mult(mf_mult)
+  GenericAlgorithm_line_search<STKMesh>::
+  GenericAlgorithm_line_search(RefMeshSmoother *rms, PerceptMesh *eMesh, double mf_mult) : m_rms(rms), m_eMesh(eMesh), mfac_mult(mf_mult)
   {
     restarted = false;
     extra_print = false;
@@ -831,7 +540,8 @@ namespace percept {
   }
 
   template<>
-  GA_line_search<StructuredGrid>::GA_line_search(RefMeshSmoother *rms, PerceptMesh *eMesh, double mf_mult) : m_rms(rms), m_eMesh(eMesh), mfac_mult(mf_mult)
+  GenericAlgorithm_line_search<StructuredGrid>::
+  GenericAlgorithm_line_search(RefMeshSmoother *rms, PerceptMesh *eMesh, double mf_mult) : m_rms(rms), m_eMesh(eMesh), mfac_mult(mf_mult)
   {
     restarted = false;
     extra_print = false;
@@ -845,7 +555,8 @@ namespace percept {
   }
 
   template<typename MeshType>
-  void GA_line_search<MeshType>::run()
+  void GenericAlgorithm_line_search<MeshType>::
+  run()
   {
     PerceptMesh *eMesh = m_eMesh;
     m_rms->m_alpha_0 = m_rms->get_alpha_0();
@@ -915,7 +626,13 @@ namespace percept {
 
         Double mfac = alpha*armijo_offset_factor;
         converged = (metric < metric_0 + mfac);
-        if (m_rms->m_untangled) converged = converged && total_valid;
+        if (m_rms->m_untangled)
+          {
+            converged = converged && total_valid;
+            if (total_valid && m_rms->m_dmax_relative < m_rms->gradNorm)
+              converged = true;
+          }
+
         RMSCG_PRINT_1(  "alpha 2nd time= " << alpha << " alpha_0= " << m_rms->m_alpha_0 << " sDotGrad= " << sDotGrad << " metric_0= " << metric_0 << " metric= " << metric << " diff= " << metric - (metric_0 + mfac)
                   << " m_untangled = " << m_rms->m_untangled << " m_stage= " << m_rms->m_stage
                   << " total_valid= " << total_valid );
@@ -960,9 +677,11 @@ namespace percept {
   }
 
   template<typename MeshType>
-  typename ReferenceMeshSmootherConjugateGradientImpl< MeshType >::Double  ReferenceMeshSmootherConjugateGradientImpl< MeshType >::line_search(bool& restarted, double mfac_mult)
+  typename ReferenceMeshSmootherConjugateGradientImpl< MeshType >::Double
+  ReferenceMeshSmootherConjugateGradientImpl< MeshType >::
+  line_search(bool& restarted, double mfac_mult)
   {
-    GA_line_search<MeshType> gal(this, m_eMesh, mfac_mult);
+    GenericAlgorithm_line_search<MeshType> gal(this, m_eMesh, mfac_mult);
     gal.run();
     restarted = gal.restarted;
     return gal.alpha;
@@ -977,11 +696,11 @@ namespace percept {
 
 #if defined(STK_PERCEPT_HAS_GEOMETRY)
   template<typename MeshType>
-  struct GA_get_surface_normals
+  struct GenericAlgorithm_get_surface_normals
   {
     using RefMeshSmoother =     ReferenceMeshSmootherConjugateGradientImpl<MeshType>;
     using Double = typename RefMeshSmoother::Double;
-    using This = GA_get_surface_normals<MeshType>;
+    using This = GenericAlgorithm_get_surface_normals<MeshType>;
 
     RefMeshSmoother *m_rms;
     PerceptMesh *m_eMesh;
@@ -992,7 +711,7 @@ namespace percept {
     std::vector<double> norm;
     std::vector<typename MeshType::MTNode> nodes;
 
-    GA_get_surface_normals(RefMeshSmoother *rms, PerceptMesh *eMesh);
+    GenericAlgorithm_get_surface_normals(RefMeshSmoother *rms, PerceptMesh *eMesh);
 
     void run() const
     {
@@ -1028,7 +747,8 @@ namespace percept {
   };
 
   template<>
-  GA_get_surface_normals<STKMesh>::GA_get_surface_normals(RefMeshSmoother *rms, PerceptMesh *eMesh) : m_rms(rms), m_eMesh(eMesh)
+  GenericAlgorithm_get_surface_normals<STKMesh>::
+  GenericAlgorithm_get_surface_normals(RefMeshSmoother *rms, PerceptMesh *eMesh) : m_rms(rms), m_eMesh(eMesh)
   {
     norm.resize(3,0.0);
     cg_normal_field    = eMesh->get_field(stk::topology::NODE_RANK, "cg_normal");
@@ -1056,7 +776,8 @@ namespace percept {
   }
 
   template<>
-  GA_get_surface_normals<StructuredGrid>::GA_get_surface_normals(RefMeshSmoother *rms, PerceptMesh *eMesh) : m_rms(rms), m_eMesh(eMesh)
+  GenericAlgorithm_get_surface_normals<StructuredGrid>::
+  GenericAlgorithm_get_surface_normals(RefMeshSmoother *rms, PerceptMesh *eMesh) : m_rms(rms), m_eMesh(eMesh)
   {
     norm.resize(3,0.0);
     std::shared_ptr<BlockStructuredGrid> bsg = m_eMesh->get_block_structured_grid();
@@ -1071,10 +792,11 @@ namespace percept {
 #endif
 
   template<typename MeshType>
-  void ReferenceMeshSmootherConjugateGradientImpl< MeshType >::get_surface_normals(PerceptMesh * eMesh)
+  void ReferenceMeshSmootherConjugateGradientImpl< MeshType >::
+  get_surface_normals(PerceptMesh * eMesh)
   {
 #if defined(STK_PERCEPT_HAS_GEOMETRY)
-    GA_get_surface_normals< MeshType > ga_gsn(this, eMesh);
+    GenericAlgorithm_get_surface_normals< MeshType > ga_gsn(this, eMesh);
     ga_gsn.run();
 #else
     VERIFY_MSG("you must configure Percept with geometry (STK_PERCEPT_HAS_GEOMETRY=1) to use get_surface_normals");
@@ -1088,7 +810,7 @@ namespace percept {
   ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
   template<typename MeshType>
-  struct GA_get_edge_lengths
+  struct GenericAlgorithm_get_edge_lengths
   {
     using RefMeshSmoother =     ReferenceMeshSmootherConjugateGradientImpl<MeshType>;
     using Double = typename RefMeshSmoother::Double;
@@ -1099,9 +821,9 @@ namespace percept {
     typename MeshType::MTSelector on_globally_shared_part;
     std::vector<typename MeshType::MTNode> nodes;
 
-    using This = GA_get_edge_lengths<MeshType>;
+    using This = GenericAlgorithm_get_edge_lengths<MeshType>;
 
-    GA_get_edge_lengths(RefMeshSmoother *rms, PerceptMesh *eMesh);
+    GenericAlgorithm_get_edge_lengths(RefMeshSmoother *rms, PerceptMesh *eMesh);
 
 
     void run() const
@@ -1134,14 +856,16 @@ namespace percept {
   };
 
   template<typename MeshType>
-  void ReferenceMeshSmootherConjugateGradientImpl< MeshType >::get_edge_lengths(PerceptMesh * eMesh)
+  void ReferenceMeshSmootherConjugateGradientImpl< MeshType >::
+  get_edge_lengths(PerceptMesh * eMesh)
   {
-    GA_get_edge_lengths<MeshType> gae(this, eMesh);
+    GenericAlgorithm_get_edge_lengths<MeshType> gae(this, eMesh);
     gae.run();
   }
 
   template<>
-  GA_get_edge_lengths<STKMesh>::GA_get_edge_lengths(RefMeshSmoother *rms, PerceptMesh *eMesh) : m_rms(rms), m_eMesh(eMesh)
+  GenericAlgorithm_get_edge_lengths<STKMesh>::
+  GenericAlgorithm_get_edge_lengths(RefMeshSmoother *rms, PerceptMesh *eMesh) : m_rms(rms), m_eMesh(eMesh)
   {
     nodes.resize(0);
 
@@ -1167,7 +891,8 @@ namespace percept {
   }
 
   template<>
-  GA_get_edge_lengths<StructuredGrid>::GA_get_edge_lengths(RefMeshSmoother *rms, PerceptMesh *eMesh) : m_rms(rms), m_eMesh(eMesh)
+  GenericAlgorithm_get_edge_lengths<StructuredGrid>::
+  GenericAlgorithm_get_edge_lengths(RefMeshSmoother *rms, PerceptMesh *eMesh) : m_rms(rms), m_eMesh(eMesh)
   {
     std::shared_ptr<BlockStructuredGrid> bsg = m_eMesh->get_block_structured_grid();
     cg_edge_length_field                     = bsg->m_fields["cg_edge_length"].get();
@@ -1186,7 +911,7 @@ namespace percept {
 
 
   template<typename MeshType>
-  struct GA_get_alpha_0
+  struct GenericAlgorithm_get_alpha_0
   {
     using RefMeshSmoother =     ReferenceMeshSmootherConjugateGradientImpl<MeshType>;
     RefMeshSmoother *m_rms;
@@ -1205,9 +930,9 @@ namespace percept {
     bool alpha_set;
 
     std::vector<typename MeshType::MTNode> nodes;
-    using This = GA_get_alpha_0<MeshType>;
+    using This = GenericAlgorithm_get_alpha_0<MeshType>;
 
-    GA_get_alpha_0(RefMeshSmoother *rms, PerceptMesh *eMesh);
+    GenericAlgorithm_get_alpha_0(RefMeshSmoother *rms, PerceptMesh *eMesh);
 
     void run()
     {
@@ -1243,6 +968,7 @@ namespace percept {
       bool isGhostNode = MTisGhostNode<MeshType>(m_eMesh, node);
       VERIFY_OP_ON(isGhostNode, ==, false, "hmmmm");
       bool fixed = m_rms->get_fixed_flag(node).first;
+      RMSCG_PRINT("tmp srk1 index= " << index << " edge_length_ave= " << edge_length_ave << " fixed= " << fixed);
       if (fixed || isGhostNode)
         return;
 
@@ -1274,15 +1000,18 @@ namespace percept {
   /// gets a global scale factor so that local gradient*scale is approximately the size of the local mesh edges
   /// also uses the reference mesh to compute a local scaled gradient norm for convergence checks
   template<typename MeshType>
-  typename ReferenceMeshSmootherConjugateGradientImpl< MeshType >::Double  ReferenceMeshSmootherConjugateGradientImpl< MeshType >::get_alpha_0()
+  typename ReferenceMeshSmootherConjugateGradientImpl< MeshType >::Double
+  ReferenceMeshSmootherConjugateGradientImpl< MeshType >::
+  get_alpha_0()
   {
-    GA_get_alpha_0<MeshType> ga0(this, m_eMesh);
+    GenericAlgorithm_get_alpha_0<MeshType> ga0(this, m_eMesh);
     ga0.run();
     return ga0.alpha;
   }
 
   template<>
-  GA_get_alpha_0<STKMesh>::GA_get_alpha_0(RefMeshSmoother * rms, PerceptMesh *eMesh) : m_rms(rms), m_eMesh(eMesh)
+  GenericAlgorithm_get_alpha_0<STKMesh>::
+  GenericAlgorithm_get_alpha_0(RefMeshSmoother * rms, PerceptMesh *eMesh) : m_rms(rms), m_eMesh(eMesh)
   {
     cg_s_field    = eMesh->get_field(stk::topology::NODE_RANK, "cg_s");
     cg_edge_length_field    = eMesh->get_field(stk::topology::NODE_RANK, "cg_edge_length");
@@ -1316,11 +1045,12 @@ namespace percept {
             }
         }
     }
-
+    RMSCG_PRINT("tmp srk1 nodes.size= " << nodes.size());
   }
 
   template<>
-  GA_get_alpha_0<StructuredGrid>::GA_get_alpha_0(RefMeshSmoother * rms, PerceptMesh *eMesh) : m_rms(rms), m_eMesh(eMesh)
+  GenericAlgorithm_get_alpha_0<StructuredGrid>::
+  GenericAlgorithm_get_alpha_0(RefMeshSmoother * rms, PerceptMesh *eMesh) : m_rms(rms), m_eMesh(eMesh)
   {
     std::shared_ptr<BlockStructuredGrid> bsg = m_eMesh->get_block_structured_grid();
     cg_s_field                               = bsg->m_fields["cg_s"].get();
@@ -1333,6 +1063,7 @@ namespace percept {
     alpha = std::numeric_limits<double>::max();
     alpha_set = false;
     bsg->get_nodes(nodes);
+    RMSCG_PRINT("tmp srk1 nodes.size= " << nodes.size());
 
   }
 
@@ -1343,7 +1074,8 @@ namespace percept {
   ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
   template<typename MeshType>
-  bool ReferenceMeshSmootherConjugateGradientImpl< MeshType >::check_convergence()
+  bool ReferenceMeshSmootherConjugateGradientImpl< MeshType >::
+  check_convergence()
   {
     Double grad_check = gradNorm;
     bool retval=false;
@@ -1394,7 +1126,7 @@ namespace percept {
   ////////
   ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
   template<typename MeshType>
-  struct GA_run_one_iter
+  struct GenericAlgorithm_run_one_iter
   {
     PerceptMesh *m_eMesh;
 
@@ -1406,12 +1138,13 @@ namespace percept {
     typename MeshType::MTSelector on_locally_owned_part;
     typename MeshType::MTSelector on_globally_shared_part;
 
-    GA_run_one_iter(PerceptMesh *eMesh);
+    GenericAlgorithm_run_one_iter(PerceptMesh *eMesh);
 
   };
 
   template<>
-  GA_run_one_iter<STKMesh>::GA_run_one_iter(PerceptMesh *eMesh) : m_eMesh(eMesh)
+  GenericAlgorithm_run_one_iter<STKMesh>::
+  GenericAlgorithm_run_one_iter(PerceptMesh *eMesh) : m_eMesh(eMesh)
   {
     cg_g_field    = eMesh->get_field(stk::topology::NODE_RANK, "cg_g");
     cg_r_field    = eMesh->get_field(stk::topology::NODE_RANK, "cg_r");
@@ -1424,7 +1157,8 @@ namespace percept {
   };
 
   template<>
-  GA_run_one_iter<StructuredGrid>::GA_run_one_iter(PerceptMesh *eMesh) : m_eMesh(eMesh)
+  GenericAlgorithm_run_one_iter<StructuredGrid>::
+  GenericAlgorithm_run_one_iter(PerceptMesh *eMesh) : m_eMesh(eMesh)
   {
     std::shared_ptr<BlockStructuredGrid> bsg = m_eMesh->get_block_structured_grid();
     cg_g_field                               = bsg->m_fields["cg_g"].get();
@@ -1438,11 +1172,16 @@ namespace percept {
   };
 
   template<typename MeshType>
-  double ReferenceMeshSmootherConjugateGradientImpl< MeshType >::run_one_iteration()
+  double ReferenceMeshSmootherConjugateGradientImpl< MeshType >::
+  run_one_iteration()
   {
+	stk::diag::Timer cumulative_timer(m_eMesh->getProperty("in_filename"), rootTimerStructured());
+	stk::diag::Timer runOneIter("RMSCGI::run_one_iteration()",cumulative_timer);
+	stk::diag::TimeBlock my_time_block(runOneIter);
+
     PerceptMesh *m_eMesh = Base::m_eMesh;
 
-    GA_run_one_iter<MeshType> gab(m_eMesh);
+    GenericAlgorithm_run_one_iter<MeshType> gab(m_eMesh);
 
     typename MeshType::MTField *cg_g_field    = gab.cg_g_field;
     typename MeshType::MTField *cg_r_field    = gab.cg_r_field;
@@ -1472,12 +1211,13 @@ namespace percept {
     Base::m_dold = m_eMesh->nodal_field_dot(cg_d_field, cg_d_field);
     Base::m_dmid = m_eMesh->nodal_field_dot(cg_r_field, cg_d_field);
     Base::m_dnew = m_eMesh->nodal_field_dot(cg_r_field, cg_r_field);
+
     if (Base::m_iter == 0)
       {
         Base::m_d0 = Base::m_dnew;
       }
 
-    Double metric_check = total_metric( 0.0, 1.0, total_valid);
+    Double metric_check = total_metric( 0.0, 1.0, total_valid); //it seems like every function like this is reinstantiating its corresponding structs with each iter
     Base::m_total_metric = metric_check;
 
     if (check_convergence() || metric_check == 0.0)
@@ -1513,11 +1253,11 @@ namespace percept {
     Double alpha = line_search(restarted);
     Double snorm = m_eMesh->nodal_field_dot(cg_s_field, cg_s_field);
     Base::m_grad_norm_scaled = Base::m_alpha_0*std::sqrt(snorm)/Double(Base::m_num_nodes);
+    RMSCG_PRINT("tmp srk1 alpha= " << alpha << " snorm= " << snorm << " m_grad_norm_scaled= " << Base::m_grad_norm_scaled << " m_num_nodes= " << Base::m_num_nodes << " m_alpha_0= " << Base::m_alpha_0);
 
     /// x = x + alpha*d
     Base::m_alpha = alpha;
     update_node_positions(alpha);
-    //RMSCG_PRINT_1( "tmp srk iter= "<< m_iter << " dmax= " << m_dmax << " alpha= " << alpha);
 
     // check if re-snapped geometry is acceptable
     if (m_eMesh->get_smooth_surfaces())
@@ -1544,7 +1284,7 @@ namespace percept {
   ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
   template<class MeshType>
-  struct GABase_get_gradient {
+  struct GenericAlgorithmBase_get_gradient {
 
     using RefMeshSmoother =     ReferenceMeshSmootherConjugateGradientImpl<MeshType>;
     RefMeshSmoother *m_rms;
@@ -1561,12 +1301,13 @@ namespace percept {
 
     int spatialDim;
 
-    GABase_get_gradient(RefMeshSmoother *rms, PerceptMesh *eMesh);
+    GenericAlgorithmBase_get_gradient(RefMeshSmoother *rms, PerceptMesh *eMesh);
 
   };
 
   template<>
-  GABase_get_gradient<STKMesh>::GABase_get_gradient(RefMeshSmoother *rms, PerceptMesh *eMesh) :  m_rms(rms), m_eMesh(eMesh), spatialDim(eMesh->get_spatial_dim())
+  GenericAlgorithmBase_get_gradient<STKMesh>::
+  GenericAlgorithmBase_get_gradient(RefMeshSmoother *rms, PerceptMesh *eMesh) :  m_rms(rms), m_eMesh(eMesh), spatialDim(eMesh->get_spatial_dim())
   {
     rms->m_scale = 1.e-10;
 
@@ -1582,7 +1323,8 @@ namespace percept {
   }
 
   template<>
-  GABase_get_gradient<StructuredGrid>::GABase_get_gradient(RefMeshSmoother *rms, PerceptMesh *eMesh) :  m_rms(rms), m_eMesh(eMesh), spatialDim(eMesh->get_spatial_dim())
+  GenericAlgorithmBase_get_gradient<StructuredGrid>::
+  GenericAlgorithmBase_get_gradient(RefMeshSmoother *rms, PerceptMesh *eMesh) :  m_rms(rms), m_eMesh(eMesh), spatialDim(eMesh->get_spatial_dim())
   {
     rms->m_scale = 1.e-10;
 
@@ -1599,10 +1341,10 @@ namespace percept {
   }
 
   template<class MeshType>
-  struct GA_get_gradient_1 : public GABase_get_gradient<MeshType> {
+  struct GenericAlgorithm_get_gradient_1 : public GenericAlgorithmBase_get_gradient<MeshType> {
 
-    using Base = GABase_get_gradient<MeshType> ;
-    using This = GA_get_gradient_1<MeshType>;
+    using Base = GenericAlgorithmBase_get_gradient<MeshType> ;
+    using This = GenericAlgorithm_get_gradient_1<MeshType>;
 
     using Base::m_eMesh;
     using Base::coord_field;
@@ -1617,7 +1359,7 @@ namespace percept {
     using Base::spatialDim;
 
     using RefMeshSmoother = ReferenceMeshSmootherConjugateGradientImpl<MeshType>;
-    GA_get_gradient_1(RefMeshSmoother *rms, PerceptMesh *eMesh) : Base(rms, eMesh)
+    GenericAlgorithm_get_gradient_1(RefMeshSmoother *rms, PerceptMesh *eMesh) : Base(rms, eMesh)
     {
     }
 
@@ -1644,7 +1386,6 @@ namespace percept {
 
       const double macheps = std::numeric_limits<double>::epsilon();
       const double sqrt_eps = std::sqrt(macheps);
-      //const double cbrt_eps = std::pow(macheps, 1./3.);
 
       typename MeshType::MTElement element = elements[index];
       MTSetTopo(index);
@@ -1674,6 +1415,9 @@ namespace percept {
                   bool isGhostNode = MTisGhostNode<MeshType>(m_eMesh, node);
                   bool node_locally_owned = MTnode_locally_owned<MeshType>(m_eMesh, node);
                   bool fixed = Base::m_rms->get_fixed_flag(node).first;
+                  // if (fixed)
+                  //   std::cout << "inode= " << inode << " is fixed" << std::endl;
+
                   if (fixed || isGhostNode)
                     continue;
 
@@ -1688,6 +1432,8 @@ namespace percept {
                       else
                         cg_g[jdim] = 0.0;
                     }
+                  // if (1 || inode == 0)
+                  //   std::cout << "inode= " << inode << " cg_g= " << Math::print_3d(cg_g) << std::endl;
                   set_field<MeshType>(cg_g, spatialDim, m_eMesh, cg_g_field, node);
                 }
             }
@@ -1789,19 +1535,23 @@ namespace percept {
 
 
   template<>
-  void GA_get_gradient_1<STKMesh>::MTSetTopo(int64_t index) const
+  void GenericAlgorithm_get_gradient_1<STKMesh>::
+  MTSetTopo(int64_t index) const
   {
     Base::m_rms->m_metric->m_topology_data = topos[index];
   }
 
   template<>
-  void GA_get_gradient_1<StructuredGrid>::MTSetTopo(int64_t index) const
+  void GenericAlgorithm_get_gradient_1<StructuredGrid>::
+  MTSetTopo(int64_t index) const
   {
     //Base::m_rms->m_metric->m_topology_data = topos[index];
   }
 
   template<>
-  GA_get_gradient_1<STKMesh>::GA_get_gradient_1(ReferenceMeshSmootherConjugateGradientImpl<STKMesh> *rms, PerceptMesh *eMesh) : GABase_get_gradient<STKMesh>(rms, eMesh)
+  GenericAlgorithm_get_gradient_1<STKMesh>::
+  GenericAlgorithm_get_gradient_1(ReferenceMeshSmootherConjugateGradientImpl<STKMesh> *rms, PerceptMesh *eMesh)
+    : GenericAlgorithmBase_get_gradient<STKMesh>(rms, eMesh)
   {
     eMesh->nodal_field_set_value(cg_g_field, 0.0);
 
@@ -1833,7 +1583,8 @@ namespace percept {
   }
 
   template<>
-  GA_get_gradient_1<StructuredGrid>::GA_get_gradient_1(ReferenceMeshSmootherConjugateGradientImpl<StructuredGrid> *rms, PerceptMesh *eMesh) : GABase_get_gradient<StructuredGrid>(rms, eMesh)
+  GenericAlgorithm_get_gradient_1<StructuredGrid>::
+  GenericAlgorithm_get_gradient_1(ReferenceMeshSmootherConjugateGradientImpl<StructuredGrid> *rms, PerceptMesh *eMesh) : GenericAlgorithmBase_get_gradient<StructuredGrid>(rms, eMesh)
   {
     eMesh->nodal_field_set_value(cg_g_field, 0.0);
 
@@ -1845,19 +1596,19 @@ namespace percept {
   }
 
   template<typename MeshType>
-  struct GA_get_gradient_2 : public GABase_get_gradient<MeshType>
+  struct GenericAlgorithm_get_gradient_2 : public GenericAlgorithmBase_get_gradient<MeshType>
   {
     std::vector<typename MeshType::MTNode> nodes;
 
-    using Base = GABase_get_gradient<MeshType>;
-    using This = GA_get_gradient_2<MeshType>;
+    using Base = GenericAlgorithmBase_get_gradient<MeshType>;
+    using This = GenericAlgorithm_get_gradient_2<MeshType>;
 
     using Base::m_eMesh;
     using Base::spatialDim;
     using Base::cg_g_field;
     using Base::cg_r_field;
 
-    GA_get_gradient_2(ReferenceMeshSmootherConjugateGradientImpl<MeshType> *rms, PerceptMesh *eMesh);
+    GenericAlgorithm_get_gradient_2(ReferenceMeshSmootherConjugateGradientImpl<MeshType> *rms, PerceptMesh *eMesh);
 
     void run() const
     {
@@ -1896,7 +1647,8 @@ namespace percept {
   };
 
   template<>
-  GA_get_gradient_2<STKMesh>::GA_get_gradient_2(ReferenceMeshSmootherConjugateGradientImpl<STKMesh> *rms, PerceptMesh *eMesh) :  GABase_get_gradient<STKMesh>(rms, eMesh)
+  GenericAlgorithm_get_gradient_2<STKMesh>::
+  GenericAlgorithm_get_gradient_2(ReferenceMeshSmootherConjugateGradientImpl<STKMesh> *rms, PerceptMesh *eMesh) :  GenericAlgorithmBase_get_gradient<STKMesh>(rms, eMesh)
   {
     nodes.clear();
 
@@ -1917,19 +1669,21 @@ namespace percept {
   }
 
   template<>
-  GA_get_gradient_2<StructuredGrid>::GA_get_gradient_2(ReferenceMeshSmootherConjugateGradientImpl<StructuredGrid> *rms, PerceptMesh *eMesh) :  GABase_get_gradient<StructuredGrid>(rms, eMesh)
+  GenericAlgorithm_get_gradient_2<StructuredGrid>::
+  GenericAlgorithm_get_gradient_2(ReferenceMeshSmootherConjugateGradientImpl<StructuredGrid> *rms, PerceptMesh *eMesh) :  GenericAlgorithmBase_get_gradient<StructuredGrid>(rms, eMesh)
   {
     eMesh->get_block_structured_grid()->get_nodes(nodes);
   }
 
   /// fills cg_g_field with f'(x)
   template<typename MeshType>
-  void ReferenceMeshSmootherConjugateGradientImpl< MeshType >::get_gradient()
+  void ReferenceMeshSmootherConjugateGradientImpl< MeshType >::
+  get_gradient()
   {
-    GA_get_gradient_1<MeshType> ga_1(this, m_eMesh);
+    GenericAlgorithm_get_gradient_1<MeshType> ga_1(this, m_eMesh);
     ga_1.run();
 
-    Double gnorm = m_eMesh->nodal_field_dot(ga_1.cg_g_field, ga_1.cg_g_field);
+    //Double gnorm = m_eMesh->nodal_field_dot(ga_1.cg_g_field, ga_1.cg_g_field);
     //std::cout << "gnorm= " << gnorm << std::endl;
 
     std::vector<typename MeshType::MTField *> fields_0(1, ga_1.cg_g_field);
@@ -1937,7 +1691,10 @@ namespace percept {
 
     m_eMesh->copy_field(ga_1.cg_r_field, ga_1.cg_g_field);
 
-    GA_get_gradient_2<MeshType> ga_2(this, m_eMesh);
+    //Double rnorm = m_eMesh->nodal_field_dot(ga_1.cg_r_field, ga_1.cg_r_field);
+    //std::cout << "rnorm= " << rnorm << std::endl;
+
+    GenericAlgorithm_get_gradient_2<MeshType> ga_2(this, m_eMesh);
     ga_2.run();
 
     {
@@ -1949,6 +1706,35 @@ namespace percept {
 
   }
 
-}
+#if defined (WITH_KOKKOS) //&& defined(KOKKOS_HAVE_OPENMP)
+
+  template<>
+  templeKokkos<int>::templeKokkos(unsigned into)
+  {
+  	size = into;
+  	Kokkos::View<double*, DataLayout , MemSpace > temp("thaName",size);
+  	templeDubs = temp;
+  }
+
+  template<>
+  void templeKokkos<int>::operator()(int64_t index) const
+  		{
+  			templeDubs(index) *= 2.8;
+  			templeDubs(index) *= 2.7;
+  			templeDubs(index) *= 2.8;
+  			templeDubs(index) += 2.8;
+  		}
+
+  template<>
+  void templeKokkos<int>::run()
+  {
+	stk::diag::Timer cumulativePF("templeKokkosPF",rootTimerStructured());
+	stk::diag::TimeBlock pf(cumulativePF);
+  	Kokkos::parallel_for(Kokkos::RangePolicy<ExecSpace>(0,(int64_t)size),*this);
+  }
+
+#endif
+
+}//percept
 
 #endif

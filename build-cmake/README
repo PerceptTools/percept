@@ -1,24 +1,24 @@
 Building Percept
 ================
 
-(thanks to github/NaluCFD for examples of this build process)
+(thanks to github/Nalu for examples of this build process)
 
 First, have a look at the .sh files in this director and modify as necessary.
 
 Some steps are manual, see each of thse files.
 
-0. you will need an MPI installation, such as OpenMPI: https://www.open-mpi.org, and a Cmake installation, https://cmake.org
-If you don't already have these in your path, download, configure and build OpenMPI and Cmake first, then do the following:
+0. (temporary until Percept is hosted outside Sierra): copy the
+<Sierra code path>/percept tree to a new location, then cd into this
+directory (build-cmake).
 
-1. module-file - sets this directory path, and paths to MPI and gcc - edit it as necessary
+1. module-file - sets this directory path - edit it as necessary
 
 2. setup.sh - run this to setup directories
 
 3. get-tpls.sh - gets third-party libraries from net
 
-4. build-tpls.sh - run after get-tpls.sh
 
-The following two steps are manual:
+4. build-tpls.sh - run after reading get-tpls.sh
 
 5. see sample-trilinos-release.config - it is copied to
 ./packages/Trilinos/build - edit it as needed then execute it in that
@@ -29,25 +29,9 @@ directory followed by
 
 6. copy sample-percept-release.config to a non-tracked file in this
 directory,  edit and then execute it, followed by make to build
-percept_*test and mesh_adapt. NOTE: to build only the "lite" version of
+perceptX and mesh_adapt. NOTE: to build only the "lite" version of
 percept's library (e.g. for use by Nalu), use the
 sample-percept-lite-release.config file as a starting point - the lite
 version doesn't use OpenNURBS or Intrepid and results in a smaller
 executable, but with less functionality.
-
-7. see VERSION file for extra info on builds
-
-Running Percept
-===============
-Percept's main executable is mesh_adapt.  The unit test executable is
-percept_utest.
-
-
-1. Create a new directory and run percept_utest - this will use
-fixtures to create output meshes - when run a second time, these are
-then used as a "regression" test - if the file exists, it will be used
-to for a mesh comparison - if the file doesn't exist, it will
-be created.
-
-2. See mesh-adapt-help.txt
 

@@ -54,7 +54,7 @@
 
       first_run = false;
 
-      std::vector<unsigned> count ;
+      std::vector<size_t> count ;
       stk::mesh::count_entities( selector, *eMesh.get_bulk_data(), count );
 
       const double num_elems = (double) count[stk::topology::ELEMENT_RANK];

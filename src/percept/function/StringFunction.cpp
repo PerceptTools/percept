@@ -583,7 +583,7 @@
           msg << "Unable to resolve symbols in expression: " << name;
           throw new std::runtime_error(msg.str());
         }
-      if (DOPRINT) std::cout << " end resolve: "<<std::endl;;
+      if (DOPRINT) std::cout << " end resolve: "<<std::endl;
 
       return;
     }

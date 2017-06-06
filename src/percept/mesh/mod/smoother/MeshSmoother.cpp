@@ -53,9 +53,9 @@ namespace std {
     ////////
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     template<typename MeshType>
-    struct GA_parallel_count_invalid_elements
+    struct GenericAlgorithm_parallel_count_invalid_elements
     {
-      using This = GA_parallel_count_invalid_elements<MeshType>;
+      using This = GenericAlgorithm_parallel_count_invalid_elements<MeshType>;
 
       PerceptMesh *m_eMesh;
 
@@ -76,7 +76,7 @@ namespace std {
 
       const bool get_mesh_diagnostics = false;
 
-      GA_parallel_count_invalid_elements(PerceptMesh *eMesh);
+      GenericAlgorithm_parallel_count_invalid_elements(PerceptMesh *eMesh);
 
       void init()
       {
@@ -143,7 +143,7 @@ namespace std {
     };
 
     template<>
-    GA_parallel_count_invalid_elements<STKMesh>::GA_parallel_count_invalid_elements(PerceptMesh *eMesh) : m_eMesh(eMesh), utm(eMesh)
+    GenericAlgorithm_parallel_count_invalid_elements<STKMesh>::GenericAlgorithm_parallel_count_invalid_elements(PerceptMesh *eMesh) : m_eMesh(eMesh), utm(eMesh)
     {
       init();
       coord_field_current   = eMesh->get_coordinates_field();
@@ -173,14 +173,14 @@ namespace std {
     }
 
     template<>
-    GA_parallel_count_invalid_elements<StructuredGrid>::GA_parallel_count_invalid_elements(PerceptMesh *eMesh) : m_eMesh(eMesh), utm(eMesh)
+    GenericAlgorithm_parallel_count_invalid_elements<StructuredGrid>::GenericAlgorithm_parallel_count_invalid_elements(PerceptMesh *eMesh) : m_eMesh(eMesh), utm(eMesh)
     {
       init();
       std::shared_ptr<BlockStructuredGrid> bsg = m_eMesh->get_block_structured_grid();
       coord_field_current                      = bsg->m_fields["coordinates"].get();
       coord_field_original                     = bsg->m_fields["coordinates_NM1"].get();
 
-      std::cout << " coord_field_original= " << coord_field_original->m_name << std::endl;
+      //std::cout << " coord_field_original= " << coord_field_original->m_name << std::endl;
 
       bsg->get_elements(elements);
       topos.resize(elements.size(), static_cast<const typename StructuredGrid::MTCellTopology *>(0));
@@ -189,7 +189,7 @@ namespace std {
     template<typename MeshType>
     size_t MeshSmootherImpl<MeshType>::parallel_count_invalid_elements(PerceptMesh *eMesh)
     {
-      GA_parallel_count_invalid_elements<MeshType> ga(eMesh);
+      GenericAlgorithm_parallel_count_invalid_elements<MeshType> ga(eMesh);
       ga.run();
 
       stk::all_reduce( MPI_COMM_WORLD, stk::ReduceSum<1>( &ga.num_invalid ) );
@@ -222,9 +222,11 @@ namespace std {
       return num_invalid;
     }
 
+
     template<>
-    int MeshSmootherImpl<STKMesh>::
-    classify_node(stk::mesh::Entity node, size_t& curveOrSurfaceEvaluator) const
+int MeshSmootherImpl<STKMesh>::
+    classify_node(stk::mesh::Entity node, GeometryHandle curveOrSurfaceEvaluator /*size_t& curveOrSurfaceEvaluator*/) const
+
     {
       int dof =0;
       dof = m_eMesh->get_spatial_dim();
@@ -283,7 +285,7 @@ namespace std {
 #if defined(STK_PERCEPT_HAS_GEOMETRY)
           if (m_meshGeometry)
             {
-              size_t curveOrSurfaceEvaluator;
+              GeometryHandle curveOrSurfaceEvaluator;
               dof = m_meshGeometry->classify_node(node_ptr, curveOrSurfaceEvaluator);
               //std::cout << "tmp srk classify node= " << node_ptr->identifier() << " dof= " << dof << std::endl;
               // vertex
@@ -329,7 +331,7 @@ namespace std {
       if (DEBUG_PRINT) std::cout << "tmp srk classify node= " << m_eMesh->identifier(node_ptr) << " dof= " << dof << " fixed= " << fixed << " type= " << type << std::endl;
 
       return ret;
-    }
+    } //get_fixed_flag
 
     template<>
     std::pair<bool,int> MeshSmootherImpl<StructuredGrid>::get_fixed_flag(typename StructuredGrid::MTNode node_ptr)

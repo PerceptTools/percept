@@ -33,25 +33,31 @@ namespace percept {
 
   class FixSideSets {
   public:
+    Refiner *m_refiner;
     PerceptMesh& m_eMesh;
     stk::mesh::PartVector& m_excludeParts;
     SidePartMap& m_side_part_map;
     std::string m_geomFile;
     bool m_avoidFixSideSetChecks;
+    RefinerSelector *m_buildSideSetSelector;
+    bool m_doProgress;
 
-    FixSideSets(PerceptMesh& eMesh, stk::mesh::PartVector& excludeParts, SidePartMap& side_part_map, const std::string& geomFile, bool avoidFixSideSetChecks)
-      : m_eMesh(eMesh), m_excludeParts(excludeParts), m_side_part_map(side_part_map), m_geomFile(geomFile), m_avoidFixSideSetChecks(avoidFixSideSetChecks) {}
+    FixSideSets(Refiner *ref, PerceptMesh& eMesh, stk::mesh::PartVector& excludeParts, SidePartMap& side_part_map, const std::string& geomFile, bool avoidFixSideSetChecks,
+                RefinerSelector *sel = 0,
+                bool doProgress=false)
+      : m_refiner(ref), m_eMesh(eMesh), m_excludeParts(excludeParts), m_side_part_map(side_part_map), m_geomFile(geomFile), m_avoidFixSideSetChecks(avoidFixSideSetChecks),
+        m_buildSideSetSelector(sel),
+        m_doProgress(doProgress)
+    {}
 
-
-    bool is_perm_bad(stk::mesh::Entity element, stk::mesh::Entity side, unsigned side_ord, stk::mesh::Permutation& perm);
-    bool is_positive_perm(stk::mesh::Entity element, stk::mesh::Entity side, unsigned side_ord);
-    bool has_default_perm(stk::mesh::Entity side);
     void fix_permutation(SetOfEntities& side_set);
     bool connect(stk::mesh::Entity side, bool& valid_side_part_map, SetOfEntities* avoid_elems, bool onlyPosPerm=false);
 
     // if the element (element) has a side that matches  the given side (side), connect them but first delete old connections
-    bool connectSidesForced(stk::mesh::Entity element, stk::mesh::Entity side, bool& valid_side_part_map, bool onlyPosPerm = false);
+    std::pair<bool,bool> connectSidesForced(stk::mesh::Entity element, stk::mesh::Entity side, bool& valid_side_part_map, stk::mesh::ConnectivityOrdinal *k_element_side, bool onlyPosPerm = false);
     void disconnect_entity(stk::mesh::Entity entity);
+
+    void doProgressPrint(PerceptMesh& eMesh, const std::string& msg);
 
     template<class SetOfEntities>
     static void print_set(PerceptMesh& eMesh, SetOfEntities& side_set, const std::string& msg = "sides_to_remove.size")
@@ -71,16 +77,15 @@ namespace percept {
 
     void delete_unattached_sides(SetOfEntities& side_set, SetOfEntities *avoid_sides);
     bool bucket_acceptable(stk::mesh::Bucket& bucket, stk::mesh::EntityRank rank);
-    void build_side_set(SetOfEntities& side_set);
-    void disconnect_sides(SetOfEntities& side_set);
+    void build_side_set(SetOfEntities& side_set, bool only_roots = false);
     void reconnect_sides(SetOfEntities& side_set, SetOfEntities *avoid_elems, bool onlyPosPerm);
     void check_connect(SetOfEntities& side_set, SetOfEntities *avoid_elems);
-    void end_begin();
+    void end_begin(const std::string& msg="");
 
     // fast reconnector
 
     void
-    fix_side_sets_2(bool allow_not_found, SetOfEntities *avoid_elems, SetOfEntities *avoid_sides);
+    fix_side_sets_2(bool allow_not_found, SetOfEntities *avoid_elems, SetOfEntities *avoid_sides, const std::string& msg);
   };
 
 

@@ -807,14 +807,6 @@
       TEST(regr_localRefiner, tet_transition)
       {
         PerceptMesh eMesh(3);
-        eMesh.setProperty("RefinerUnrefine_new", "true");
-        tet_transition(eMesh);
-      }
-
-      TEST(regr_localRefiner, tet_transition_old)
-      {
-        PerceptMesh eMesh(3);
-        eMesh.setProperty("RefinerUnrefine_new", "false");
         tet_transition(eMesh);
       }
 
@@ -1731,6 +1723,75 @@
         eMesh.close();
       }
 
+      void set_refine_field_to_value(PerceptMesh &eMesh, std::vector<stk::mesh::EntityId> entity_list, const int refine_value)
+      {
+        RefineFieldType *refine_field = eMesh.m_refine_field;
+
+        for (unsigned i=0; i<entity_list.size(); i++) {
+          stk::mesh::Entity entity = eMesh.get_bulk_data()->get_entity(stk::topology::ELEMENT_RANK, 
+                                                                       stk::mesh::EntityId(entity_list[i]));
+        
+          if (!eMesh.is_valid(entity)) {
+            std::cout << "cannot set value on entity ID " << entity_list[i] << std::endl;
+            continue;
+          }
+          
+          int *val= stk::mesh::field_data(*refine_field, entity);
+
+          *val = refine_value;
+        }
+      }
+
+      TEST(regr_localRefiner, two_tri)
+      {
+        stk::ParallelMachine pm = MPI_COMM_WORLD ;
+
+        const unsigned p_size = stk::parallel_machine_size( pm );
+        if (p_size!=1 /*&& p_size != 2*/) return;
+
+        PerceptMesh eMesh;
+        eMesh.open(input_files_loc+"two_tri3.g");
+
+        Local_Tri3_Tri3_N break_tri_to_tri_N(eMesh);
+
+        eMesh.register_and_set_refine_fields();
+
+        Teuchos::RCP<UniformRefinerPatternBase> localBreakPattern = make_local_break_pattern(eMesh);
+        
+        eMesh.commit();
+
+        eMesh.save_as("two_tri3_post_commit.g");
+
+        set_refine_field_to_value(eMesh, {1}, 1);
+
+        eMesh.save_as("two_tri3_pre_refine.g");
+
+        // set up for TEA refine/unrefine
+        stk::mesh::Selector univ_selector(eMesh.get_fem_meta_data()->universal_part());
+        ElementRefinePredicate erp(eMesh, &univ_selector, eMesh.m_refine_field, 0.0);
+
+        TransitionElementAdapter<ElementRefinePredicate> breaker(erp, eMesh, *localBreakPattern, 0, false);
+
+        breaker.setRemoveOldElements(false);
+        breaker.setAlwaysInitializeNodeRegistry(false);
+        breaker.initializeRefine();
+
+        bool enforce_what[3] = {false, true, false};
+        breaker.refine( enforce_what);
+
+        eMesh.save_as("two_tri3_post_refine.g");
+
+        // set unrefine field on fully refined elements
+        set_refine_field_to_value(eMesh, {3,4,5,6}, -1);
+
+        eMesh.save_as("two_tri3_pre_unrefine.g");
+
+        // unrefine
+        breaker.unrefine(enforce_what);
+        
+        eMesh.save_as("two_tri3_post_unrefine.g");
+      }
+
       TEST(regr_localRefiner, point_source_tri)
       {
         if (1)
@@ -2054,6 +2115,8 @@
         EXCEPTWATCH;
         stk::ParallelMachine pm = MPI_COMM_WORLD ;
 
+        // for some reason, writing the animation files creates an Ioss exception, turn off for now
+        bool do_anim = false;
         const unsigned p_size = stk::parallel_machine_size( pm );
         if (p_size==1 || p_size == 3)
           {
@@ -2115,7 +2178,7 @@
             int iplot=0;
             Util::setInfo(iplot);
 
-            if (1)
+            if (do_anim)
               {
                 char buf[1000];
                 sprintf(buf, "%04d", iplot);
@@ -2156,7 +2219,7 @@
                     ++iplot;
                   }
 
-                eMesh.save_as(output_files_loc+"quad_anim_set_field_"+post_fix(p_size)+".e.s-"+toString(ipass+1));
+                if (do_anim) eMesh.save_as(output_files_loc+"quad_anim_set_field_"+post_fix(p_size)+".e.s-"+toString(ipass+1));
 
                 bool enforce_what[3] = {false, false, true};
                 breaker.refine( enforce_what);
@@ -2175,7 +2238,7 @@
                 //eMesh.save_as("square_anim."+toString(ipass+1)+".e");
                 //!eMesh.print_info("ref-pass-" + toString(ipass), 10);
 
-                if (1)
+                if (do_anim)
                   {
                     char buf[1000];
                     sprintf(buf, "%04d", iplot);
@@ -2205,7 +2268,7 @@
                 bool enforce_what[3] = {false, false, true};
                 breaker.unrefine(enforce_what);
                 std::cout << "P[" << eMesh.get_rank() << "] done... iunref_pass= " << iunref_pass << " quad_local number elements= " << eMesh.get_number_elements() << std::endl;
-                if (1)
+                if (do_anim)
                   {
                     char buf[1000];
                     sprintf(buf, "%04d", iplot);
@@ -2230,7 +2293,7 @@
                 bool enforce_what[3] = {false, false, true};
                 breaker.unrefine( enforce_what);
 
-                if (1)
+                if (do_anim)
                   {
                     char buf[1000];
                     sprintf(buf, "%04d", iplot);
@@ -2257,7 +2320,11 @@
 
       TEST(regr_localRefiner, break_quad_to_quad_N_5_ElementBased_quad_local_square_sidesets)
       {
+#ifndef NDEBUG
+        bool do_test = false;
+#else
         bool do_test = true;
+#endif
         stk::ParallelMachine pm = MPI_COMM_WORLD ;
 
         if (do_test) {
@@ -2287,6 +2354,8 @@
 
           {
             PerceptMesh eMesh;
+            eMesh.set_ioss_write_options("large");
+
             eMesh.open(input_files_loc+"quad_square_quad4_0.e");
 
             eMesh.output_active_children_only(true);
@@ -2338,6 +2407,7 @@
 
           {
             PerceptMesh eMesh;
+            eMesh.set_ioss_write_options("large");
             eMesh.open(input_files_loc+"quad_square_quad4_0.e");
 
             eMesh.output_active_children_only(true);
@@ -2390,6 +2460,7 @@
 
           {
             PerceptMesh eMesh;
+            eMesh.set_ioss_write_options("large");
             eMesh.open(input_files_loc+"quad_square_quad4_0.e");
 
             eMesh.output_active_children_only(true);
@@ -2418,6 +2489,7 @@
         if (1)
           {
             PerceptMesh eMesh;
+            eMesh.set_ioss_write_options("large");
             eMesh.open(input_files_loc+"square_tri3_uns_xformed.e");
 
             //do_point_source_square_sidesets_hanging_node(eMesh, num_time_steps, 30., 30., nq_iter, false, false, "point-source-uns-");
@@ -2558,6 +2630,132 @@
                 breaker.refine( enforce_what2);
                 eMesh.save_as("tri.e-s0003");
                 VERIFY_OP_ON(amv.isValid(eMesh, false), ==, true, "Invalid refined mesh at step: 3");
+              }
+
+            //if (delete_parents)
+            //  breaker.deleteParentElements();
+            eMesh.save_as( output_files_loc+"tri_transition.e");
+
+
+            delete breaker_p;
+
+            // end_demo
+          }
+      }
+
+      TEST(regr_localRefiner, tri_transition_demo)
+      {
+        EXCEPTWATCH;
+        stk::ParallelMachine pm = MPI_COMM_WORLD ;
+
+        if (1)
+          {
+            const unsigned n = 2;
+            const unsigned nx = n , ny = n;
+
+            bool createEdgeSets = false;
+            percept::QuadFixture<double, shards::Triangle<3> > fixture( pm , nx , ny, createEdgeSets);
+            fixture.set_bounding_box(-1,1, -1, 1);
+
+            bool isCommitted = false;
+            percept::PerceptMesh eMesh(&fixture.meta_data, &fixture.bulk_data, isCommitted);
+
+            eMesh.commit();
+
+            fixture.generate_mesh();
+            eMesh.save_as(input_files_loc+"tri_transition_0.e");
+          }
+
+        PerceptMesh eMesh;
+        eMesh.open(input_files_loc+"tri_transition_0.e");
+        eMesh.output_active_children_only(true);
+
+        const unsigned p_size = stk::parallel_machine_size( pm );
+        if (p_size==1 || p_size == 4)
+          {
+            Local_Tri3_Tri3_N_HangingNode localBreakPattern(eMesh);
+            int scalarDimension = 0; // a scalar
+            stk::mesh::FieldBase* proc_rank_field    = eMesh.add_field("proc_rank", stk::topology::ELEMENT_RANK, scalarDimension);
+            RefineFieldType *refine_field       = dynamic_cast<RefineFieldType *>(eMesh.add_field_int("refine_field", stk::topology::ELEMENT_RANK, scalarDimension));
+
+            // for plotting, use doubles, for internal use, use int
+            RefineLevelType& refine_level       = eMesh.get_fem_meta_data()->declare_field<RefineLevelType>(stk::topology::ELEMENT_RANK, "refine_level");
+            stk::mesh::put_field( refine_level , eMesh.get_fem_meta_data()->universal_part());
+            stk::io::set_field_role(refine_level, Ioss::Field::TRANSIENT);
+
+            {
+              TransitionElementType& transition_element       = eMesh.get_fem_meta_data()->declare_field<TransitionElementType>(stk::topology::ELEMENT_RANK, "transition_element");
+              stk::mesh::put_field( transition_element , eMesh.get_fem_meta_data()->universal_part());
+              stk::io::set_field_role(transition_element, Ioss::Field::TRANSIENT);
+              eMesh.set_transition_element_field(&transition_element);
+            }
+
+            eMesh.commit();
+
+            eMesh.save_as( output_files_loc+"tri_"+post_fix(p_size)+".0.e");
+            eMesh.save_as("tri.e");
+
+            AdaptedMeshVerifier amv(0);
+            VERIFY_OP_ON(amv.isValid(eMesh, true), ==, true, "Invalid initial mesh");
+
+            stk::mesh::Selector univ_selector(eMesh.get_fem_meta_data()->universal_part());
+
+            ElementRefinePredicate erp(eMesh, &univ_selector, refine_field, 0.0);
+            HangingNodeAdapter<ElementRefinePredicate> *breaker_p=0;
+            TransitionElementAdapter<ElementRefinePredicate> *trea_p=0;
+
+            trea_p = new TransitionElementAdapter<ElementRefinePredicate>(erp, eMesh, localBreakPattern, proc_rank_field, true);
+            breaker_p = trea_p;
+
+            HangingNodeAdapter<ElementRefinePredicate>& breaker = *breaker_p;
+
+            // special for local adaptivity
+            breaker.setRemoveOldElements(false);
+            breaker.setAlwaysInitializeNodeRegistry(false);
+
+            stk::mesh::Entity element = eMesh.get_bulk_data()->get_entity(eMesh.element_rank(), 1);
+            RefineFieldType_type *e_data = 0;
+            if (eMesh.is_valid(element))
+              {
+                e_data = stk::mesh::field_data(*refine_field, element);
+                e_data[0] = 1.0;
+              }
+
+            bool enforce_what[3] = {false, false, true};
+            breaker.refine( enforce_what);
+            eMesh.save_as("tri.e-s0001");
+            VERIFY_OP_ON(amv.isValid(eMesh, false), ==, true, "Invalid refined mesh at step: 0");
+
+            if (1)
+              {
+                SetElementRefineFieldValue srf(eMesh, 0);
+                elementOpLoop(*eMesh.get_bulk_data(), srf, refine_field);
+
+                if (1)
+                  {
+                    stk::mesh::EntityId elemId = 11;
+                    element = eMesh.get_bulk_data()->get_entity(eMesh.element_rank(), elemId);
+                    if (eMesh.is_valid(element))
+                      {
+                        e_data = stk::mesh::field_data(*refine_field, element);
+                        e_data[0] = 1.0;
+                      }
+                  }
+                if (1)
+                  {
+                    stk::mesh::EntityId elemId = 8;
+                    element = eMesh.get_bulk_data()->get_entity(eMesh.element_rank(), elemId);
+                    if (eMesh.is_valid(element))
+                      {
+                        e_data = stk::mesh::field_data(*refine_field, element);
+                        e_data[0] = 1.0;
+                      }
+                  }
+
+                bool enforce_what2[3] = {false, false, true};
+                breaker.refine( enforce_what2);
+                eMesh.save_as("tri.e-s0002");
+                VERIFY_OP_ON(amv.isValid(eMesh, false), ==, true, "Invalid refined mesh at step: 1");
               }
 
             //if (delete_parents)
@@ -2742,6 +2940,8 @@
       {
         EXCEPTWATCH;
         stk::ParallelMachine pm = MPI_COMM_WORLD ;
+        // for some reason, writing the animation files creates an Ioss exception, turn off for now
+        bool do_anim = false;
 
         const unsigned p_size = stk::parallel_machine_size( pm );
         if (p_size==1 || p_size == 3)
@@ -2798,7 +2998,7 @@
               }
 
             int iplot=0;
-            if (1)
+            if (do_anim)
               {
                 char buf[1000];
                 sprintf(buf, "%04d", iplot);
@@ -2818,7 +3018,7 @@
 
                 elementOpLoop(*eMesh.get_bulk_data(), *set_ref_field, refine_field);
                 //eMesh.save_as(output_files_loc+"hex_anim_set_field_"+post_fix(p_size)+".e.s-"+toString(ipass+1));
-                if (1)
+                if (do_anim)
                   {
                     char buf[1000];
                     sprintf(buf, "%04d", ipass);
@@ -2837,7 +3037,7 @@
                 std::cout << "P[" << eMesh.get_rank() << "] done... ipass= " << ipass << " hex_local number elements= "
                           << eMesh.get_number_elements() << std::endl;
                 //eMesh.save_as("square_anim."+toString(ipass+1)+".e");
-                if (1)
+                if (do_anim)
                   {
                     char buf[1000];
                     sprintf(buf, "%04d", iplot);
@@ -2856,7 +3056,7 @@
 
                 breaker->unrefine( enforce_what);
                 std::cout << "P[" << eMesh.get_rank() << "] done... iunref_pass= " << iunref_pass << " hex_local number elements= " << eMesh.get_number_elements() << std::endl;
-                if (1)
+                if (do_anim)
                   {
                     char buf[1000];
                     sprintf(buf, "%04d", iplot);
@@ -2880,7 +3080,7 @@
                 std::cout << "P[" << eMesh.get_rank() << "] iunrefAll_pass= " << iunref <<  std::endl;
                 breaker->unrefine( enforce_what);
 
-                if (1)
+                if (do_anim)
                   {
                     char buf[1000];
                     sprintf(buf, "%04d", iplot);
@@ -2962,6 +3162,7 @@
           {
             bool debug = false;
             PerceptMesh eMesh;
+            eMesh.set_ioss_write_options("large");
             eMesh.open(input_files_loc+"square_tri3_uns_xformed.e");
             eMesh.register_and_set_refine_fields();
             ScalarFieldType & weight_field =  eMesh.get_fem_meta_data()->declare_field<ScalarFieldType>(stk::topology::ELEMENT_RANK, "rebalance_weights");
@@ -3010,6 +3211,7 @@
           {
             bool debug = false;
             PerceptMesh eMesh;
+            eMesh.set_ioss_write_options("large");
             eMesh.open(input_files_loc+"square_tri3_0.e");
             eMesh.register_and_set_refine_fields();
             ScalarFieldType & weight_field =  *eMesh.m_weights_field;
@@ -3521,7 +3723,8 @@
         }
 
         // test 2
-        if (1)
+        bool tmp = true;
+        if (tmp)
         {
           PerceptMesh eMesh;
           eMesh.open(input_files_loc+"heterogeneous_sideset_0.e");
@@ -3537,7 +3740,7 @@
 
 
         // test 3
-        if (1)
+        if (tmp)
         {
           PerceptMesh eMesh;
           eMesh.open(input_files_loc+"heterogeneous_sideset_0.e");
@@ -3567,7 +3770,8 @@
 
         if (!do_test) return;
 
-        if (1)
+        bool tmp = true;
+        if (tmp)
         {
           PerceptMesh eMesh;
           eMesh.open(input_files_loc+"heterogeneous_sideset_multi_0.e");
@@ -3716,7 +3920,8 @@
           }
 
         // partial refinement
-        if (1)
+        bool tmp = false;
+        if (tmp)
           {
             PerceptMesh eMesh;
             eMesh.open(input_files_loc+"tet4_wedge6_mesh.g");
@@ -5087,6 +5292,7 @@
               eMesh.save_as("obtuse_tet.e");
           }
       }
+
 
     } // namespace regression_tests
   } // namespace percept

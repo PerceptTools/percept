@@ -497,9 +497,8 @@ namespace percept {
   static void make_parallel_consistent(PerceptMesh& eMesh, std::vector<std::string>& blocks)
   {
     char buf[1024];
-    stk::CommAll comm_all(eMesh.parallel());
+    stk::CommSparse comm_all(eMesh.parallel());
 
-    unsigned proc_rank = comm_all.parallel_rank();
     unsigned proc_size = comm_all.parallel_size();
 
     // pack
@@ -514,14 +513,7 @@ namespace percept {
       }
     // allocateBuffers
     {
-      bool local = true;
-      unsigned num_msg_bounds = proc_size < 4 ? proc_size : proc_size/4 ;
-      bool global = comm_all.allocate_buffers(num_msg_bounds , false, local );
-      if ( not global )
-        {
-          std::cout << "P[" << proc_rank << "] : not global" << std::endl;
-          throw std::runtime_error("not global");
-        }
+      comm_all.allocate_buffers();
     }
     // pack
     for (unsigned pr=0; pr < proc_size; pr++)
@@ -1218,6 +1210,7 @@ namespace percept {
             stk::mesh::Entity node = vec[ii];
 
             //debug = eMesh.id(node) == 148 || eMesh.id(node) == 2568;
+            VERIFY_OP_ON(eMesh.entity_rank(node), ==, eMesh.node_rank(), "bad rank");
             double *node_data = stk::mesh::field_data(*eMesh.m_node_registry_field, node);
             for (unsigned kk=0; kk < NUM_NR_FIELD_SLOTS; ++kk)
               {
@@ -1283,6 +1276,8 @@ namespace percept {
                 if (debug) std::cout << "save_node_registry:: node invalid" << std::endl;
                 continue;
               }
+
+            VERIFY_OP_ON(eMesh.entity_rank(node), ==, eMesh.node_rank(), "bad rank");
             NodeRegistryFieldType_type *node_data = stk::mesh::field_data(*eMesh.m_node_registry_field, node);
             if (!node_data)
               {

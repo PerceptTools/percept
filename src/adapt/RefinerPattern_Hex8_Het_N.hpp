@@ -618,7 +618,7 @@ namespace percept {
           eMesh.prolongateElementFields( elements, newElement);
 
 #ifndef NDEBUG
-          if (1)
+          if (0)
             {
               nodeRegistry.prolongateCoordsAllSubDims(element);
               VolumeUtil jacA;

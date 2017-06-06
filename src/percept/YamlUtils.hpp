@@ -35,9 +35,9 @@
     template<typename T>
     void set_if_present(const YAML::Node & node, const std::string& key, T& result, const T& default_if_not_present = T())
     {
-      const YAML::Node *value = node.FindValue(key);
+      const YAML::Node value = node[key];
       if (value)
-        *value >> result;
+        result = value.as<T>();
       else
         result = default_if_not_present;
     }
@@ -46,9 +46,9 @@
     template<typename T>
     void set_if_present_no_default(const YAML::Node & node, const std::string& key, T& result)
     {
-      const YAML::Node *value = node.FindValue(key);
+      const YAML::Node value = node[key];
       if (value)
-        *value >> result;
+        result = value.as<T>();
     }
 
     struct YamlUtils {
@@ -60,7 +60,7 @@
         switch (type)
           {
           case YAML::NodeType::Scalar:
-            node >> out;
+            out = node.as<std::string>();
             emout << out;
             break;
           case YAML::NodeType::Sequence:
@@ -73,10 +73,10 @@
             break;
           case YAML::NodeType::Map:
             emout << YAML::BeginMap ;
-            for (YAML::Iterator i = node.begin(); i != node.end(); ++i) {
-              const YAML::Node & key   = i.first();
-              const YAML::Node & value = i.second();
-              key >> out;
+            for (YAML::const_iterator i = node.begin(); i != node.end(); ++i) {
+              const YAML::Node & key   = i->first;
+              const YAML::Node & value = i->second;
+              out = key.as<std::string>();
               emout << YAML::Key << out;
               emout << YAML::Value;
               emit(emout, value);

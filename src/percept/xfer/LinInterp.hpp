@@ -157,13 +157,24 @@ LinInterp<FROM,TO>::filter_to_nearest (
       shards::CellTopology topo(bucket_cell_topo_data);
       unsigned cellOrd = 0;  // FIXME
 
-      Intrepid::CellTools<double>::mapToReferenceFrame(outputParametricPoints,
-						       inputPhysicalPoints,
-						       cellWorkset,
-						       topo,
-						       cellOrd);
+      double dist = 0.0;
 
-      const double dist = parametricDistanceToEntity(&outputParametricPoints(0), topo);
+      if (topo.getKey()==shards::Particle::key) {
+        dist = 0.0;
+        for ( unsigned j = 0; j < nDim; ++j ) {
+          dist += std::pow(cellWorkset(0,0,j) - inputPhysicalPoints(j), 2);
+        }
+        dist = std::sqrt(dist);
+      }
+      else {
+        Intrepid::CellTools<double>::mapToReferenceFrame(outputParametricPoints,
+                                                         inputPhysicalPoints,
+                                                         cellWorkset,
+                                                         topo,
+                                                         cellOrd);
+        
+        dist = parametricDistanceToEntity(&outputParametricPoints(0), topo);
+      }
 
       if ( dist < (1.0 + parametric_tolerance) && dist < best_dist ) {
 
@@ -333,12 +344,17 @@ LinInterp<FROM,TO>::apply_from_nodal_field (
 
   inputParametricPoints.setValues(&isoParCoords[0], nDim);
 
-  Teuchos::RCP<Intrepid::Basis<double, Intrepid::FieldContainer<double> > > HGRAD_Basis =
-    BasisTable::getBasis(topo);
-
   Intrepid::FieldContainer<double> basisVals(num_nodes, 1);
 
-  HGRAD_Basis->getValues(basisVals, inputParametricPoints, Intrepid::OPERATOR_VALUE);
+  if (topo.getKey()==shards::Particle::key) {
+    basisVals(0,0) = 1.0;
+  }
+  else {
+    Teuchos::RCP<Intrepid::Basis<double, Intrepid::FieldContainer<double> > > HGRAD_Basis =
+      BasisTable::getBasis(topo);
+
+    HGRAD_Basis->getValues(basisVals, inputParametricPoints, Intrepid::OPERATOR_VALUE);
+  }
 
   // TODO: save off these basis values for re-use
 

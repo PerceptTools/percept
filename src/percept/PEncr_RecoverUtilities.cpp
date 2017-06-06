@@ -195,7 +195,6 @@
       std::vector<stk::mesh::Entity>::iterator iobj = objs.begin();
       while (iobj!=objs.end())
         {
-          //if ( !Fmwk::contains_io_part((*iobj), *meshpart, stk_mesh))
           if ( !(*meshpart)(stk_mesh.bucket(*iobj)) )
             iobj = objs.erase(iobj);
           else

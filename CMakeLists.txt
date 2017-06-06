@@ -22,23 +22,10 @@ SET(CMAKE_PREFIX_PATH ${Trilinos_DIR} ${CMAKE_PREFIX_PATH})
 SET(CMAKE_PREFIX_PATH ${Trilinos_PATH} ${CMAKE_PREFIX_PATH})
 find_package(Trilinos REQUIRED)
 
-# YAML
+# This needs to be cleaned up
 FIND_LIBRARY(YAML_LIBRARY NAMES libyaml-cpp.a PATHS ${YAML_DIR}/lib )
 FIND_PATH(YAML_INCLUDES yaml.h PATHS ${YAML_DIR}/include/yaml-cpp )
 INCLUDE_DIRECTORIES(${YAML_INCLUDES}/..)
-
-MESSAGE("-- YAML_DIR = ${YAML_DIR}")
-MESSAGE("-- YAML_INCLUDES = ${YAML_INCLUDES}")
-MESSAGE("-- YAML_LIBRARY = ${YAML_LIBRARY}")
-
-# CGNS
-FIND_LIBRARY(CGNS_LIBRARY NAMES libcgns.a PATHS ${CGNS_DIR}/lib )
-FIND_PATH(CGNS_INCLUDES cgnslib.h PATHS ${CGNS_DIR}/include/yaml-cpp )
-INCLUDE_DIRECTORIES(${CGNS_INCLUDES}/..)
-
-MESSAGE("-- CGNS_DIR = ${CGNS_DIR}")
-MESSAGE("-- CGNS_INCLUDES = ${CGNS_INCLUDES}")
-MESSAGE("-- CGNS_LIBRARY = ${CGNS_LIBRARY}")
 
 # OpenNURBS
 FIND_LIBRARY(OPENNURBS_LIBRARY NAMES libopenNURBS.a PATHS ${OPENNURBS_DIR} )
@@ -50,13 +37,13 @@ MESSAGE("-- OPENNURBS_INCLUDES = ${OPENNURBS_INCLUDES}")
 MESSAGE("-- OPENNURBS_LIBRARY = ${OPENNURBS_LIBRARY}")
 
 
+
 # gtest
 FIND_LIBRARY(GTEST_LIBRARY NAMES libgtest.a PATHS ${PERCEPT_TPLS_INSTALL_DIR}/lib NO_DEFAULT_PATH)
 FIND_PATH(GTEST_INCLUDES gtest.h PATHS ${PERCEPT_TPLS_INSTALL_DIR}/include/gtest )
-INCLUDE_DIRECTORIES(${GTEST_INCLUDES})
-
 MESSAGE("-- GTEST_LIBRARY = ${GTEST_LIBRARY}")
 MESSAGE("-- GTEST_INCLUDES = ${GTEST_INCLUDES}")
+INCLUDE_DIRECTORIES(${GTEST_INCLUDES})
 
 INCLUDE_DIRECTORIES(${STK_EXTRA_DIR})
 
@@ -140,7 +127,10 @@ ENDIF(Trilinos_BUILD_SHARED_LIBS)
 
 PROJECT(Percept)
 
-SET(CMAKE_CXX_FLAGS ${CMAKE_CXX_FLAGS} ${Trilinos_CXX_COMPILER_FLAGS})
+SET(GCC_NO_MPI_WARNINGS_FLAGS "-Wno-literal-suffix")   # C++ 11 warnings originating with MPI
+
+SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${GCC_NO_MPI_WARNINGS_FLAGS}")
+SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${Trilinos_CXX_COMPILER_FLAGS}")
 SET(CMAKE_Fortran_FLAGS ${CMAKE_Fortran_FLAGS} ${Trilinos_Fortran_COMPILER_FLAGS})
 MESSAGE("-- CMAKE_CXX_FLAGS     = ${CMAKE_CXX_FLAGS}")
 MESSAGE("-- CMAKE_Fortran_FLAGS = ${CMAKE_Fortran_FLAGS}")
@@ -227,6 +217,7 @@ FILE (GLOB SOURCE
      src/percept/mesh/geometry/volume/sierra_only/*.cpp
      src/percept/mesh/geometry/stk_geom/*.cpp
      src/percept/mesh/geometry/stk_geom/3D/*.cpp
+     src/percept/structured/*.cpp
      src/percept/xfer/*.cpp
      src/percept/util/*.cpp
      src/percept/stk_rebalance/*.cpp
@@ -259,6 +250,7 @@ FILE (GLOB HEADER
      src/percept/mesh/geometry/volume/sierra_only/*.hpp
      src/percept/mesh/geometry/stk_geom/*.hpp
      src/percept/mesh/geometry/stk_geom/3D/*.hpp
+     src/percept/structured/*.hpp
      src/percept/xfer/*.hpp
      src/percept/util/*.hpp
      src/percept/stk_rebalance/*.hpp
@@ -293,7 +285,7 @@ SET(percept_lib_name "percept")
 SET(percept_lite_lib_name "percept_lite")
 
 ADD_LIBRARY (${percept_lite_lib_name} ${SOURCE_LITE} ${HEADER_LITE})
-TARGET_LINK_LIBRARIES(${percept_lite_lib_name} ${Trilinos_LIBRARIES} ${YAML_LIBRARY} ${OPENNURBS_LIBRARY} ${BOOST_LIBRARIES} ${CGNS_LIBRARY})
+TARGET_LINK_LIBRARIES(${percept_lite_lib_name} ${Trilinos_LIBRARIES} ${YAML_LIBRARY} ${OPENNURBS_LIBRARY} ${BOOST_LIBRARIES})
 
 SET_PROPERTY(
   TARGET ${percept_lite_lib_name}
@@ -335,7 +327,7 @@ IF (NOT STK_PERCEPT_LITE)
   TARGET_LINK_LIBRARIES(${percept_rtest_name} ${percept_lib_name} ${GTEST_LIBRARY})
 
   ADD_LIBRARY (${percept_lib_name} ${SOURCE} ${HEADER})
-  TARGET_LINK_LIBRARIES(${percept_lib_name} ${Trilinos_LIBRARIES} ${YAML_LIBRARY} ${OPENNURBS_LIBRARY} ${BOOST_LIBRARIES} ${CGNS_LIBRARY})
+  TARGET_LINK_LIBRARIES(${percept_lib_name} ${Trilinos_LIBRARIES} ${YAML_LIBRARY} ${OPENNURBS_LIBRARY} ${BOOST_LIBRARIES})
 #  TARGET_LINK_LIBRARIES(${percept_lib_name} ${GTEST_LIBRARY})
 
   SET_PROPERTY(

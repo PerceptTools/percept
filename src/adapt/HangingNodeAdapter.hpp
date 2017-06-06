@@ -12,6 +12,7 @@
 #include <cmath>
 
 #include <adapt/PredicateBasedElementAdapter.hpp>
+#include <percept/SetOfEntities.hpp>
 
 #include <percept/pooled_alloc.h>
 #include <boost/scoped_ptr.hpp>
@@ -36,7 +37,9 @@
     // this is the expected number of elements that are node neighbors of any element
     enum { HNA_POOL_SIZE = 100 };
 
+#define USE_HNA_USET 1
 #define USE_BOOST_POOL_ALLOC 1
+
     template<typename Value, typename Less = std::less<Value> >
     struct PooledStdSet
     {
@@ -57,8 +60,12 @@
     //typedef boost::unordered_set<stk::mesh::Entity> LocalSetType;
     //typedef std::set<stk::mesh::Entity, less<stk::mesh::Entity> , percept::pool_allocator<stk::mesh::Entity> > LocalSetType;
 
+#if USE_HNA_USET
+    typedef SetOfEntities LocalSetType;
+#else
     typedef PooledStdSet<stk::mesh::Entity >::Type LocalSetType;
     typedef PooledStdSet<stk::mesh::Entity > LocalSet;
+#endif
 
     //typedef PooledUSet<stk::mesh::Entity >::Type LocalSetType;
     //typedef PooledUSet<stk::mesh::Entity > LocalSet;
@@ -167,9 +174,6 @@
         m_only_enforce_unrefine(false), m_transition_element_break(false)
       {
         Base::setNeedsRemesh(false);
-#ifndef NDEBUG
-        m_debug = true;
-#endif
         //m_debug = true;
 
       }
@@ -191,10 +195,6 @@
                 std::cout << "P[" << m_pMesh.get_rank() << " iter= " << iter << " did_change= " << did_change
                           << std::endl;
             }
-#ifndef NDEBUG
-          if (m_pMesh.get_rank()==0)
-            std::cout << "P[" << m_pMesh.get_rank() << "] HangingNodeAdapterBase::refine took niter= " << iter << std::endl;
-#endif
         }
 
         if (m_debug)
@@ -234,10 +234,6 @@
                           << std::endl;
             }
 
-#ifndef NDEBUG
-          if (m_pMesh.get_rank()==0)
-            std::cout << "P[" << m_pMesh.get_rank() << "] HangingNodeAdapterBase::unrefine took niter= " << iter << std::endl;
-#endif
           if (m_debug)
             {
               bool valid = check_two_to_one(enforce_what);

@@ -5,20 +5,22 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-#include <percept/PerceptMesh.hpp>
-#include <percept/BlockStructuredGrid.hpp>
+#include <percept/structured/BlockStructuredGrid.hpp>
 #include <percept/MeshType.hpp>
 
 #include <stk_util/parallel/CommSparse.hpp>
 
+#include <Ioss_Region.h>
+
 namespace percept {
 
+  using Array4D = typename MTSGridField::Array4D;
 
-  using Array4D = typename MTFieldImpl::Array4D;
+  static const int permute_to_unstructured_local[8] = {0,1,3,2, 4,5,7,6};
+  const int *BlockStructuredGrid::permute_to_unstructured = &permute_to_unstructured_local[0];
 
-  BlockStructuredGrid::BlockStructuredGrid(PerceptMesh* eMesh, Ioss::Region *region) : m_eMesh(eMesh), m_region(region)
-  {
-  }
+  BlockStructuredGrid::BlockStructuredGrid(stk::ParallelMachine comm, Ioss::Region *region) :  m_comm(comm), m_region(region)
+  {}
 
   void BlockStructuredGrid::print(std::ostream& out, int level)
   {
@@ -33,18 +35,20 @@ namespace percept {
     auto& blocks = m_region->get_structured_blocks();
     unsigned iblock=0;
     m_sblocks.resize(0);
+
     for (auto &block : blocks) {
-      std::shared_ptr<StructuredBlock> ptr ( new StructuredBlock(m_eMesh, iblock, block, this) );
-      ptr->read_cgns();
+      std::shared_ptr<StructuredBlock> ptr ( new StructuredBlock(m_comm, iblock, block, this) );
+      ptr->read_cgns();    
       m_sblocks.push_back(ptr);
       ++iblock;
     }
-    std::cout << m_eMesh->rank() << " nblocks= " << m_sblocks.size() << std::endl;
+    std::cout << stk::parallel_machine_rank(m_comm) << " nblocks= " << m_sblocks.size() << std::endl;
   }
+  
 
   void BlockStructuredGrid::register_field(const std::string& field, unsigned fourth_dim)
   {
-    std::shared_ptr<MTFieldImpl> nf (new MTFieldImpl(field));
+    std::shared_ptr<MTSGridField> nf (new MTSGridField(field));
     m_fields[field] = nf;
 
     nf->m_block_fields.resize(m_sblocks.size());
@@ -56,7 +60,7 @@ namespace percept {
 
   void BlockStructuredGrid::create_pvd(const std::string& file_prefix, bool paraviewBroken)
   {
-    if (m_eMesh->get_rank())
+    if (stk::parallel_machine_rank(m_comm))
       return;
 
     std::ofstream out(file_prefix+".pvd");
@@ -65,7 +69,7 @@ namespace percept {
 
     if (paraviewBroken)
       {
-        int p_size = m_eMesh->get_parallel_size();
+        int p_size = stk::parallel_machine_size(m_comm);
         for (unsigned iblock=0; iblock < m_sblocks.size(); ++iblock)
           {
             for (int p_rank=0; p_rank < p_size; ++p_rank)
@@ -80,7 +84,7 @@ namespace percept {
     else
       {
         std::string par_prefix = "";
-        if (m_eMesh->get_parallel_size() > 1)
+        if (stk::parallel_machine_size(m_comm) > 1)
           par_prefix = "p";
         for (unsigned iblock=0; iblock < m_sblocks.size(); ++iblock)
           {
@@ -98,10 +102,10 @@ namespace percept {
 
   void BlockStructuredGrid::create_pvts(const std::string& file_prefix)
   {
-    if (m_eMesh->get_parallel_size() == 1)
+    if (stk::parallel_machine_size(m_comm) == 1)
       return;
 
-    stk::CommSparse comm_sparse(m_eMesh->parallel());
+    stk::CommSparse comm_sparse(m_comm);
     //unsigned proc_rank = comm_sparse.parallel_rank();
     unsigned proc_size = comm_sparse.parallel_size();
 
@@ -126,9 +130,9 @@ namespace percept {
           }
       }
 
-    if (m_eMesh->get_rank() == 0)
+    if (stk::parallel_machine_rank(m_comm) == 0)
       {
-        MDArrayUInt block_info(m_eMesh->get_parallel_size(), m_sblocks.size(), 3);
+        MDArrayUInt block_info(stk::parallel_machine_size(m_comm), m_sblocks.size(), 3);
 
         for(unsigned from_proc = 0; from_proc < proc_size; ++from_proc )
           {
@@ -179,8 +183,7 @@ namespace percept {
 
   void BlockStructuredGrid::dump_vtk(const std::string& file_prefix)
   {
-    double cpu = m_eMesh->start_cpu_timer();
-    if (m_eMesh->get_rank() == 0)
+    if (stk::parallel_machine_rank(m_comm) == 0)
       std::cout << "BlockStructuredGrid: saving VTK format file= " << file_prefix << " ... " << std::endl;
 
     bool paraviewBroken = true;
@@ -193,10 +196,6 @@ namespace percept {
       {
         m_sblocks[iblock]->dump_vtk(file_prefix);
       }
-
-    cpu = m_eMesh->stop_cpu_timer(cpu);
-    if (m_eMesh->get_rank() == 0)
-      std::cout << "BlockStructuredGrid: ... cpu time= " << cpu << " sec." << std::endl;
   }
 
   void BlockStructuredGrid::get_nodes(std::vector<StructuredCellIndex>& nodes, unsigned offset)
@@ -222,6 +221,21 @@ namespace percept {
                     StructuredCellIndex node{{indx[0], indx[1], indx[2], iblock}};
                     nodes.push_back(node);
                   }
+              }
+          }
+      }
+  }
+
+  void BlockStructuredGrid::get_element_nodes(const StructuredCellIndex& element, std::vector<StructuredCellIndex>& nodes)
+  {
+    nodes.resize(0);
+    for (unsigned i2 = element[2]; i2 <= element[2]+1; ++i2)
+      {
+        for (unsigned i1 = element[1]; i1 <= element[1]+1; ++i1)
+          {
+            for (unsigned i0 = element[0]; i0 <= element[0]+1; ++i0)
+              {
+                nodes.push_back(StructuredCellIndex{{i0,i1,i2,element[3]}});
               }
           }
       }
@@ -255,7 +269,7 @@ namespace percept {
 
     void operator()(int64_t& index)
     {
-      m_field_dest[index] = m_field_src[index];
+      m_field_dest.data()[index] = m_field_src.data()[index];
     }
   };
 
@@ -305,7 +319,7 @@ namespace percept {
 
     void operator()(int64_t& index)
     {
-      m_field_z[index] = m_alpha*m_field_x[index] + m_beta*m_field_y[index] + m_gamma*m_field_z[index];
+      m_field_z.data()[index] = m_alpha*m_field_x.data()[index] + m_beta*m_field_y.data()[index] + m_gamma*m_field_z.data()[index];
     }
   };
 
@@ -356,7 +370,7 @@ namespace percept {
 
     void operator()(int64_t& index)
     {
-      m_field_y[index] = m_alpha*m_field_x[index] + m_beta*m_field_y[index];
+      m_field_y.data()[index] = m_alpha*m_field_x.data()[index] + m_beta*m_field_y.data()[index];
     }
   };
 
@@ -402,7 +416,7 @@ namespace percept {
 
     void operator()(int64_t& index)
     {
-      m_sum += m_field_x[index]*m_field_y[index];
+      m_sum += m_field_x.data()[index]*m_field_y.data()[index];
     }
   };
 
@@ -447,7 +461,7 @@ namespace percept {
 
     void operator()(int64_t& index)
     {
-      m_field_x[index] = m_value;
+      m_field_x.data()[index] = m_value;
     }
   };
 
@@ -465,23 +479,24 @@ namespace percept {
   }
 
 
-  void BlockStructuredGrid::comm_fields(std::vector<const typename StructuredGrid::MTField*>& fields, PerceptMesh *m_eMesh)
+  void BlockStructuredGrid::comm_fields(std::vector<const typename StructuredGrid::MTField*>& fields)
   {
-    std::cout << "comm_fields not yet impl" << std::endl;
+    if (stk::parallel_machine_rank(m_comm) == 1) // only if parallel run
+      std::cout << "comm_fields not yet impl" << std::endl;
   }
 
 
-  void BlockStructuredGrid::sum_fields(std::vector<typename StructuredGrid::MTField*>& fields, PerceptMesh *m_eMesh)
+  void BlockStructuredGrid::sum_fields(std::vector<typename StructuredGrid::MTField*>& fields)
   {
-    std::cout << "sum_fields not yet impl" << std::endl;
+    if (stk::parallel_machine_rank(m_comm) == 1) // only if parallel run
+      std::cout << "sum_fields not yet impl" << std::endl;
   }
 
   std::shared_ptr<BlockStructuredGrid>   BlockStructuredGrid::
-  fixture_1(PerceptMesh* eMesh, std::array<unsigned,3> sizes)
+  fixture_1(stk::ParallelMachine comm, std::array<unsigned,3> sizes)
   {
-    std::shared_ptr<BlockStructuredGrid> bsg(new BlockStructuredGrid(eMesh,0));
-    std::shared_ptr<StructuredBlock> sbi = StructuredBlock::fixture_1(eMesh, sizes, 0, 0, 0, bsg.get() );
-    eMesh->set_block_structured_grid(bsg);
+    std::shared_ptr<BlockStructuredGrid> bsg(new BlockStructuredGrid(comm,0));
+    std::shared_ptr<StructuredBlock> sbi = StructuredBlock::fixture_1(comm, sizes, 0, 0, 0, bsg.get() );
     bsg->m_sblocks.push_back(sbi);
     // FIXME - make this automatic, always have coordinates registered
     bsg->register_field("coordinates",3);

@@ -5,10 +5,8 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-
 #include <percept/Percept.hpp>
 #if !defined(NO_GEOM_SUPPORT)
-
 
 #include <percept/mesh/geometry/kernel/GeometryKernel.hpp>
 
@@ -17,7 +15,6 @@
 #include <percept/mesh/mod/smoother/MeshSmoother.hpp>
 #include <percept/mesh/mod/smoother/SpacingFieldUtil.hpp>
 
-//#include <stk_mesh/base/Types.hpp>
 #include <stk_mesh/base/FieldParallel.hpp>
 #include <stk_util/parallel/ParallelReduce.hpp>
 
@@ -27,7 +24,35 @@
 
   namespace percept {
 
-    template<>
+  template <typename MeshType>
+  ReferenceMeshSmootherBaseImpl<MeshType>::
+  ReferenceMeshSmootherBaseImpl(PerceptMesh *eMesh,
+                            typename MeshType::MTSelector *boundary_selector,
+                            typename MeshType::MTMeshGeometry *meshGeometry,
+                            int inner_iterations,
+                            double grad_norm,
+                            int parallel_iterations)
+    : MeshSmootherImpl<MeshType>(eMesh, boundary_selector, meshGeometry, inner_iterations, grad_norm, parallel_iterations),
+      m_scale(0),
+      m_dmax(0),
+      m_dmax_relative(0),
+      m_dnew(0), m_dold(0), m_d0(1), m_dmid(0), m_dd(0), m_alpha(0), m_alpha_0(0), m_grad_norm(0), m_grad_norm_scaled(0),
+      m_total_metric(0),
+      m_stage(0),
+      m_omega(0),
+      m_omega_prev(0),
+      m_iter(0),
+      m_num_invalid(0), m_global_metric(std::numeric_limits<double>::max()), m_untangled(false), m_num_nodes(0),
+      m_use_ref_mesh(true), m_do_animation(0)
+  {
+    if (eMesh->getProperty("ReferenceMeshSmootherBase_do_anim") != "")
+      {
+        m_do_animation = toInt(eMesh->getProperty("ReferenceMeshSmootherBase_do_anim"));
+        std::cout << "m_do_animation= " << m_do_animation << std::endl;
+      }
+  }
+
+  template<>
     void ReferenceMeshSmootherBaseImpl<STKMesh>::sync_fields(int iter)
     {
       std::vector< const stk::mesh::FieldBase *> fields;
@@ -41,16 +66,7 @@
 
     template<>
     void ReferenceMeshSmootherBaseImpl<StructuredGrid>::sync_fields(int iter)
-    {
-      // std::vector< const stk::mesh::FieldBase *> fields;
-      // fields.push_back(m_eMesh->get_coordinates_field());
-      // fields.push_back(m_coord_field_projected);
-      // fields.push_back(m_coord_field_lagged);
-      // fields.push_back(m_coord_field_current);
-      // stk::mesh::copy_owned_to_shared(*m_eMesh->get_bulk_data(), fields);
-      // stk::mesh::communicate_field_data(m_eMesh->get_bulk_data()->aura_ghosting(), fields);
-      std::cout << "sync_fields<StructuredGrid> not impl" << std::endl;
-    }
+    {}
 
     template<>
     void ReferenceMeshSmootherBaseImpl<STKMesh>::project_all_delta_to_tangent_plane(stk::mesh::FieldBase *field)
@@ -156,47 +172,6 @@
       return 0.0;
     }
 
-    static void print_comm_list( const stk::mesh::BulkData & mesh , bool doit )
-    {
-      using namespace stk::mesh;
-      if ( doit ) {
-        std::ostringstream msg ;
-
-        msg << std::endl ;
-
-        const std::vector<stk::mesh::Ghosting *> &ghostings = mesh.ghostings();
-        std::vector<int> commProcs;
-        stk::mesh::EntityVector entities;
-        for(stk::topology::rank_t rank=stk::topology::NODE_RANK; rank<stk::topology::END_RANK; ++rank) {
-          stk::mesh::get_entities(mesh, rank, entities);
-          for(size_t e=0; e<entities.size(); ++e) {
-            for(size_t g=0; g<ghostings.size(); ++g) {
-              Entity entity = entities[e];
-              EntityKey key = mesh.entity_key(entity);
-              msg << "P" << mesh.parallel_rank() << ": " ;
-
-              print_entity_key( msg , MetaData::get(mesh) , key );
-
-              msg << " owner(" << mesh.parallel_owner_rank(entity) << ")" ;
-
-              if ( Modified == mesh.state(entity) ) { msg << " mod" ; }
-              else if ( Deleted == mesh.state(entity) ) { msg << " del" ; }
-              else { msg << "    " ; }
-
-              mesh.comm_procs(*ghostings[g], key, commProcs);
-              for(size_t k=0; k<commProcs.size(); ++k) {
-                msg << " gid, proc (" << g << "," << commProcs[k] << ")" ;
-              }
-              msg << std::endl ;
-            }
-          }
-        }
-
-        std::cout << msg.str();
-      }
-    }
-
-
     template<typename MeshType>
     struct GA_run_algorithm
     {
@@ -285,7 +260,6 @@
       if (meshGeometry && meshGeometry->geomKernel)
         {
           meshGeometry->geomKernel->m_useFoundFaceMap = true;
-          //m_meshGeometry->geomKernel->m_nodeToFoundFaceMap.clear();
         }
 #endif
     }
@@ -301,16 +275,8 @@
       typename MeshType::MTField *coord_field_original  = ga.coord_field_original;
       typename MeshType::MTField *coord_field_lagged    = ga.coord_field_lagged;
 
-      //std::cout << "\nP[" << m_eMesh->get_rank() << "] tmp srk ReferenceMeshSmootherBase innerIter= " << innerIter << " parallelIterations= " << parallelIterations << std::endl;
-
-      //if (!m_eMesh->get_rank())
-      //std::cout << "\nP[" << m_eMesh->get_rank() << "] tmp srk ReferenceMeshSmootherBase: running shape improver... \n" << std::endl;
-
       PerceptMesh *eMesh = Base::m_eMesh;
       m_num_nodes = eMesh->get_number_nodes();
-
-      if (0) print_comm_list(*eMesh->get_bulk_data(), false);
-
 
       eMesh->copy_field(coord_field_lagged, coord_field_original);
 
@@ -318,38 +284,9 @@
 
       // untangle
       SmootherMetricUntangleImpl<MeshType> untangle_metric(eMesh);
-      //SmootherMetricUntangleGen untangle_metric_gen(eMesh, this);
-
-      // shape-size-orient smooth
-      //SmootherMetricShapeSizeOrient shape_size_orient_metric(eMesh);
 
       // shape
       SmootherMetricShapeB1Impl<MeshType> shape_b1_metric(eMesh, m_use_ref_mesh);
-      //SmootherMetricShapeB1Gen shape_b1_metric_gen(eMesh, this);
-
-#if 0
-      SmootherMetricShapeC1 shape_c1_metric(eMesh);
-
-      SmootherMetricShapeSizeOrientB1 shape_size_orient_b1_metric(eMesh);
-
-
-      SmootherMetricShapeMeanRatio shape_mean_metric(eMesh, m_use_ref_mesh);
-
-      // size
-      SmootherMetricSizeB1 size_b1_metric(eMesh, m_use_ref_mesh);
-
-      // laplace
-      SmootherMetricLaplace laplace_metric(eMesh);
-
-      // laplace weighted
-      SmootherMetricLaplaceInverseVolumeWeighted laplace_weighted_metric(eMesh);
-
-      // scaled jacobian
-      SmootherMetricScaledJacobianElemental scaled_jac_metric(eMesh);
-
-      // scaled jacobian - nodal
-      SmootherMetricScaledJacobianNodal scaled_jac_metric_nodal(eMesh);
-#endif
 
       //double omegas[] = {0.0, 0.001, 0.01, 0.1, 0.2, 0.4, 0.6, 0.8, 1.0};
       //double omegas[] = {0.001, 1.0};
@@ -374,7 +311,6 @@
           m_num_invalid = num_invalid;
           m_untangled = (m_num_invalid == 0);
 
-          if (0) eMesh->save_as("outer_iter_"+toString(outer)+"_m1_mesh.e");
           int iter_all=0;
 
           int do_anim = m_do_animation; // = frequency of anim writes
@@ -384,7 +320,6 @@
             }
 
           int nstage = get_num_stages();
-          //std::cout << "nstage= " << nstage << std::endl;
           for (int stage = 0; stage < nstage; stage++)
             {
               set_geometry_info<MeshType>(Base::m_meshGeometry);
@@ -400,22 +335,6 @@
                   VERIFY_OP_ON(num_invalid_1, ==, 0, "Invalid elements exist for start of stage 2, quiting");
 
                   m_metric = &shape_b1_metric;
-#if 0
-                  if (eMesh->getProperty("smoother_metric_type") == "size")
-                    {
-                      if (eMesh->get_rank() == 0) std::cout << "INFO: using SmootherMetricSizeB1 metric" << std::endl;
-                      m_metric = &size_b1_metric;
-                    }
-                  if (eMesh->getProperty("smoother_metric_type") == "mean_ratio")
-                    {
-                      if (eMesh->get_rank() == 0) std::cout << "INFO: using SmootherMetricShapeMeanRatio metric" << std::endl;
-                      m_metric = &shape_mean_metric;
-                    }
-#endif
-                  //m_metric = &shape_c1_metric;
-                  //m_metric = &laplace_metric;
-                  //m_metric = &laplace_weighted_metric;
-                  //m_metric = &scaled_jac_metric;
                 }
 
               for (int iter = 0; iter < Base::innerIter; ++iter, ++iter_all)
@@ -428,20 +347,13 @@
                       m_untangled = true;
                     }
 
-                  //               if (!eMesh->get_rank() && num_invalid_0)
-                  //                 std::cout << "\ntmp srk ReferenceMeshSmoother num_invalid current= " << num_invalid_0
-                  //                           << (num_invalid ? " WARNING: invalid elements exist before smoothing" : "OK")
-                  //                           << std::endl;
-
                   m_global_metric = run_one_iteration();
 
                   sync_fields(iter);
-                  //num_invalid_0 = MeshSmoother::parallel_count_invalid_elements(eMesh);
-                  //m_num_invalid = num_invalid_0;
                   bool conv = check_convergence();
                   if (!eMesh->get_rank())
                     {
-                      std::cout << "P[" << eMesh->get_rank() << "] " << "INFO: iter= " << iter << " dmax= " << m_dmax << " dmax_rel= " << m_dmax_relative << " grad/g0= " << std::sqrt(m_dnew/m_d0)
+                      std::cout << " iter= " << iter << " dmax= " << m_dmax << " dmax_rel= " << m_dmax_relative << " grad/g0= " << std::sqrt(m_dnew/m_d0)
                                 << " gradScaled= " << m_grad_norm_scaled
                                 << " m_alpha= " << m_alpha  << " m_alpha_0 = " << m_alpha_0
                                 << " num_invalid= " << num_invalid_0
@@ -451,7 +363,6 @@
 
                   if (do_anim)
                     {
-                      //eMesh->save_as("iter_"+toString(outer)+"_"+toString(stage)+"."+toString(iter+1)+".e");
                       if (iter_all % do_anim == 0)
                         {
                           anim<MeshType>(eMesh, anim_step);
@@ -464,19 +375,13 @@
                     }
                   if (conv && m_untangled)
                     {
-                      //std::cout << "P[" << eMesh->get_rank() << "] tmp srk a1 converged, stage= " << m_stage << std::endl;
                       break;
                     }
                 }
-
-              if (0) eMesh->save_as("outer_iter_"+toString(outer)+"_"+toString(stage)+"_mesh.e");
             }
 
           eMesh->copy_field(coord_field_lagged, coord_field);
-
         }
-
-      //if (!eMesh->get_rank())
 
       if (!eMesh->get_rank())
         std::cout << "\nP[" << eMesh->get_rank() << "] tmp srk ReferenceMeshSmootherBase: running shape improver... done \n" << std::endl;
@@ -488,4 +393,3 @@
   }
 
 #endif
-

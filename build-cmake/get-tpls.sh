@@ -121,9 +121,9 @@ then
   cd $percept_build_dir/packages
 
   git clone https://github.com/jbeder/yaml-cpp.git
-  mv yaml-cpp yaml-cpp-0.3.0
-  cd yaml-cpp-0.3.0
-  git checkout release-0.3.0
+  mv yaml-cpp yaml-cpp-0.5.3
+  cd yaml-cpp-0.5.3
+  git checkout release-0.5.3
 
 fi
 
@@ -148,9 +148,7 @@ if [ $do_get_hdf5 -eq 1 ]
 then
   echo Getting hdf5...
   cd $percept_build_dir/packages/
-  curl -s --retry 3 -o hdf5-1.8.12.tar.gz https://support.hdfgroup.org/ftp/HDF5/releases/hdf5-1.8.12/src/hdf5-1.8.12.tar.gz
-
-#  curl -s --retry 3 -o hdf5-1.8.12.tar.gz http://www.hdfgroup.org/ftp/HDF5/releases/hdf5-1.8.12/src/hdf5-1.8.12.tar.gz
+  curl -s --retry 3 -o hdf5-1.8.12.tar.gz http://support.hdfgroup.org/ftp/HDF5/releases/hdf5-1.8.12/src/hdf5-1.8.12.tar.gz
   tar zxf hdf5-1.8.12.tar.gz
 fi
 

@@ -8,20 +8,42 @@
 #ifndef MeshType_hpp_
 #define MeshType_hpp_
 
+#include <percept/Percept.hpp>
+
 #include <array>
 #include <stk_mesh/base/Field.hpp>
 #include <stk_mesh/base/Entity.hpp>
 #include <stk_mesh/base/Bucket.hpp>
-//#include <percept/mesh/geometry/kernel/MeshGeometry.hpp>
-//#include <percept/PerceptMesh.hpp>
 
 #include <Shards_CellTopologyData.h>
 #include <Shards_CellTopology.hpp>
 #include <percept/function/MDArray.hpp>
-#include <percept/StructuredCellIndex.hpp>
+#include <percept/structured/StructuredCellIndex.hpp>
+
+#if defined WITH_KOKKOS
+#include <Kokkos_Core.hpp>
+#include <Kokkos_DualView.hpp>
+#endif
 
 namespace percept {
 
+
+#if defined(WITH_KOKKOS)
+	#ifdef KOKKOS_HAVE_CUDA		
+	  typedef Kokkos::CudaSpace   MemSpace ;
+  	  typedef Kokkos::LayoutRight DataLayout;
+  	  typedef Kokkos::Cuda   ExecSpace ;
+	#elif KOKKOS_HAVE_OPENMP
+  	  typedef Kokkos::OpenMP     ExecSpace ;
+  	  typedef Kokkos::OpenMP     MemSpace ;
+  	  typedef Kokkos::LayoutLeft/*LayoutRight*/ DataLayout;
+	#else
+  	  typedef Kokkos::Serial   ExecSpace ;
+  	  typedef Kokkos::HostSpace   MemSpace ;
+  	  typedef Kokkos::LayoutRight DataLayout;
+	#endif
+  	typedef Kokkos::View<double****, DataLayout , MemSpace > viewType;
+#endif
   //using StructuredCellIndex = std::array<unsigned,4>;  // i,j,k, block
   class PerceptMesh;
 
@@ -45,12 +67,17 @@ namespace percept {
     }
   };
 
-  struct MTFieldImpl {
+  struct MTSGridField {
+#if defined(WITH_KOKKOS)
+    using Array4D = viewType;
+    // or for 3D only: Kokkos::View<double***[3]>;
+#else
     using Array4D = MDArray;
-    std::vector<std::shared_ptr<MDArray> > m_block_fields;
+#endif
+    std::vector<std::shared_ptr<Array4D> > m_block_fields;
     std::string m_name;
-    MTFieldImpl(const std::string& nm) : m_name(nm) {}
-    //MTFieldImpl(const std::string& nm, StructuredBlock *sgrid) : m_name(mm) {}
+    MTSGridField(const std::string& nm) : m_name(nm) {}
+    //MTSGridField(const std::string& nm, StructuredBlock *sgrid) : m_name(mm) {}
     std::string name() { return m_name; }
   };
 
@@ -63,7 +90,7 @@ namespace percept {
 #if STK_PERCEPT_LITE
     typedef double MTField;
 #else
-    typedef MTFieldImpl MTField;
+    typedef MTSGridField MTField;
 #endif
     typedef int MTCellTopology;
     enum {NELEM_TYPES = 1 };
@@ -86,7 +113,7 @@ namespace percept {
   unsigned get_num_nodes(PerceptMesh *eMesh, typename MeshType::MTElement element);
 
   template<typename MeshType>
-  const typename MeshType::MTNode *get_nodes(PerceptMesh *eMesh, typename MeshType::MTElement element, std::vector<typename MeshType::MTNode> *nodes = 0);
+  const typename MeshType::MTNode *get_nodes(PerceptMesh *eMesh, typename MeshType::MTElement element, std::vector<typename MeshType::MTNode> *nodes );
 
   template<typename MeshType>
   bool MTisGhostNode(PerceptMesh *m_eMesh, typename MeshType::MTNode node);

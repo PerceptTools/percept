@@ -14,8 +14,22 @@
 
 namespace percept {
 
+enum GeomEvalType{
+  CURVE = 0,
+  SURFACE,
+  INVALID
+};
+
+struct GeometryHandle {
+  GeometryHandle(int id, GeomEvalType type) : m_id(id), m_type(type) {}
+
+  GeometryHandle() : m_id(-1), m_type(INVALID) {}
+
+  int m_id;
+  GeomEvalType m_type;
+};
+
 typedef double* KernelPoint;
-typedef int GeometryHandle;
 
 class GeometryKernel
 {
@@ -40,9 +54,9 @@ public:
 
     virtual void normal_at(KernelPoint& point, GeometryHandle geom, std::vector<double>& normal, void *extra_hint = NULL) = 0;
 
-    virtual bool is_curve(GeometryHandle geom) const = 0;
+    virtual bool is_curve(GeometryHandle geom) const{return geom.m_type==CURVE;};
 
-    virtual bool is_surface(GeometryHandle geom) const = 0;
+    virtual bool is_surface(GeometryHandle geom) const{return geom.m_type==SURFACE;};
     void set_spatial_dim(int dim) { m_spatialDim = dim; }
     int get_spatial_dim() { return m_spatialDim; }
     void set_debug(bool debug) { m_debug = debug; }

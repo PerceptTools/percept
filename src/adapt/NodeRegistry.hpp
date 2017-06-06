@@ -35,6 +35,7 @@
 #include <percept/stk_mesh.hpp>
 
 #include <stk_util/environment/CPUTime.hpp>
+#include <stk_util/parallel/CommSparse.hpp>
 #include <stk_util/parallel/ParallelComm.hpp>
 
 #include <percept/NoMallocArray.hpp>
@@ -68,18 +69,23 @@
 #include <adapt/SDCEntityType.hpp>
 #include <adapt/NodeIdsOnSubDimEntityType.hpp>
 
+// use old PerceptMesh/BulkData create entities if set to 1 - if 0, use PerceptMesh ID server which is much faster (doesn't use DistributedIndex)
+#define USE_CREATE_ENTITIES 0
+
   namespace percept {
 
     using std::vector;
     using std::map;
     using std::set;
 
+    class Refiner;
+
     // pair of rank and number of entities of that rank needed on a SubDimCell
     struct NeededEntityType
     {
-      stk::mesh::EntityRank first;
-      unsigned second;
-      std::vector<int> third;
+      stk::mesh::EntityRank first;  // e.g. EDGE_RANK if edges are needed to be marked
+      unsigned second;              // number of new nodes needed on this rank (e.g. a quadratic edge needs 2)
+      std::vector<int> third;       // special case: for non-homogeneous topos, like wedge/pyramid, say which sub-dim entities get marked
       NeededEntityType(stk::mesh::EntityRank f = stk::topology::NODE_RANK, unsigned s = 0) : first(f), second(s), third(0) {}
     };
 
@@ -131,15 +137,15 @@
 #  endif
 #endif
 
-    // Rank of sub-dim cells needing new nodes, which sub-dim entity, one non-owning element identifier, nodeId_elementOwnderId.first
+    // Size and rank of sub-dim cells needing new nodes, actual nodes' EntityKeys stored in a SubDimCell<EntityKey>
     enum CommDataTypeEnum {
-      CDT_NEEDED_ENTITY_RANK,
-      CDT_SUB_DIM_ENTITY_ORDINAL,
-      CDT_NON_OWNING_ELEMENT_KEY
+      CDT_SUBDIM_ENTITY_SIZE,
+      CDT_SUBDIM_ENTITY_RANK,
+      CDT_SUBDIM_ENTITY
     };
 
-    // entity rank, ordinal of sub-dim entity, non-owning element key
-    typedef boost::tuple<stk::mesh::EntityRank, unsigned, stk::mesh::EntityKey> CommDataType;
+    // decode: size of SubDimCell, SubDimCell, sub-dim entity rank, non-owning element RANK
+    typedef boost::tuple<unsigned, stk::mesh::EntityRank, SubDimCell<stk::mesh::EntityKey> > CommDataType;
 
     enum NodeRegistryState {
       NRS_NONE,
@@ -161,8 +167,11 @@
     {
     public:
 
-      static const unsigned NR_MARK_NONE = 1u;
-      static const unsigned NR_MARK = 2u;
+      // this switches new method of determining ownership of subDimEntitys - to be removed
+      static const bool s_use_new_ownership_check = true;
+
+      static const unsigned NR_MARK_NONE             = 1u << 0;
+      static const unsigned NR_MARK                  = 1u << 1;
 
       typedef percept::SetOfEntities SetOfEntities;
 
@@ -170,8 +179,10 @@
       // high-level interface
 
       NodeRegistry(percept::PerceptMesh& eMesh,
+                   Refiner *refiner=0,
                    bool useCustomGhosting = true) : m_eMesh(eMesh),
-                                                    m_comm_all( new stk::CommAll(eMesh.parallel()) ),
+                                                    m_refiner(refiner),
+                                                    m_comm_all( new stk::CommSparse(eMesh.parallel()) ),
                                                     m_ghosting(0),
                                                     m_pseudo_entities(*eMesh.get_bulk_data()),
                                                     m_useCustomGhosting(useCustomGhosting),
@@ -194,7 +205,6 @@
       void init_comm_all();
       void init_entity_repo();
       void clear_dangling_nodes(SetOfEntities* nodes_to_be_deleted);
-      void clear_elements_to_be_deleted(SetOfEntities* elements_to_be_deleted);
       void initialize();
 
       // avoid adding subDimEntity if it has a ghosted node
@@ -202,6 +212,7 @@
       bool getCheckForGhostedNodes() { return m_checkForGhostedNodes; }
 
 #define CHECK_DB 0
+
       void beginRegistration(int ireg=0, int nreg=1);
       void endRegistration(int ireg=0, int nreg=1);
 
@@ -227,6 +238,10 @@
       bool checkForRemote(const stk::mesh::Entity element, NeededEntityType& needed_entity_rank, unsigned iSubDimOrd, bool needNodes_notUsed,const CellTopologyData * const bucket_topo_data);
       bool getFromRemote(const stk::mesh::Entity element, NeededEntityType& needed_entity_rank, unsigned iSubDimOrd, bool needNodes_notUsed,const CellTopologyData * const bucket_topo_data);
 
+
+      /// util
+      /// used to find which proc "owns" a subDimEntity - see more comments in implementation
+      int proc_owning_subdim_entity(const SubDimCell_SDCEntityType& subDimEntity, std::vector<int>& other_procs, bool& all_shared);
 
       /// makes coordinates of this new node be the centroid of its sub entity
       void prolongateCoords(const stk::mesh::Entity element,  stk::mesh::EntityRank needed_entity_rank, unsigned iSubDimOrd);
@@ -338,6 +353,9 @@
                                    const CellTopologyData * const bucket_topo_data
                                    );
 
+      /// communicates pending deletes and removes subDimEntity's as requested
+      bool replaceElementOwnership();
+
       bool initializeEmpty(const stk::mesh::Entity element, NeededEntityType& needed_entity_rank, unsigned iSubDimOrd, bool needNodes_notUsed,
                            const CellTopologyData * const bucket_topo_data);
 
@@ -347,8 +365,12 @@
       ///   any new nodes, we flag it with NR_MARK_NONE, then remove it here
       void removeUnmarkedSubDimEntities();
 
+      void communicate_marks();
 
     private:
+
+      void communicate_marks_pack(stk::CommSparse& commAll, int stage);
+      void communicate_marks_unpack(stk::CommSparse& commAll);
 
       void do_add_node_sharing_comm();
 
@@ -408,30 +430,33 @@
       inline PerceptMesh& getMesh() { return m_eMesh; }
       inline bool getUseCustomGhosting() { return m_useCustomGhosting; }
 
-      // remove any sub-dim entities from the map that have a node in deleted_nodes
+      /// remove any sub-dim entities from the map that have a node in deleted_nodes - it is assumed
+      ///   that the list of deleted_nodes is parallel-consistent (a node being deleted on proc A, owned
+      ///   by proc B, must also be in proc B's deleted_nodes list)
       void cleanDeletedNodes(SetOfEntities& deleted_nodes,
                              SetOfEntities& kept_nodes_orig_minus_kept_nodes,
                              SubDimCellToDataMap& to_save,
                              bool debug=false);
+
+      void cleanInvalidNodes(bool debug=false);
 
       // further cleanup of the NodeRegistry db - some elements get deleted on some procs but the ghost elements
       //   are still in the db - the easiest way to detect this is as used here: during modification_begin(),
       //   cleanup of cached transactions are performed, then we find these by seeing if our element id's are
       //   no longer in the stk_mesh db.
       void clear_element_owner_data_phase_2(bool resize_nodeId_data=true, bool mod_begin_end=true, SetOfEntities * elemsToBeDeleted=0);
-
-      // remove/zero any data that points to a deleted element
-      // called by Refiner with "children_to_be_removed_with_ghosts"
-      void clear_element_owner_data( SetOfEntities& elems_to_be_deleted, bool resize_nodeId_data=true);
-
       void dumpDB(std::string msg="");
 
       // estimate of memory used by this object
       unsigned get_memory_usage();
 
+      void mod_begin();
+      void mod_end(const std::string& msg="");
+
     private:
       percept::PerceptMesh& m_eMesh;
-      stk::CommAll * m_comm_all;
+      Refiner *m_refiner;
+      stk::CommSparse * m_comm_all;
       SubDimCellToDataMap m_cell_2_data_map;
 
       vector<stk::mesh::EntityProc> m_nodes_to_ghost;

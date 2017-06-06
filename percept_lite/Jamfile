@@ -115,6 +115,7 @@ local percept-utest-files = [ set.difference
            $(percept-root-test)/unit_tests/UnitTestTransfer.cpp
            $(percept-root-test)/unit_tests/UnitTestNorm.cpp
            $(percept-root-test)/unit_tests/UnitTestTopoCheck.cpp
+           $(percept-root-test)/unit_tests/UnitTestUniformRefiner.cpp
            $(percept-root-test)/unit_tests/UnitTestFieldFunction.cpp
            $(percept-root-test)/unit_tests/UnitTestStringFunction.cpp
            $(percept-root-test)/unit_tests/UnitTestGeometryVerifier.cpp
@@ -157,6 +158,7 @@ lib percept_lite
          $(percept-root-src)/percept/mesh/mod/smoother/JacobianUtil.cpp
          $(percept-root-src)/percept/mesh/mod/smoother/SpacingFieldUtil.cpp
          $(percept-root-src)/percept/PerceptMesh.cpp
+         $(percept-root-src)/percept/PerceptUtils.cpp
          $(percept-root-src)/percept/pool.cpp
          $(percept-root-src)/percept/RebalanceMesh.cpp
          $(percept-root-src)/percept/RunEnvironment.cpp

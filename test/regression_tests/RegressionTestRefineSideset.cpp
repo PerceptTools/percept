@@ -1,6 +1,3 @@
-#if !defined(STK_BUILT_IN_SIERRA)
-class RegressionTestRefineSideSet_tmp {};
-#else
 
 #include <stdexcept>
 #include <sstream>
@@ -62,14 +59,16 @@ class RegressionTestRefineSideSet_tmp {};
 
 #include <adapt/UniformRefinerPattern_def.hpp>
 #include <stk_mesh/base/MeshUtils.hpp>
-
-#include "stk_unit_test_utils/ReadWriteSidesetTester.hpp"
+#include <stk_mesh/base/FEMHelpers.hpp>
+#include <stk_unit_test_utils/ReadWriteSidesetTester.hpp>
 
 
   namespace percept
   {
     namespace regression_tests
     {
+    using namespace stk::unit_test_util::sideset;
+    typedef stk::mesh::EntityVector PseudoEntity;
 
 #include "RegressionTestFileLoc.hpp"
 
@@ -93,22 +92,19 @@ class RegressionTestRefineSideSet_tmp {};
 
     class MeshWithSideset {
     public:
-        MeshWithSideset(const std::string &inputBaseName, bool delayMeshLoad = false) :
+        MeshWithSideset(const std::string &inputBaseName) :
             m_baseName(inputBaseName),
             m_meta(3, get_entity_rank_names()),
             m_bulk(m_meta, MPI_COMM_WORLD),
             m_eMesh(&m_meta, &m_bulk, false),
-            m_ioBroker(create_and_setup_io_broker_tester()),
-            m_breakPattern(m_eMesh),
             m_isMeshLoaded(false)
         {
-            if(false == delayMeshLoad)
-                load_mesh_and_fill_sideset_data();
+
         }
 
         ~MeshWithSideset()
         {
-            delete m_ioBroker;
+            delete m_breakPattern;
         }
 
     private:
@@ -119,20 +115,6 @@ class RegressionTestRefineSideSet_tmp {};
             return entityRankNames;
         }
 
-        stk::unit_test_util::sideset::StkMeshIoBrokerTester *
-        create_and_setup_io_broker_tester()
-        {
-            stk::unit_test_util::sideset::StkMeshIoBrokerTester *inputIoBroker = new stk::unit_test_util::sideset::StkMeshIoBrokerTester();
-            inputIoBroker->property_add(Ioss::Property("DECOMPOSITION_METHOD", "RCB"));
-            inputIoBroker->set_rank_name_vector(get_entity_rank_names());
-            inputIoBroker->set_bulk_data(m_bulk);
-
-            inputIoBroker->add_mesh_database(get_input_filename(), stk::io::READ_MESH);
-            inputIoBroker->create_input_mesh();
-            inputIoBroker->add_all_mesh_fields_as_input_fields();
-            return inputIoBroker;
-        }
-
         MeshWithSideset();
         MeshWithSideset(const MeshWithSideset&);
 
@@ -141,17 +123,14 @@ class RegressionTestRefineSideSet_tmp {};
         stk::mesh::MetaData m_meta;
         stk::unit_test_util::sideset::BulkDataTester m_bulk;
         percept::PerceptMesh m_eMesh;
-        stk::unit_test_util::sideset::StkMeshIoBrokerTester *m_ioBroker = nullptr;
-        stk::unit_test_util::sideset::SideSetData m_sidesetData;
-        URP_Heterogeneous_3D m_breakPattern;
+        URP_Heterogeneous_3D *m_breakPattern = nullptr;
         bool m_isMeshLoaded;
 
     public:
         stk::unit_test_util::sideset::BulkDataTester &get_bulk() { return m_bulk; }
         stk::mesh::MetaData &get_meta() { return m_meta; }
         percept::PerceptMesh &get_mesh() { return m_eMesh; }
-        stk::unit_test_util::sideset::SideSetData &get_input_sideset() { return m_sidesetData; }
-        UniformRefinerPatternBase &get_breaker() { return m_breakPattern; }
+        UniformRefinerPatternBase &get_breaker() { return *m_breakPattern; }
 
         std::string get_input_filename()
         {
@@ -169,10 +148,22 @@ class RegressionTestRefineSideSet_tmp {};
         {
             if(m_isMeshLoaded) return;
 
+            stk::unit_test_util::sideset::StkMeshIoBrokerTester inputIoBroker;
+
+            inputIoBroker.property_add(Ioss::Property("DECOMPOSITION_METHOD", "RCB"));
+            inputIoBroker.set_rank_name_vector(get_entity_rank_names());
+            inputIoBroker.set_bulk_data(m_bulk);
+
+            inputIoBroker.add_mesh_database(get_input_filename(), stk::io::READ_MESH);
+            inputIoBroker.create_input_mesh();
+            inputIoBroker.add_all_mesh_fields_as_input_fields();
+
+            m_breakPattern = new URP_Heterogeneous_3D(m_eMesh);
+
             m_eMesh.add_field("proc_rank", stk::topology::ELEMENT_RANK, 0);
-            m_ioBroker->populate_bulk_data();
+            inputIoBroker.populate_bulk_data();
+
             m_eMesh.setCoordinatesField();
-            m_ioBroker->fill_sideset_data(m_sidesetData);
 
             m_isMeshLoaded = true;
         }
@@ -189,106 +180,31 @@ class RegressionTestRefineSideSet_tmp {};
         void do_uniform_refinement(bool removeOldElements=true)
         {
             ThrowRequire(m_isMeshLoaded);
-            UniformRefiner breaker(m_eMesh, m_breakPattern, m_eMesh.get_field(stk::topology::ELEMENT_RANK, "proc_rank"));
+            UniformRefiner breaker(m_eMesh, *m_breakPattern, m_eMesh.get_field(stk::topology::ELEMENT_RANK, "proc_rank"));
             breaker.setRemoveOldElements(removeOldElements);
             //breaker.setIgnoreSideSets(true);
             breaker.doBreak();
         }
     };
 
-      struct ElemIdSide {
-          int elem_id;
-          int side_ordinal;
-      };
-      typedef std::vector<ElemIdSide> ElemIdSideVector;
-
-      struct SideSetIdAndElemIdSides {
-          int id;
-          ElemIdSideVector sideSet;
-      };
-      typedef std::vector<SideSetIdAndElemIdSides> SideSetIdAndElemIdSidesVector;
-
-      struct ElemIdSideLess {
-        inline bool operator()(const ElemIdSide &lhs, const ElemIdSide &rhs) const
-        {
-            if(lhs.elem_id < rhs.elem_id)
-                return true;
-            else if(lhs.elem_id == rhs.elem_id)
-                return lhs.side_ordinal < rhs.side_ordinal;
-            else
-                return false;
-        }
-        inline ElemIdSideLess& operator=(const ElemIdSideLess& rhs);
-      };
-
-      stk::mesh::SideSet get_stk_side_set(stk::mesh::BulkData &bulk, const ElemIdSideVector &ss)
-      {
-          stk::mesh::SideSet sideSet(ss.size());
-          for(size_t i=0; i<ss.size(); i++)
-              sideSet[i] = stk::mesh::SideSetEntry(bulk.get_entity(stk::topology::ELEM_RANK, ss[i].elem_id), ss[i].side_ordinal);
-
-          return sideSet;
-      }
-
-      stk::unit_test_util::sideset::SideSetData get_stk_side_set_data(stk::mesh::BulkData &bulk, const SideSetIdAndElemIdSidesVector &ssData)
-      {
-          stk::unit_test_util::sideset::SideSetData sideSetData(ssData.size());
-
-          for(size_t i=0; i<ssData.size(); i++)
-          {
-              sideSetData[i].id = ssData[i].id;
-              sideSetData[i].sideSet = get_stk_side_set(bulk, ssData[i].sideSet);
-          }
-          return sideSetData;
-      }
-
-      void compare_sidesets(const std::string& inputFileName,
-                            stk::mesh::BulkData &bulk,
-                            const stk::unit_test_util::sideset::SideSetData &sidesetData,
-                            const SideSetIdAndElemIdSidesVector &expected)
-      {
-          ASSERT_EQ(expected.size(), sidesetData.size()) << "for file: " << inputFileName;
-          for(size_t ss=0; ss<sidesetData.size(); ++ss)
-          {
-              const stk::mesh::SideSet& sideSet = sidesetData[ss].sideSet;
-              const std::vector<ElemIdSide>& expectedSideSet = expected[ss].sideSet;
-              EXPECT_EQ(expected[ss].id, sidesetData[ss].id);
-              ASSERT_EQ(expectedSideSet.size(), sideSet.size()) << "for file: " << inputFileName;
-
-              for(size_t i=0;i<sideSet.size();++i)
-              {
-                  EXPECT_EQ(static_cast<stk::mesh::EntityId>(expectedSideSet[i].elem_id), bulk.identifier(sideSet[i].element)) << "for file: " << inputFileName;
-                  EXPECT_EQ(expectedSideSet[i].side_ordinal, sideSet[i].side) << "for file: " << inputFileName;
-              }
-          }
-      }
-
-      void compare_sidesets(const std::string& input_file_name,
-                            stk::mesh::BulkData &bulk,
-                            const SideSetIdAndElemIdSidesVector &sideset,
-                            const SideSetIdAndElemIdSidesVector &expected)
-      {
-          compare_sidesets(input_file_name, bulk, get_stk_side_set_data(bulk, sideset), expected);
-      }
-
       void refine_mesh(const std::string &baseName,
                        const SideSetIdAndElemIdSidesVector& expectedInputSideset,
                        const SideSetIdAndElemIdSidesVector& expectedRefinedSideset)
       {
-        bool delayMeshLoad = false;
-        MeshWithSideset inputMesh(baseName, delayMeshLoad);
+        MeshWithSideset inputMesh(baseName);
+        inputMesh.load_mesh_and_fill_sideset_data();
 
         stk::unit_test_util::sideset::BulkDataTester &bulk = inputMesh.get_bulk();
         stk::mesh::MetaData &meta = inputMesh.get_meta();
 
-        compare_sidesets(inputMesh.get_input_filename(), bulk, inputMesh.get_input_sideset(), expectedInputSideset);
+        compare_sidesets(inputMesh.get_input_filename(), bulk, expectedInputSideset);
 
         inputMesh.do_uniform_refinement();
 
         for(const SideSetIdAndElemIdSides& sset : expectedRefinedSideset)
 	{
 	    stk::mesh::SideSet sideSet = get_stk_side_set(bulk, sset.sideSet);
-            bulk.tester_save_sideset_data(sset.id, sideSet);
+            bulk.create_sideset(sset.id) = sideSet;
 	}
 
         stk::mesh::EntityVector faces;
@@ -301,8 +217,8 @@ class RegressionTestRefineSideSet_tmp {};
 
         stk::mesh::MetaData meta2;
         stk::unit_test_util::sideset::BulkDataTester bulk2(meta2, MPI_COMM_WORLD);
-        stk::unit_test_util::sideset::SideSetData outputSidesetData = stk::unit_test_util::sideset::get_sideset_data_from_written_file(bulk2, inputMesh.get_output_filename());
-        EXPECT_NO_THROW(compare_sidesets(inputMesh.get_output_filename(), bulk2, outputSidesetData, expectedRefinedSideset));
+        stk::unit_test_util::sideset::read_exo_file(bulk2, inputMesh.get_output_filename(), stk::unit_test_util::sideset::READ_SERIAL_AND_DECOMPOSE);
+        EXPECT_NO_THROW(compare_sidesets(inputMesh.get_output_filename(), bulk2, expectedRefinedSideset));
       }
 
       struct TestCase
@@ -321,7 +237,7 @@ class RegressionTestRefineSideSet_tmp {};
           testCases.push_back({baseName, original, refined});
       }
 
-      TEST(regr_uniformRefiner, DISABLED_internal_sidesets)
+      TEST(regr_stk_sideset_refine, DISABLED_internal_sidesets)
       {
         stk::ParallelMachine pm = MPI_COMM_WORLD;
 
@@ -484,7 +400,7 @@ class RegressionTestRefineSideSet_tmp {};
                       UInt childIndex = refinedSideset[i].first;
                       UInt faceIndex  = refinedSideset[i].second;
 
-                      childSideSet.push_back({eMesh.get_bulk_data()->identifier(children[childIndex]), faceIndex});
+                      childSideSet.push_back({static_cast<int>(eMesh.get_bulk_data()->identifier(children[childIndex])), static_cast<int>(faceIndex)});
                   }
               }
           }
@@ -518,8 +434,8 @@ class RegressionTestRefineSideSet_tmp {};
 
         stk::mesh::MetaData meta2;
         stk::unit_test_util::sideset::BulkDataTester bulk2(meta2, MPI_COMM_WORLD);
-        stk::unit_test_util::sideset::SideSetData outputSidesetData = stk::unit_test_util::sideset::get_sideset_data_from_written_file(bulk2, inputMesh.get_output_filename());
-        EXPECT_NO_THROW(compare_sidesets(inputMesh.get_output_filename(), bulk2, outputSidesetData, refinedSideset));
+        stk::unit_test_util::sideset::read_exo_file(bulk2, inputMesh.get_output_filename(), stk::unit_test_util::sideset::READ_ALREADY_DECOMPOSED);
+        EXPECT_NO_THROW(compare_sidesets(inputMesh.get_output_filename(), bulk2, refinedSideset));
       }
 
       void test_refine_sideset(MeshWithSideset &inputMesh,
@@ -539,16 +455,18 @@ class RegressionTestRefineSideSet_tmp {};
         stk::mesh::get_selected_entities(meta.locally_owned_part(), bulk.buckets(meta.side_rank()), faces);
 
         ASSERT_EQ(0u, faces.size());
+        EXPECT_TRUE(bulk.get_sideset_ids().empty());
 
         SideSetIdAndElemIdSidesVector refinedSideset = get_refined_sideset_from_parent(inputMesh, originalSideset);
-        EXPECT_NO_THROW(compare_sidesets(inputMesh.get_input_filename(), bulk, expectedRefinedSideset, refinedSideset));
 
         for(const SideSetIdAndElemIdSides& sset : refinedSideset)
         {
             stk::mesh::SideSet sideSet = get_stk_side_set(bulk, sset.sideSet);
-            bulk.tester_save_sideset_data(sset.id, sideSet);
+            bulk.create_sideset(sset.id) =  sideSet;
             bulk.create_side_entities(sideSet, parts);
         }
+
+        EXPECT_NO_THROW(compare_sidesets(inputMesh.get_input_filename(), bulk, expectedRefinedSideset));
 
         stk::mesh::get_selected_entities(meta.locally_owned_part(), bulk.buckets(meta.side_rank()), faces);
 
@@ -562,8 +480,7 @@ class RegressionTestRefineSideSet_tmp {};
                           const SideSetIdAndElemIdSidesVector& originalSideset,
                           const SideSetIdAndElemIdSidesVector& expectedRefinedSideset)
       {
-        bool delayMeshLoad = true;
-        MeshWithSideset inputMesh(base_name, delayMeshLoad);
+        MeshWithSideset inputMesh(base_name);
 
         stk::mesh::MetaData &meta = inputMesh.get_meta();
 
@@ -581,11 +498,11 @@ class RegressionTestRefineSideSet_tmp {};
 
         inputMesh.load_mesh_and_fill_sideset_data();
 
-        EXPECT_TRUE(inputMesh.get_input_sideset().empty());
+        EXPECT_TRUE(inputMesh.get_bulk().get_sideset_ids().empty());
         test_refine_sideset(inputMesh, parts, originalSideset, expectedRefinedSideset);
       }
 
-      TEST(regr_uniformRefiner, get_refined_sideset)
+      TEST(regr_stk_sideset_refine, get_refined_sideset)
       {
         stk::ParallelMachine pm = MPI_COMM_WORLD;
 
@@ -635,7 +552,175 @@ class RegressionTestRefineSideSet_tmp {};
         }
       }
 
-    }//    namespace regression_tests
+      stk::mesh::EntityVector get_entities(const stk::mesh::BulkData &bulk, stk::topology::rank_t rank, const stk::mesh::EntityIdVector &ids)
+      {
+          stk::mesh::EntityVector entities;
+          for(stk::mesh::EntityId id : ids)
+          {
+              stk::mesh::Entity entity = bulk.get_entity(rank, id);
+              EXPECT_TRUE(bulk.is_valid(entity));
+              entities.push_back(entity);
+          }
+          return entities;
+      }
+
+      std::vector< PseudoEntity > get_pseudo_side_entities(const stk::mesh::BulkData &bulk, const stk::mesh::EntityVector &sides)
+      {
+          std::vector< PseudoEntity > pseudoSides;
+          for(const stk::mesh::Entity side : sides)
+          {
+              ThrowRequire(bulk.entity_rank(side) == bulk.mesh_meta_data().side_rank());
+
+              const stk::mesh::Entity *nodes = bulk.begin_nodes(side);
+              pseudoSides.push_back( stk::mesh::EntityVector(nodes, nodes + bulk.num_nodes(side)) );
+          }
+          return pseudoSides;
+      }
+
+      void fill_sideset_from_elements_and_pseudo_side(const stk::mesh::BulkData &bulk,
+                                                      const stk::mesh::EntityVector &elements,
+                                                      const PseudoEntity &nodes,
+                                                      stk::mesh::SideSet &sideset)
+      {
+          for(const stk::mesh::Entity element : elements)
+          {
+              stk::mesh::OrdinalAndPermutation ordinalAndPermutation = stk::mesh::get_ordinal_and_permutation(bulk,
+                                                                                                              element,
+                                                                                                              bulk.mesh_meta_data().side_rank(),
+                                                                                                              nodes);
+
+              if(stk::mesh::INVALID_CONNECTIVITY_ORDINAL != ordinalAndPermutation.first)
+              {
+                  sideset.push_back({element, ordinalAndPermutation.first});
+                  break;
+              }
+          }
+      }
+
+      stk::mesh::SideSet get_sideset_from_elements_and_pseudo_sides(const stk::mesh::BulkData &bulk,
+                                                                    const stk::mesh::EntityVector &elements,
+                                                                    const std::vector< PseudoEntity > &pseudoSides)
+
+      {
+          stk::mesh::SideSet sideset;
+          for(const PseudoEntity &pseudoSide : pseudoSides)
+              fill_sideset_from_elements_and_pseudo_side(bulk, elements, pseudoSide, sideset);
+
+          return sideset;
+      }
+
+      void test_parent_info(const stk::mesh::BulkData &bulk,
+                            const stk::mesh::Entity &parentElement,
+                            const stk::mesh::Entity &parentSide,
+                            const stk::mesh::ConnectivityOrdinal parentSideOrdinal)
+      {
+          unsigned ordinalIndex = bulk.find_ordinal(parentElement, bulk.mesh_meta_data().side_rank(), parentSideOrdinal);
+          unsigned numConnectivity = bulk.num_connectivity(parentElement, bulk.mesh_meta_data().side_rank());
+          EXPECT_TRUE(ordinalIndex < numConnectivity);
+          EXPECT_TRUE(parentSide == bulk.begin(parentElement, bulk.mesh_meta_data().side_rank())[ordinalIndex]);
+      }
+
+      stk::mesh::SideSet get_refined_sideset_from_parent_child_info(const stk::mesh::BulkData &bulk,
+                                                                    const stk::mesh::Entity &parentElement,
+                                                                    const stk::mesh::EntityVector &childElements,
+                                                                    const stk::mesh::Entity & parentSide,
+                                                                    const stk::mesh::EntityVector &childSides,
+                                                                    const stk::mesh::ConnectivityOrdinal parentSideOrdinal)
+      {
+          test_parent_info(bulk, parentElement, parentSide, parentSideOrdinal);
+          return get_sideset_from_elements_and_pseudo_sides(bulk, childElements, get_pseudo_side_entities(bulk, childSides));
+      }
+
+      void test_refined_sideset_from_parent_child_info(const std::string &inputFileName,
+                                                       const stk::mesh::ConnectivityOrdinal &parentSideOrdinal,
+                                                       const stk::mesh::EntityId &parentElementId,
+                                                       const stk::mesh::EntityIdVector &childElementIds,
+                                                       const stk::mesh::EntityId &parentSideId,
+                                                       const stk::mesh::EntityIdVector &childSideIds,
+                                                       const ElemIdSideVector &expectedElemIdSides)
+      {
+          MeshWithSideset inputMesh(inputFileName);
+          inputMesh.load_mesh_and_fill_sideset_data();
+
+          stk::unit_test_util::sideset::BulkDataTester &bulk = inputMesh.get_bulk();
+          stk::mesh::MetaData &meta = inputMesh.get_meta();
+
+          inputMesh.do_uniform_refinement(false);
+
+          stk::mesh::Entity parentElement = bulk.get_entity(stk::topology::ELEMENT_RANK, parentElementId);
+          stk::mesh::EntityVector childElements = get_entities(bulk, stk::topology::ELEMENT_RANK, childElementIds);
+
+          stk::mesh::Entity parentSide = bulk.get_entity(meta.side_rank(), parentSideId);
+          stk::mesh::EntityVector childSides = get_entities(bulk, meta.side_rank(), childSideIds);
+
+          stk::mesh::SideSet sideSet = get_refined_sideset_from_parent_child_info(bulk, parentElement, childElements, parentSide, childSides, parentSideOrdinal);
+
+          ASSERT_EQ(expectedElemIdSides.size(), sideSet.size()) << "for file: " << inputFileName;
+
+          for(size_t i=0;i<sideSet.size();++i)
+          {
+              EXPECT_EQ(static_cast<stk::mesh::EntityId>(expectedElemIdSides[i].elem_id), bulk.identifier(sideSet[i].element)) << "for file: " << inputFileName;
+              EXPECT_EQ(expectedElemIdSides[i].side_ordinal, sideSet[i].side) << "for file: " << inputFileName;
+          }
+      }
+
+      TEST(regr_stk_sideset_refine, refined_child_ordinal)
+      {
+        stk::ParallelMachine pm = MPI_COMM_WORLD;
+
+        const unsigned p_size = stk::parallel_machine_size(pm);
+
+        if(1 != p_size) return;
+
+        test_refined_sideset_from_parent_child_info("ARA",
+                                                    static_cast<stk::mesh::ConnectivityOrdinal>(4),
+                                                    2u,
+                                                    {27, 28, 29, 30, 31, 32, 33, 34},
+                                                    16u,
+                                                    {17, 18, 19, 20},
+                                                    {{27, 4}, {28, 4}, {29, 4}, {30, 4}});
+
+        test_refined_sideset_from_parent_child_info("ALA",
+                                                    static_cast<stk::mesh::ConnectivityOrdinal>(5),
+                                                    1u,
+                                                    {19, 20, 21, 22, 23, 24, 25, 26},
+                                                    16u,
+                                                    {17, 18, 19, 20},
+                                                    {{23, 5}, {24, 5}, {25, 5}, {26, 5}});
+
+        test_refined_sideset_from_parent_child_info("ADA",
+                                                    static_cast<stk::mesh::ConnectivityOrdinal>(4),
+                                                    2u,
+                                                    {27, 28, 29, 30, 31, 32, 33, 34},
+                                                    16u,
+                                                    {17, 18, 19, 20},
+                                                    {{27, 4}, {28, 4}, {29, 4}, {30, 4}});
+
+        test_refined_sideset_from_parent_child_info("ADA",
+                                                    static_cast<stk::mesh::ConnectivityOrdinal>(5),
+                                                    1u,
+                                                    {19, 20, 21, 22, 23, 24, 25, 26},
+                                                    16u,
+                                                    {17, 18, 19, 20},
+                                                    {{23, 5}, {24, 5}, {25, 5}, {26, 5}});
+
+//        ARe and ALe still fail due to percept flipping the connected ordinal on the elements (including parent)
+//        test_refined_sideset_from_parent_child_info("ARe",
+//                                                    static_cast<stk::mesh::ConnectivityOrdinal>(1),
+//                                                    2u,
+//                                                    {85, 86, 87, 88},
+//                                                    16u,
+//                                                    {17, 18, 19, 20},
+//                                                    {{85, 1}, {86, 1}, {87, 1}, {88, 1}});
+//        test_refined_sideset_from_parent_child_info("ALe",
+//                                                    static_cast<stk::mesh::ConnectivityOrdinal>(5),
+//                                                    1u,
+//                                                    {19, 20, 21, 22, 23, 24, 25, 26},
+//                                                    16u,
+//                                                    {17, 18, 19, 20},
+//                                                    {{23, 5}, {24, 5}, {25, 5}, {26, 5}});
+      }
+
+    }//    namespace regression_test
   }//  namespace percept
 
-#endif

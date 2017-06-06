@@ -8,15 +8,15 @@
 #include <percept/Percept.hpp>
 #if !STK_PERCEPT_LITE
 
-#include <percept/StructuredBlock.hpp>
-#include <percept/PerceptMesh.hpp>
-#include <percept/BlockStructuredGrid.hpp>
+#include <percept/structured/StructuredBlock.hpp>
+#include <percept/structured/BlockStructuredGrid.hpp>
+#include <percept/PerceptUtils.hpp>
 
 namespace percept {
 
 
-  StructuredBlock::StructuredBlock(PerceptMesh* eMesh, unsigned iblock, Ioss::StructuredBlock *sb, BlockStructuredGrid *bsg) :
-    m_eMesh(eMesh), m_iblock(iblock), m_sblock(sb), m_parent(bsg), m_name(sb->name()),
+  StructuredBlock::StructuredBlock(stk::ParallelMachine comm, unsigned iblock, Ioss::StructuredBlock *sb, BlockStructuredGrid *bsg) :
+    m_comm(comm), m_iblock(iblock), m_sblock(sb), m_parent(bsg), m_name(sb->name()),
     m_sgrid_coords_impl(new Array4D),
     m_sgrid_coords(*m_sgrid_coords_impl.get()),
     m_loop_ordering{{0,1,2}}, m_access_ordering{{0,1,2}}
@@ -48,13 +48,13 @@ namespace percept {
       m_boundaryConditions = m_sblock->m_boundaryConditions;
     }
 
-  StructuredBlock::StructuredBlock(PerceptMesh* eMesh, unsigned iblock, const std::array<unsigned,9>& nijk, const std::array<unsigned,3>& node_size_global, const std::string& name, int base, int zone, BlockStructuredGrid *bsg) :
-    m_eMesh(eMesh), m_iblock(iblock), m_sblock(0), m_parent(bsg), m_name(name), m_base(base), m_zone(zone),
+  StructuredBlock::StructuredBlock(stk::ParallelMachine comm, unsigned iblock, const std::array<unsigned,9>& nijk, const std::array<unsigned,3>& node_size_global, const std::string& name, int base, int zone, BlockStructuredGrid *bsg) :
+    m_comm(comm), m_iblock(iblock), m_sblock(0), m_parent(bsg), m_name(name), m_base(base), m_zone(zone),
     m_sgrid_coords_impl(new Array4D),
     m_sgrid_coords(*m_sgrid_coords_impl.get()),
     m_loop_ordering{{0,1,2}}, m_access_ordering{{0,1,2}}
     {
-      //VERIFY_OP_ON(eMesh->get_parallel_size(), ==, 1, "only for serial");
+      //VERIFY_OP_ON(stk::parallel_machine_size(m_comm), ==, 1, "only for serial");
       m_fields["coordinates"] = m_sgrid_coords_impl;
 
       // Ioss::StructuredBlock stores the "number of intervals" in each direction - add one to get number of nodes
@@ -91,18 +91,22 @@ namespace percept {
       {
         nfield = iter->second;
       }
+#if defined(WITH_KOKKOS)
+    Kokkos::Experimental::resize(*nfield.get(), Asizes[0], Asizes[1], Asizes[2], fourth_dim);
+#else
     nfield->resize(Asizes[0], Asizes[1], Asizes[2], fourth_dim);
+#endif
     return nfield;
   }
 
   // static
   std::shared_ptr<StructuredBlock>
-  StructuredBlock::fixture_1(PerceptMesh* eMesh, std::array<unsigned,3> sizes, unsigned iblock, int base, int zone, BlockStructuredGrid *bsg)
+  StructuredBlock::fixture_1(stk::ParallelMachine comm, std::array<unsigned,3> sizes, unsigned iblock, int base, int zone, BlockStructuredGrid *bsg)
   {
     std::array<unsigned,9> nijk{{sizes[0],sizes[1],sizes[2], 0,0,0, 0,0,0}};
     std::array<unsigned, 3> node_size_global{{sizes[0],sizes[1],sizes[2]}};
 
-    std::shared_ptr<StructuredBlock> sgi(new StructuredBlock(eMesh, iblock, nijk, node_size_global, "test", base, zone, bsg));
+    std::shared_ptr<StructuredBlock> sgi(new StructuredBlock(comm, iblock, nijk, node_size_global, "test", base, zone, bsg));
 
     const unsigned L0 = sgi->m_loop_ordering[0], L1 = sgi->m_loop_ordering[1], L2 = sgi->m_loop_ordering[2];
     const unsigned A0 = sgi->m_access_ordering[0], A1 = sgi->m_access_ordering[1], A2 = sgi->m_access_ordering[2];
@@ -119,11 +123,21 @@ namespace percept {
 
     unsigned Asizes[3] = {sgi->m_sizes.node_size[A0], sgi->m_sizes.node_size[A1], sgi->m_sizes.node_size[A2]};
 
+#if defined(WITH_KOKKOS)
+    Kokkos::Experimental::resize(sgi->m_sgrid_coords, Asizes[0], Asizes[1], Asizes[2], 3);
+#else
     sgi->m_sgrid_coords.resize(Asizes[0], Asizes[1], Asizes[2], 3);
+#endif
 
     unsigned indx[3]{0,0,0};
 
     // FIXME indexing from 0
+
+#if defined(WITH_KOKKOS)
+    Array4D::HostMirror interimNodes;
+    interimNodes = Kokkos::create_mirror_view(*sgi->m_sgrid_coords_impl);
+#endif
+
     for (indx[L2] = 0; indx[L2] < sizes[L2]; ++indx[L2])
       {
         for (indx[L1] = 0; indx[L1] < sizes[L1]; ++indx[L1])
@@ -134,11 +148,18 @@ namespace percept {
                 double xyz[3] = {double(indx[A0])/double(sizes[A0]-1), double(indx[A1])/double(sizes[A1]-1), double(indx[A2])/double(sizes[A2]-1)};
                 for (unsigned ic = 0; ic < 3; ++ic)
                   {
+#if defined(WITH_KOKKOS)
+                    interimNodes(indx[A0], indx[A1], indx[A2], ic) = xyz[ic];
+#else
                     sgi->m_sgrid_coords(indx[A0], indx[A1], indx[A2], ic) = xyz[ic];
+#endif
                   }
               }
           }
       }
+#if defined(WITH_KOKKOS)
+    Kokkos::deep_copy( *sgi->m_sgrid_coords_impl, interimNodes);
+#endif
 
     // bc's
     int isize[3] = {(int)sizes[0], (int)sizes[1], (int)sizes[2]};
@@ -172,13 +193,21 @@ namespace percept {
 
   void StructuredBlock::read_cgns()
   {
+    stk::diag::Timer     my_timer(m_name, rootTimerStructured());
+    stk::diag::Timer     my_read_timer("read_cgns", my_timer);
+    stk::diag::TimeBlock my_timeblock(my_read_timer);
+
     const unsigned L0 = m_loop_ordering[0], L1 = m_loop_ordering[1], L2 = m_loop_ordering[2];
     const unsigned A0 = m_access_ordering[0], A1 = m_access_ordering[1], A2 = m_access_ordering[2];
 
     unsigned sizes[3] = {m_sizes.node_size[0], m_sizes.node_size[1], m_sizes.node_size[2]};
     unsigned Asizes[3] = {m_sizes.node_size[A0], m_sizes.node_size[A1], m_sizes.node_size[A2]};
 
+#if defined(WITH_KOKKOS)
+    Kokkos::Experimental::resize(m_sgrid_coords, Asizes[0], Asizes[1], Asizes[2], 3);
+#else
     m_sgrid_coords.resize(Asizes[0], Asizes[1], Asizes[2], 3);
+#endif
 
     auto &block = *m_sblock;
     std::vector<double> coord_tmp[3];
@@ -191,6 +220,11 @@ namespace percept {
 
     unsigned indx[3]{0,0,0};
 
+#if defined(WITH_KOKKOS)
+    Array4D::HostMirror interimNodes;
+    interimNodes = Kokkos::create_mirror_view(*m_sgrid_coords_impl);
+#endif
+
     for (indx[L2] = 0; indx[L2] < sizes[L2]; ++indx[L2])
       {
         for (indx[L1] = 0; indx[L1] < sizes[L1]; ++indx[L1])
@@ -200,16 +234,34 @@ namespace percept {
                 auto ilo = local_offset(indx[A0], indx[A1], indx[A2], &Asizes[0]);
                 for (unsigned ic = 0; ic < 3; ++ic)
                   {
+#if defined(WITH_KOKKOS)
+                    interimNodes(indx[A0], indx[A1], indx[A2], ic) = coord_tmp[ic][ilo];
+#else
                     m_sgrid_coords(indx[A0], indx[A1], indx[A2], ic) = coord_tmp[ic][ilo];
+#endif
                     //std::cout << "coord= " << ic << " " << ilo << " " << coord_tmp[ic][ilo] << std::endl;
                   }
               }
           }
       }
+#if defined(WITH_KOKKOS)
+    {
+      stk::diag::Timer     my_copy_timer("deep_copy_to_device", my_timer);
+      stk::diag::TimeBlock my_timeblock2(my_copy_timer);
+
+      Kokkos::deep_copy(*m_sgrid_coords_impl,interimNodes);
+    }
+#endif
   }
 
   void StructuredBlock::print(std::ostream& out, int level)
   {
+
+#if defined(WITH_KOKKOS)
+    Array4D::HostMirror interimNodes;
+    interimNodes = Kokkos::create_mirror_view(*m_sgrid_coords_impl);
+    Kokkos::deep_copy(interimNodes,*m_sgrid_coords_impl);
+#endif
     out << "StructuredBlock: iblock= " << m_iblock << " name= " << m_name << " base= " << m_base << " zone= " << m_zone << std::endl;
     out << "node_min         = " << m_sizes.node_min[0] << " " << m_sizes.node_min[1] << " " << m_sizes.node_min[2] << std::endl;
     out << "node_max         = " << m_sizes.node_max[0] << " " << m_sizes.node_max[1] << " " << m_sizes.node_max[2] << std::endl;
@@ -247,8 +299,13 @@ namespace percept {
                   {
                     for (unsigned ic = 0; ic < 3; ++ic)
                       {
+#if defined(WITH_KOKKOS)
+                    	out << "coord: " << indx[A0] << " " << indx[A1] << " " << indx[A2] << " "
+                    	                            <<interimNodes(indx[A0], indx[A1], indx[A2], ic) << std::endl;
+#else
                         out << "coord: " << indx[A0] << " " << indx[A1] << " " << indx[A2] << " "
                             << m_sgrid_coords(indx[A0], indx[A1], indx[A2], ic) << std::endl;
+#endif
                       }
                   }
               }
@@ -258,15 +315,21 @@ namespace percept {
 
   void StructuredBlock::dump_vtk(const std::string& file_prefix)
   {
+#if defined(WITH_KOKKOS)
+    Array4D::HostMirror interimNodes;
+    interimNodes = Kokkos::create_mirror_view(*m_sgrid_coords_impl);
+    Kokkos::deep_copy(interimNodes,*m_sgrid_coords_impl);
+#endif
+
     const unsigned L0 = m_loop_ordering[0], L1 = m_loop_ordering[1], L2 = m_loop_ordering[2];
     const unsigned A0 = m_access_ordering[0], A1 = m_access_ordering[1], A2 = m_access_ordering[2];
 
     std::ostringstream fstr;
     fstr << file_prefix << "." << m_iblock;
-    if (m_eMesh->get_parallel_size() == 1)
+    if (stk::parallel_machine_size(m_comm) == 1)
       fstr << ".vts";
     else
-      fstr << "." << m_eMesh->get_parallel_size() << "." << m_eMesh->get_rank() << ".vts";
+      fstr << "." << stk::parallel_machine_size(m_comm) << "." << stk::parallel_machine_rank(m_comm) << ".vts";
 
     std::ofstream out(fstr.str().c_str());
     //std::string
@@ -302,7 +365,11 @@ namespace percept {
                       out << "         ";
                       for (unsigned ic = 0; ic < 3; ++ic)
                         {
-                          out << " " << m_sgrid_coords(indx[A0], indx[A1], indx[A2], ic);
+#if defined(WITH_KOKKOS)
+                    	  out << " " << interimNodes(indx[A0], indx[A1], indx[A2], ic);
+#else
+                    	  out << " " << m_sgrid_coords(indx[A0], indx[A1], indx[A2], ic);
+#endif
                         }
                       out << "\n";
                     }
@@ -339,7 +406,7 @@ namespace percept {
                   {
                     for (indx[L0] = 0; indx[L0] < sizes[L0]; ++indx[L0])
                       {
-                        out << " " << m_eMesh->get_rank();
+                        out << " " << stk::parallel_machine_rank(m_comm);
                         ++count;
                         if (count % 10 == 0)
                           out << "\n         ";

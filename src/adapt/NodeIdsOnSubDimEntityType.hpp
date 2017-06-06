@@ -41,11 +41,12 @@
       typedef std::vector<stk::mesh::EntityId> entity_id_vector_type;
       entity_id_vector_type m_entity_id_vector;
       unsigned m_mark;
+      int m_owner_rank;  // not communicated, local only: used for choosing proc ownership of this data
 
       NodeIdsOnSubDimEntityType(unsigned sz=1, NodeIdsOnSubDimEntityTypeQuantum allValues = NodeIdsOnSubDimEntityTypeQuantum(),
                                 unsigned mark=0u) : base_type(sz,allValues),
-                                                    m_entity_id_vector(sz,0u),
-                                                    m_mark(mark)  {}
+                                                  m_entity_id_vector(sz,0u),
+                                                  m_mark(mark),m_owner_rank(-1)  {}
       void resize(size_t sz)
       {
         m_entity_id_vector.resize(sz);

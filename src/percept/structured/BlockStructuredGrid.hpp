@@ -8,29 +8,34 @@
 #ifndef percept_BlockStructuredGrid_hpp
 #define percept_BlockStructuredGrid_hpp
 
-#include <percept/StructuredBlock.hpp>
-#include <percept/StructuredCellIndex.hpp>
+#include <percept/structured/StructuredBlock.hpp>
+#include <percept/structured/StructuredCellIndex.hpp>
 #include <percept/MeshType.hpp>
 
 #include <array>
 #include <unordered_map>
 
-namespace percept {
+namespace Ioss {
+  class Region;
+}
 
-  class PerceptMesh;
+namespace percept {
 
   class BlockStructuredGrid {
 
-    void create_pvd(const std::string& file_prefix, bool paraviewBroken);
+    // create parallel VTK files
+    void create_pvd(const std::string& file_prefix, bool paraviewBroken=true);
     void create_pvts(const std::string& file_prefix);
-
+    
   public:
-
-    PerceptMesh* m_eMesh;
+    
+    static const int *permute_to_unstructured;
+    
+    stk::ParallelMachine m_comm;
     Ioss::Region *m_region;
     std::vector<std::shared_ptr<StructuredBlock> > m_sblocks;
 
-    BlockStructuredGrid(PerceptMesh* eMesh, Ioss::Region *region=0);
+    BlockStructuredGrid(stk::ParallelMachine comm, Ioss::Region *region=0);
 
     void print(std::ostream& out, int level);
 
@@ -38,7 +43,7 @@ namespace percept {
 
     void dump_vtk(const std::string& file_prefix);
 
-    std::map<std::string, std::shared_ptr<MTFieldImpl> > m_fields;
+    std::map<std::string, std::shared_ptr<MTSGridField> > m_fields;
 
     void register_field(const std::string& field, unsigned fourth_dim);
 
@@ -115,6 +120,8 @@ namespace percept {
 
     void get_nodes(std::vector<StructuredCellIndex>& nodes, unsigned offset = 0);
 
+    void get_element_nodes(const StructuredCellIndex& element, std::vector<StructuredCellIndex>& nodes);
+
     void get_elements(std::vector<StructuredCellIndex>& elements);
 
     void copy_field(typename StructuredGrid::MTField* field_dest, typename StructuredGrid::MTField* field_src);
@@ -132,11 +139,11 @@ namespace percept {
     /// set field to constant value
     void nodal_field_set_value(typename StructuredGrid::MTField* field_x, double value = 0.0);
 
-    void comm_fields(std::vector<const typename StructuredGrid::MTField*>& fields, PerceptMesh *m_eMesh);
-    void sum_fields(std::vector<typename StructuredGrid::MTField*>& fields, PerceptMesh *m_eMesh);
+    void comm_fields(std::vector<const typename StructuredGrid::MTField*>& fields);
+    void sum_fields(std::vector<typename StructuredGrid::MTField*>& fields);
 
     static std::shared_ptr<BlockStructuredGrid>
-    fixture_1(PerceptMesh* eMesh, std::array<unsigned,3> sizes=std::array<unsigned,3>{{2u,2u,2u}});
+    fixture_1(stk::ParallelMachine comm, std::array<unsigned,3> sizes=std::array<unsigned,3>{{2u,2u,2u}});
 
   };
 

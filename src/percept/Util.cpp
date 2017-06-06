@@ -247,6 +247,7 @@ namespace shards {
       MPI_Comm_rank(MPI_COMM_WORLD, &pRank);
 
       std::cout << "P[" << pRank << "] in debug_stop\n" << PerceptMesh::demangled_stacktrace(30) << std::endl;
+      std::cerr << "P[" << pRank << "] in debug_stop\n" << PerceptMesh::demangled_stacktrace(30) << std::endl;
     }
 
     std::string Util::convert_to_mm(double d, int precision, std::string mm_prec)

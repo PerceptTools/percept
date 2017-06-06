@@ -76,6 +76,7 @@ CPP11MVITYPE(int) smooth_use_reference_mesh CPP11MVIEQ(= 1);
 CPP11MVITYPE(int) fix_all_block_boundaries CPP11MVIEQ(= 0);
 CPP11MVITYPE(std::string) ioss_write_options CPP11MVI( "");
 CPP11MVITYPE(std::string) ioss_read_options CPP11MVI( "");
+CPP11MVITYPE(int) generated_mesh CPP11MVIEQ(= 0);
 CPP11MVITYPE(int) snap_geometry CPP11MVIEQ(= 0);
 CPP11MVITYPE(std::string) internal_test CPP11MVI( "");
 #if !defined(NO_GEOM_SUPPORT)
@@ -181,3 +182,7 @@ CPP11MVITYPE(unsigned) p_size CPP11MVIEQ(= 0);
 
 CPP11MVITYPE(int) first_extra_option_index CPP11MVIEQ(= -1);
 
+CPP11MVITYPE(double) mMeshInputTime       CPP11MVIEQ(= 0.0);
+CPP11MVITYPE(double) mMeshOutputTime      CPP11MVIEQ(= 0.0);
+CPP11MVITYPE(double) mAdaptTimeOverall    CPP11MVIEQ(= 0.0);
+CPP11MVITYPE(double) mAdaptCPUTimeOverall CPP11MVIEQ(= 0.0);

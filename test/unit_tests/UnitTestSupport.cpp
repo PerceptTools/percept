@@ -40,7 +40,6 @@
                 {
                   std::string diff_msg = "gold file diff report: "+filename+" \n";
                   bool print_during_diff = false;
-                  std::cout << "\n\nUnitTestSupport::save_or_diff: mesh difference against gold file: " << filename << " " << std::endl;
                   bool diff = PerceptMesh::mesh_difference(eMesh1, eMesh_gold, diff_msg, print_during_diff);
                   if (diff)
                     {

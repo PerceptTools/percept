@@ -580,7 +580,7 @@ SHARDS_ARRAY_DIM_TAG_SIMPLE_IMPLEMENTATION( Tag1 )
               // const unsigned expected_num_faces = 0;
 
               //bool result = true;
-              std::vector<unsigned> entity_counts;
+              std::vector<size_t> entity_counts;
               stk::mesh::Selector selector(part);
               stk::mesh::count_entities( selector, bulkData , entity_counts );
               if (0) std::cout << "num_nodes = " << entity_counts[0] << " " << expected_num_nodes << std::endl;

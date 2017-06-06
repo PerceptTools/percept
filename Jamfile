@@ -47,12 +47,18 @@ if $(RTenv-arg) = "user" {
 local percept-root-src = $(percept-root)/src ;
 local percept-root-test = $(percept-root)/test ;
 
+ 
+import os ;
+local acis-root = [ os.environ "ACIS_ROOT" ] ; 
+
+
 project votd
   : requirements
     $(sierra-warnings)
     <include>$(percept-root-src)
     <include>$(percept-root-test)
     <define>STK_BUILT_IN_SIERRA
+    [ if-defined-val $(acis-root) : <define>HAVE_ACIS=1 ]
   : usage-requirements
     <include>$(percept-root-inc)
   : build-dir $(percept-builddir)
@@ -74,6 +80,9 @@ alias install-targets
     percept_rtest
     mesh_adapt
     percept_htest
+    rfgen_unit
+    rfsuite_unit
+    rfsuite
   ;
 
 #
@@ -99,19 +108,20 @@ install install-user-bin
     eigen_verify
     mesh_transfer
     mesh_adapt
-  : <location>$(install-root)/bin
+    rfsuite
+  : <location>$(install-bin-dir)
   ;
 
 explicit install-user-include ;
 install install-user-include
   : [ path.glob-tree $(percept-root)/src : *.h *.hpp ]
-#    [ path.glob-tree $(percept-root)/test : *.h *.hpp ]
   : <location>$(install-root)/percept/include <install-source-root>$(percept-root)/src
   ;
 
 explicit install-user-lib ;
 install install-user-lib
   : percept
+    rfgen
   : <location>$(install-root)/percept/lib
   ;
 
@@ -130,6 +140,7 @@ exe percept_utest
     [ glob $(percept-root-test)/unit_tests/*.cpp ]
     [ glob $(percept-root-test)/unit_tests/stk_geom/*.cpp ]
     percept
+    /sierra/stk_mesh//stk_mesh_fixtures
     /sierra/stk_mesh//stk_mesh_base
     /sierra/stk_util//stk_util_environment
     /sierra/stk_util//stk_util_parallel
@@ -163,13 +174,20 @@ exe percept_rtest
     /sierra/stk_search//stk_search
     /sierra/stk_io//stk_io
     /sierra/stk_io//stk_io_util
+    /sierra/stk_unit_test_utils//stk_unit_test_utils
     /sierra/seacas//iocgns
+    /sierra/cubit//cubit_util
+    /sierra/cubit//cubit_pgeom
+    [ if-defined-val $(acis-root) : /sierra/cubit_acis//cubit_pgeom_acis ]
     /tpl/trilinos//intrepid
     /tpl/trilinos//shards
     /tpl/trilinos//teuchos
     /tpl/gtest//gtest
     /mpi//mpi
   : <tag>@sierra-exec-tag
+    <include>$(cubit-root)/cubit/util
+    <include>$(cubit-root)/cubit/pgeom
+    [ if-defined-val $(acis-root) : <include>$(cubit_acis-root)/cubit_acis/pgeom ]
   ;
 
 exe percept_verifier_mesh
@@ -288,16 +306,57 @@ exe mesh_adapt
     /sierra/stk_io//stk_io
     /sierra/stk_io//stk_io_util
     /sierra/seacas//iocgns
+    /sierra/cubit//cubit_util
+    /sierra/cubit//cubit_pgeom
+    [ if-defined-val $(acis-root) : /sierra/cubit_acis//cubit_pgeom_acis ]
     /tpl/trilinos//intrepid
     /tpl/trilinos//shards
     /tpl/trilinos//teuchos
     /tpl/gtest//gtest
     /mpi//mpi
-#    lib-alloc
   :
     <tag>@sierra-exec-tag
+    <include>$(cubit-root)/cubit/util
+    <include>$(cubit-root)/cubit/pgeom
+    [ if-defined-val $(acis-root) : <include>$(cubit_acis-root)/cubit_acis/pgeom ]
   ;
 
+exe rfgen_unit
+  :
+    [ glob $(percept-root-test)/unit_tests/rfgen/*.C ]
+    rfgen
+    /tpl/gtest//gtest
+    /mpi//mpi
+  : <tag>@sierra-exec-tag
+  ;
+
+exe rfsuite_unit
+  :
+    [ glob $(percept-root-test)/unit_tests/uq/*.cpp ]
+    percept_uq
+    /sierra/stk_mesh//stk_mesh_base
+    /sierra/stk_mesh//stk_mesh_fixtures
+    /tpl/gtest//gtest
+    /mpi//mpi
+  : <tag>@sierra-exec-tag
+  ;
+
+exe rfsuite
+  :
+    [ glob $(percept-root-src)/percept/uq/main/*.cpp ]
+    percept_uq
+    /sierra/stk_mesh//stk_mesh_base
+    /sierra/stk_util//stk_util_environment
+    /sierra/stk_util//stk_util_use_case
+    /sierra/stk_util//stk_util_parallel
+    /sierra/stk_util//stk_util_diag
+    /sierra/stk_util//stk_util_util
+    /sierra/stk_io//stk_io
+    /sierra/stk_io//stk_io_util
+    /sierra/seacas//iocgns
+    /mpi//mpi
+  : <tag>@sierra-exec-tag
+  ;
 
 lib percept
   :
@@ -326,49 +385,34 @@ lib percept
       [ glob $(percept-root-src)/percept/stk_rebalance/*.cpp ]
       [ glob $(percept-root-src)/percept/stk_rebalance_utils/*.cpp ]
       [ glob $(percept-root-src)/percept/fixtures/*.cpp ]
+      [ glob $(percept-root-src)/percept/structured/*.cpp ]
 
       [ glob $(percept-root-src)/adapt/*.cpp ]
       [ glob $(percept-root-src)/adapt/sierra_element/*.cpp ]
       [ glob $(percept-root-src)/adapt/geometry/*.cpp ]
       [ glob $(percept-root-src)/adapt/markers/*.cpp ]
-
     ]
-#    opennurbs
+    /tpl/trilinos-kokkoscore//kokkoscore
     /sierra/stk_mesh//stk_mesh_base
-
-# linear solver start ...
-#
-#    /sierra/linsys//linsys
-#    /tpl/trilinos//teuchos
-#    /tpl/trilinos-tpetracore//tpetracore
-#    /tpl/trilinos-tpetracore//tpetracoreinout
-#    /tpl/trilinos-tpetracore//tpetracoreext
-#    /tpl/trilinos//epetraext
-#    /tpl/trilinos//belos
-#
-#    /tpl/trilinos//zoltan2
-#    /tpl/trilinos//aztec
-#    /tpl/trilinos//amesos2
-#    /tpl/trilinos//muelu
-#
-# ... end
-
     /sierra/stk_util//stk_util_environment
     /sierra/stk_util//stk_util_parallel
     /sierra/stk_util//stk_util_diag
     /sierra/stk_util//stk_util_util
+    /sierra/stk_util//stk_util_registry
     /sierra/stk_expreval//stk_expreval
     /sierra/stk_search//stk_search
     /sierra/stk_transfer//stk_transfer
     /sierra/stk_io//stk_io
     /sierra/stk_io//stk_io_util
+    /sierra/Sierra//audit
     /sierra/seacas//iocgns
     /sierra/seacas//io_info_lib
-#    /sierra/verdict//stkverdict
+    /sierra/cubit//cubit_util
+    /sierra/cubit//cubit_pgeom
+    [ if-defined-val $(acis-root) : /sierra/cubit_acis//cubit_pgeom_acis ]
     /tpl/trilinos//shards
     /tpl/trilinos//intrepid
     /tpl/boost-program-options//boost_program_options
-#    /tpl/boost-filesystem//boost_filesystem
     /tpl/boost-system//boost_system
     /tpl/boost-graph//boost_graph
     /tpl/boost-graph-parallel//boost_graph_parallel
@@ -381,7 +425,46 @@ lib percept
     # builds only and will not be present for developer builds.
         <file>$(percept-root)/lib/libpercept.a
     ]
+    <include>$(cubit-root)/cubit/util
+    <include>$(cubit-root)/cubit/pgeom
+    [ if-defined-val $(acis-root) : <include>$(cubit_acis-root)/cubit_acis/pgeom ]
+  ;
+
+
+lib rfgen
   :
-  : <define>STK_PERCEPT_LITE=0
+    [ ifdevbuild
+    # Any parameters within this 'ifdevbuild' block apply to development
+    # builds only and will not be present for user builds.
+        [ glob $(percept-root)/src/percept/rfgen/*.C ]
+    ]
+    /tpl/trilinos//teuchos
+    /tpl/trilinos//anasazi
+    /tpl/trilinos//epetra
+    /tpl/trilinos//shards
+  :
+    [ ifuserbuild
+    # Any parameters within this 'ifuserbuild' block apply to user
+    # builds only and will not be present for developer builds.
+        <file>$(percept-root)/lib/librfgen.a
+    ]
+  ;
+
+lib percept_uq
+  :
+    [ ifdevbuild
+    # Any parameters within this 'ifdevbuild' block apply to development
+    # builds only and will not be present for user builds.
+        [ glob $(percept-root)/src/percept/uq/*.cpp ]
+    ]
+    rfgen
+    percept
+    /sierra/stk_mesh//stk_mesh_base
+    /tpl/trilinos//shards
+  :
+    [ ifdevbuild
+    # Any parameters within this 'ifdevbuild' block apply to development
+    # builds only and will not be present for user builds.
+    ]
   ;
 

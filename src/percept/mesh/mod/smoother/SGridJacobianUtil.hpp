@@ -15,18 +15,38 @@
 #include <percept/PerceptMesh.hpp>
 #include <percept/math/DenseMatrix.hpp>
 #include <percept/MeshType.hpp>
-#include <percept/StructuredCellIndex.hpp>
+#include <percept/structured/StructuredCellIndex.hpp>
 #include <percept/mesh/mod/smoother/JacobianUtil.hpp>
 
 namespace percept {
 
-  // only for 3D structured grids (Hex mesh)
+inline bool jacobian_matrix_3D(double &detJ,
+		DenseMatrix<3,3>& A, const double *x0, const double *x1, const double *x2, const double *x3)
+{
+  A(0,0) = (x1[0] - x0[0]);
+  A(0,1) = (x2[0] - x0[0]);
+  A(0,2) = (x3[0] - x0[0]);
+
+  A(1,0) = (x1[1] - x0[1]);
+  A(1,1) = (x2[1] - x0[1]);
+  A(1,2) = (x3[1] - x0[1]);
+
+  A(2,0) = (x1[2] - x0[2]);
+  A(2,1) = (x2[2] - x0[2]);
+  A(2,2) = (x3[2] - x0[2]);
+
+  detJ = det(A);
+
+  return detJ < 0.0;
+}
+
+// only for 3D structured grids (Hex mesh)
   template<>
   class JacobianUtilImpl<StructuredGrid> : public  JacobianUtilBase<StructuredGrid>
   {
 
   public:
-    using Array4D = MDArray;
+    using Array4D = typename MTSGridField::Array4D;
 
     using Base =  JacobianUtilBase<StructuredGrid>;
 
@@ -84,6 +104,10 @@ namespace percept {
     void grad_util(const DenseMatrix<3,3>& dMdA, double grad[NNODES_MAX][3], const int nnode, const int spd, const int *indices, const int nind);
 
   };
+
+    // evaluate jacobian at each node of the cell given by cell_bijk (block, ijk)
+    bool SGridJacobianUtil(double& averageJ, double detJ[8], typename StructuredGrid::MTField::Array4D coords,
+    		typename StructuredGrid::MTElement element);
 }
 
 #endif

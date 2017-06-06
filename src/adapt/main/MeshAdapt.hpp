@@ -27,6 +27,9 @@
 #if defined( STK_HAS_MPI )
 #include <mpi.h>
 #endif
+#if defined(WITH_KOKKOS)
+#include <Kokkos_Core.hpp>
+#endif
 
 #include <percept/PerceptMesh.hpp>
 #include <percept/Util.hpp>
@@ -74,6 +77,11 @@
 #include <stk_mesh/base/MeshUtils.hpp>
 #include <adapt/main/MemoryMultipliers.hpp>
 
+class PGeom;
+#ifdef HAVE_ACIS
+class PGeomACIS;
+#endif
+
 namespace percept {
 
   class MeshAdapt {
@@ -87,7 +95,9 @@ namespace percept {
     enum GeometryType {
       GEOM_NONE,
       OPENNURBS,
+      PGEOM_OPENNURBS,
       MESH_BASED_GREGORY_PATCH,
+      PGEOM_ACIS,
       N_GeometryType
     };
 
@@ -150,6 +160,8 @@ namespace percept {
     // utilities
     /// removes beams and shells in favor of node sets
     void do_convert_geometry_parts_OpenNURBS(std::string geometry_file, std::string newExodusFile);
+    void setup_m2g_parts(std::string input_geometry);
+    void initialize_m2g_geometry(std::string input_geometry);
 
     // sub-algorithms of do_run algorithms
     void do_precheck_memory_usage();
@@ -224,6 +236,10 @@ namespace percept {
 
     std::shared_ptr<PerceptMesh> eMeshP;
     std::shared_ptr<AdaptedMeshVerifier> adaptedMeshVerifier;
+    PGeom * m_PGeomPntr = NULL;
+#ifdef HAVE_ACIS
+    PGeomACIS * m_PGA = NULL;
+#endif
 
     BlockNamesType m_block_names;
     stk::mesh::Selector block_selector;
@@ -234,12 +250,6 @@ namespace percept {
     typedef std::map<std::string, int> StringIntMap;
     StringIntMap block_names_x_map;
     std::shared_ptr<DihedralAngleCheck> m_dihedral_angle_check;
-
-    double mMeshInputTime;
-    double mMeshOutputTime;
-    double mAdaptTimeOverall;
-    double mAdaptCPUTimeOverall;
-
   };
 
 

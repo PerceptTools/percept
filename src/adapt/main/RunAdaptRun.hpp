@@ -163,7 +163,7 @@ static void copy_error_indicator(PerceptMesh& eMesh_no_ft,PerceptMesh& eMesh,
     std::string m_extra_output;
     std::string m_debug_error_indicator_string_function;
 
-    YAML::Node m_node, m_node1, *m_node_ptr;
+    YAML::Node m_node, m_node1, m_node_ptr;
 
     MarkerInfo *m_marker_info;
     Marker *m_marker;
@@ -197,7 +197,6 @@ static void copy_error_indicator(PerceptMesh& eMesh_no_ft,PerceptMesh& eMesh,
       m_max_refinement_level(0), 
       m_max_marker_iterations(0),
       m_max_number_elements_fraction(0.0),
-      m_node_ptr(0),
       m_marker_info(0), m_marker(0),
       m_emit_file(emit_file), m_debug(debug),
       m_wedge_bl_enable_special_patterns(false),
@@ -218,16 +217,17 @@ static void copy_error_indicator(PerceptMesh& eMesh_no_ft,PerceptMesh& eMesh,
     {
       std::stringstream ss(m_root_string);
 
-      YAML::Parser parser(ss);
+      //YAML::Parser parser(ss);
 
       try {
-        parser.GetNextDocument(m_node);
+        //parser.GetNextDocument(m_node);
+        m_node = YAML::Load(ss);
         {
           if (m_debug && m_eMesh.get_rank()==0)
             std::cout << "\n read node.Type() = " << m_node.Type() << " node.Tag()= " << m_node.Tag() << " node.size= " << m_node.size() << std::endl;
           std::string file_name;
           if (m_node.Type() == YAML::NodeType::Scalar)
-            m_node >> file_name;
+            file_name = m_node.as<std::string>();
           else
             set_if_present(m_node, "file", file_name, std::string(""));
           if (file_name.length())
@@ -237,17 +237,18 @@ static void copy_error_indicator(PerceptMesh& eMesh_no_ft,PerceptMesh& eMesh,
                 {
                   throw std::runtime_error("couldn't open file: "+file_name);
                 }
-              YAML::Parser parser1(file);
-              parser1.GetNextDocument(m_node1);
-              m_node_ptr = &m_node1;
+              //YAML::Parser parser1(file);
+              //parser1.GetNextDocument(m_node1);
+              m_node1 = YAML::Load(file);
+              m_node_ptr = m_node1;
             }
           else
             {
-              m_node_ptr = &m_node;
+              m_node_ptr = m_node;
             }
-          parse(*m_node_ptr);
+          parse(m_node_ptr);
           if (m_debug && m_eMesh.get_rank()==0)
-            emit(*m_node_ptr);
+            emit(m_node_ptr);
         }
       }
       catch(YAML::ParserException& e) {
@@ -257,12 +258,12 @@ static void copy_error_indicator(PerceptMesh& eMesh_no_ft,PerceptMesh& eMesh,
 
     void create_marker(stk::mesh::Selector *wedge_selector=0)
     {
-      const YAML::Node *y_marker = m_node_ptr->FindValue("marker");
+      const YAML::Node y_marker = m_node_ptr["marker"];
 
       if (y_marker)
         {
-          set_if_present(*y_marker, "type", m_marker_type, std::string("fraction"));
-          create_marker(m_marker_type, *y_marker, wedge_selector);
+          set_if_present(y_marker, "type", m_marker_type, std::string("fraction"));
+          create_marker(m_marker_type, y_marker, wedge_selector);
         }
     }
 
@@ -316,7 +317,7 @@ static void copy_error_indicator(PerceptMesh& eMesh_no_ft,PerceptMesh& eMesh,
       m_marker_info->maxMarkerIterations_                   = m_max_marker_iterations;
       m_marker_info->maxRefinementNumberOfElementsFraction_ = m_max_number_elements_fraction;
 
-      set_if_present(*m_node_ptr, "debug", m_marker_info->debug_, bool(false));
+      set_if_present(m_node_ptr, "debug", m_marker_info->debug_, bool(false));
 
       if (m_bounding_region_type=="cylinder") {
         m_marker_info->boundingRegion_ =
@@ -388,49 +389,49 @@ static void copy_error_indicator(PerceptMesh& eMesh_no_ft,PerceptMesh& eMesh,
       // wedge_boundary_layer_special_refinement
       {
         m_wedge_boundary_layer_special_refinement = false;
-        const YAML::Node *y_wedge = m_node_ptr->FindValue("wedge_boundary_layer_special_refinement");
+        const YAML::Node y_wedge = m_node_ptr["wedge_boundary_layer_special_refinement"];
 
         if (y_wedge) {
-          set_if_present(*y_wedge, "activate", m_wedge_boundary_layer_special_refinement, false);
-          set_if_present(*y_wedge, "enable_special_patterns", m_wedge_bl_enable_special_patterns, false);
-          set_if_present(*y_wedge, "allow_unrefine" , m_wedge_bl_allow_unrefine, true);
+          set_if_present(y_wedge, "activate", m_wedge_boundary_layer_special_refinement, false);
+          set_if_present(y_wedge, "enable_special_patterns", m_wedge_bl_enable_special_patterns, false);
+          set_if_present(y_wedge, "allow_unrefine" , m_wedge_bl_allow_unrefine, true);
           m_wedge_block_names.resize(0);
         }
       }
 
       // geometric bounding region
       {
-        const YAML::Node *y_region = m_node_ptr->FindValue("bounding_region");
+        const YAML::Node y_region = m_node_ptr["bounding_region"];
         if (y_region) {
-          set_if_present(*y_region, "type",   m_bounding_region_type, std::string(""));
-          set_if_present(*y_region, "radius", m_bounding_region_radius, double(-1.0));
+          set_if_present(y_region, "type",   m_bounding_region_type, std::string(""));
+          set_if_present(y_region, "radius", m_bounding_region_radius, double(-1.0));
 
-          const YAML::Node *y_start = y_region->FindValue("start");
+          const YAML::Node y_start = y_region["start"];
           if (y_start) {
             m_bounding_region_start.clear();
             double temp;
-            for (unsigned ii=0; ii < y_start->size(); ++ii) {
-              (*y_start)[ii] >> temp;
+            for (unsigned ii=0; ii < y_start.size(); ++ii) {
+              temp = (y_start)[ii].as<double>();
               m_bounding_region_start.push_back(temp);
             }
           }
 
-          const YAML::Node *y_end = y_region->FindValue("end");
+          const YAML::Node y_end = y_region["end"];
           if (y_end) {
             m_bounding_region_end.clear();
             double temp;
-            for (unsigned ii=0; ii < y_end->size(); ++ii) {
-              (*y_end)[ii] >> temp;
+            for (unsigned ii=0; ii < y_end.size(); ++ii) {
+              temp = (y_end)[ii].as<double>();
               m_bounding_region_end.push_back(temp);
             }
           }
 
-          const YAML::Node *y_center = y_region->FindValue("center");
+          const YAML::Node y_center = y_region["center"];
           if (y_center) {
             m_bounding_region_center.clear();
             double temp;
-            for (unsigned ii=0; ii < y_center->size(); ++ii) {
-              (*y_center)[ii] >> temp;
+            for (unsigned ii=0; ii < y_center.size(); ++ii) {
+              temp = (y_center)[ii].as<double>();
               m_bounding_region_center.push_back(temp);
             }
           }

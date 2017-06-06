@@ -573,6 +573,8 @@
                     throw std::runtime_error("triangulate_tet_2_rand:: error, volumes don't match");
                   }
                 save_or_diff(eMesh, output_files_loc+"local_tet_2_rand.e."+toString(icase) );
+                srandom(1234+10*icase+icase);
+
               }
 
               {

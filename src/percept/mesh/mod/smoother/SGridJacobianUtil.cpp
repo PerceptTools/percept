@@ -10,8 +10,7 @@
 #if !defined(NO_GEOM_SUPPORT)
 
 #include "SGridJacobianUtil.hpp"
-
-//#include "mpi.h"
+#include <percept/structured/BlockStructuredGrid.hpp>
 
 namespace percept {
 
@@ -63,15 +62,13 @@ namespace percept {
   {
     EXCEPTWATCH;
 
-    static DenseMatrix<3,3> J;
+    DenseMatrix<3,3> J;
     int i=0;
 
     bool metric_invalid = false;
 
     using Array4D = typename StructuredGrid::MTField::Array4D;
     std::shared_ptr<BlockStructuredGrid> bgrid = eMesh.get_block_structured_grid();
-    if (!bgrid)
-      VERIFY_MSG("bad bgrid");
     unsigned iblock = cell_ijkb[3];
     VERIFY_OP_ON(iblock, <, bgrid->m_sblocks.size(), "bad iblock");
     std::shared_ptr<StructuredBlock> sgrid = bgrid->m_sblocks[iblock];
@@ -112,20 +109,10 @@ namespace percept {
                                    VERTEX(v_i[locs_hex[i][3]]));
 
       metric_invalid = metric_invalid || mi;
-
-      if (0 && mi)
-        {
-          std::ostringstream out;
-          out << "metric_invalid, i= " << i << " m_detJ= " << m_detJ[i] << " m_J= " << m_J[i] << " v_i= ";
-          for (unsigned j=0; j < 4; ++j)
-            out << "j: " << j << " v: " << v_i[locs_hex[i][j]];
-          std::cout << out.str() << std::endl;
-        }
     }
 
     averageJ = average_metrics(m_detJ, 8);
 
-    //VERIFY_OP_ON(metric_invalid, ==, false, "bad metric");
     return metric_invalid;
   }
 
@@ -175,7 +162,63 @@ namespace percept {
 
   }
 
-}
 
+  bool SGridJacobianUtil(double& averageJ, double detJ[8], typename StructuredGrid::MTField::Array4D coords,
+		  typename StructuredGrid::MTElement cell_ijkb)
+  {
+	  DenseMatrix<3,3> J;
+
+	  bool metric_invalid = false;
+
+	  //const int A0 = sgrid->m_access_ordering[0], A1 = sgrid->m_access_ordering[1], A2 = sgrid->m_access_ordering[2];
+	  const int A0 = 0, A1 = 1, A2 = 2;
+
+	  std::vector<std::array<double,3> > v_i(8);
+	  std::array<unsigned,3> indx{{0,0,0}}, II{{0,0,0}};
+
+	  unsigned cnt = 0;
+	  for ( indx[2]=0; indx[2] < 2; ++indx[2])
+	  {
+		  II[2] = indx[2] + cell_ijkb[2];
+		  for ( indx[1]=0; indx[1] < 2; ++indx[1])
+		  {
+			  II[1] = indx[1] + cell_ijkb[1];
+			  for ( indx[0]=0; indx[0] < 2; ++indx[0])
+			  {
+				  II[0] = indx[0] + cell_ijkb[0];
+				  for (unsigned ic=0; ic < 3; ++ic)
+				  {
+					  v_i[cnt][ic] = coords(II[A0], II[A1], II[A2], ic);
+				  }
+				  ++cnt;
+			  }
+		  }
+	  }
+
+#define VERTEX(vi)  (vi.data())
+
+	  //double x0[3], x1[3], x2[3], x3[3];
+
+		  for (int i = 0; i < 8; ++i) {
+			  bool mi = jacobian_matrix_3D(detJ[i], J,
+					  VERTEX(v_i[locs_hex[i][0]]),
+					  VERTEX(v_i[locs_hex[i][1]]),
+					  VERTEX(v_i[locs_hex[i][2]]),
+					  VERTEX(v_i[locs_hex[i][3]]));
+
+			  metric_invalid = metric_invalid || mi;
+		  }
+
+		  //averageJ = average_metrics(m_detJ, 8);
+		  //double average_metrics(const double detJ[NNODES_MAX], const unsigned n)
+		  {
+			  averageJ=0.0;
+			  for (unsigned i=0; i < 8; i++) averageJ += detJ[i];
+			  averageJ/=double(8);
+		  }
+
+		  return metric_invalid;
+  }
+} // namespace percept
 
 #endif

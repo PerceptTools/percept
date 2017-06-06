@@ -12,11 +12,14 @@
 #include <utility>
 
 #if defined( STK_HAS_MPI )
-#include <mpi.h>
+#include <mpi.h>eavy_tests/HeavyTe
 #endif
-
+#if defined(WITH_KOKKOS)
+#include <Kokkos_Core.hpp>
+#endif
 #include <percept/fixtures/Fixture.hpp>
 #include <percept/RunEnvironment.hpp>
+#include <percept/PerceptUtils.hpp>
 
 #include <percept/pyencore.h>
 
@@ -24,6 +27,7 @@
 
 #include <gtest/gtest.h>
 #include <mpi.h>
+#include <Kokkos_Core.hpp>
 
 int gl_argc=0;
 char** gl_argv=0;
@@ -32,6 +36,13 @@ int main(int argc, char **argv)
 {
     MPI_Init(&argc, &argv);
 
+
+#if defined(WITH_KOKKOS)
+    Kokkos::initialize(argc, argv);
+	std::cout << "INFO: Running tests WITH_KOKKOS set to true. Recompile without Kokkos if you don't want this." << std::endl;
+
+#endif
+
     testing::InitGoogleTest(&argc, argv);
 
     gl_argc = argc;
@@ -39,7 +50,16 @@ int main(int argc, char **argv)
 
     int returnVal = RUN_ALL_TESTS();
 
+
+#if defined(WITH_KOKKOS)
+
+
+    Kokkos::finalize();
+#endif
+
     MPI_Finalize();
+     
+    percept::printTimersTableStructured();
 
     return returnVal;
 }

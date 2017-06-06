@@ -52,13 +52,8 @@
     public:
       // This is for making the NodeRegistry consistent when doing multi-refine (hanging-node + transition element approach).
       // It forces a return mark of nothing to allow NodeRegistry looping without new marks.
-      void setMarkNone(bool val) {
-        if (val)
-          m_eMesh.setProperty("markNone", "true");
-        else
-          m_eMesh.setProperty("markNone", "false");
-      }
-      bool getMarkNone() { return m_eMesh.getProperty("markNone") == "true"; }
+      void setMarkNone(bool val) { m_eMesh.m_markNone = val; }
+      bool getMarkNone() { return m_eMesh.m_markNone; }
 
       // allow some finer control for refine field values
       void setRefineStage(int x) { m_ref_field_stage = x; }

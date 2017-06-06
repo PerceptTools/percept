@@ -106,7 +106,8 @@
 
 #define DEBUG_URP_HPP 0
 
-#if defined(NDEBUG) && !DEBUG_URP_HPP
+//#if defined(NDEBUG) && !DEBUG_URP_HPP
+#if 1
 
 #  define NN(i_entity_rank, j_ordinal_on_subDim_entity) new_sub_entity_nodes[i_entity_rank][j_ordinal_on_subDim_entity][0]
 
@@ -220,7 +221,6 @@
       const std::string m_appendOriginalString; //="_uo_1000"
       static const std::string m_oldElementsPartName;
       stk::mesh::EntityRank m_primaryEntityRank;
-      bool m_sameTopology;
 
       static const unsigned topo_key_hex27      = shards::Hexahedron<27>::key;
       static const unsigned topo_key_hex20      = shards::Hexahedron<20>::key;
@@ -254,7 +254,6 @@
                                     m_convertSeparatorFinalString("_"),
                                     m_appendOriginalString(percept::PerceptMesh::s_omit_part+"_1000"),  // _100000
                                     m_primaryEntityRank(stk::topology::INVALID_RANK),
-                                    m_sameTopology(true),
                                     m_mark_centroid_always(false),
                                     m_do_strip_hashes(true)
       {
@@ -442,7 +441,14 @@
       static std::string s_enrich_options;
 
     private:
-
+      void addRefineNewNodesPart(percept::PerceptMesh& eMesh);
+      void addActiveParentParts(percept::PerceptMesh& eMesh);
+      bool foundIncludeOnlyBlock(percept::PerceptMesh& eMesh, std::vector<std::string>& block_names_include);
+      void addOldPart(percept::PerceptMesh& eMesh);
+      bool shouldDoThisPart(percept::PerceptMesh& eMesh, BlockNamesType block_names_ranks,
+          		bool found_include_only_block, std::vector<std::string>& block_names_include, stk::mesh::Part *  part);
+      void setNeededParts_debug1(percept::PerceptMesh& eMesh);
+      void setNeededParts_debug2();
     };
     /// Utility intermediate base class providing more support for standard refinement operations
     /// ------------------------------------------------------------------------------------------------------------------------

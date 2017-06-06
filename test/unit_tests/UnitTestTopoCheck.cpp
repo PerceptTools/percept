@@ -321,7 +321,7 @@ TEST(geom, geomPrints)
   {
     double th = M_PI*((double)ith)/((double)ntheta);
     boost::array<double, 3> pt1 = {{0, rad*cos(th), rad*sin(th)}};
-    boost::array<double, 3> dr1 = {{0, -sin(th), cos(th)}};;
+    boost::array<double, 3> dr1 = {{0, -sin(th), cos(th)}};
     path3.push_back(pt1);
     dir3.push_back(dr1);
   }
@@ -512,7 +512,7 @@ void use_encr_case_1_driver( MPI_Comm comm )
 
 
     {
-      std::vector<unsigned> count ;
+      std::vector<size_t> count ;
       stk::mesh::Selector selector(mesh_meta_data.globally_shared_part());
       count_entities( selector, mesh_bulk_data, count );
 

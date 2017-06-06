@@ -7,12 +7,20 @@
 
 #include <percept/mesh/geometry/kernel/MeshGeometry.hpp>
 #include <stk_util/environment/CPUTime.hpp>
-#include <percept/mesh/geometry/kernel/GeometryKernel.hpp>
+
+//#include <unordered_set>
+
+
+
+
 #include <percept/mesh/geometry/kernel/GeometryKernelGregoryPatch.hpp>
 #include <percept/PerceptMesh.hpp>
 
+
 namespace percept {
 
+GeometryEvaluator::GeometryEvaluator(stk::mesh::Part* part) : mGeometry(-1,INVALID), mMesh(*part), mPart(part)  {}
+  
 MeshGeometry::MeshGeometry(const PerceptMesh& eMesh, GeometryKernel* geom, double doCheckMovement, double doCheckCPUTime, bool cache_classify_bucket_is_active, bool doPrint)
   : m_eMesh(eMesh), m_doCheckMovement(doCheckMovement), m_checkCPUTime(doCheckCPUTime), m_cache_classify_bucket_is_active(cache_classify_bucket_is_active), m_doPrint(doPrint),
     m_type(-1), m_doCurvesOnly(false)
@@ -75,7 +83,7 @@ const std::vector<GeometryEvaluator*>& MeshGeometry::getGeomEvaluators()
 /**
  * Return 0,1,2,3 if the node is on a geometry vertex, curve, surface or domain.
  */
-int MeshGeometry::classify_node(const stk::mesh::Entity node, size_t& curveOrSurfaceEvaluator)
+int MeshGeometry::classify_node(const stk::mesh::Entity node, GeometryHandle & curveOrSurfaceEvaluator/*size_t& curveOrSurfaceEvaluator*/)
 {
   const stk::mesh::Bucket& bucket = m_eMesh.bucket(node);
   return classify_bucket(bucket, curveOrSurfaceEvaluator);
@@ -84,7 +92,7 @@ int MeshGeometry::classify_node(const stk::mesh::Entity node, size_t& curveOrSur
 /**
  * Return 0,1,2,3 if the bucket is on a geometry vertex, curve, surface or domain.
  */
-int MeshGeometry::classify_bucket(const stk::mesh::Bucket& bucket, size_t& curveOrSurfaceEvaluator)
+int MeshGeometry::classify_bucket(const stk::mesh::Bucket& bucket, GeometryHandle & curveOrSurfaceEvaluator/*size_t& curveOrSurfaceEvaluator*/)
 {
   int classify_value = 0;
    if (m_cache_classify_bucket_is_active)
@@ -113,7 +121,7 @@ int MeshGeometry::classify_bucket(const stk::mesh::Bucket& bucket, size_t& curve
 /**
  * Return 0,1,2,3 if the bucket is on a geometry vertex, curve, surface or domain.
  */
-int MeshGeometry::classify_bucket_internal(const stk::mesh::Bucket& bucket, size_t& curveOrSurfaceEvaluator)
+int MeshGeometry::classify_bucket_internal(const stk::mesh::Bucket& bucket, GeometryHandle & curveOrSurfaceEvaluator/*size_t& curveOrSurfaceEvaluator*/)
 {
   // Each bucket contains the set of nodes with unique part intersections.
   // This means that every nodes will be in exactly one bucket.  But, the
@@ -123,8 +131,8 @@ int MeshGeometry::classify_bucket_internal(const stk::mesh::Bucket& bucket, size
   // and vertices).  We first create a list of all the evaluators that
   // might be relevant.
 
-  static std::vector<size_t> curveEvaluators(0);
-  static std::vector<size_t> surfEvaluators(0);
+  static std::vector<GeometryHandle> curveEvaluators(0);
+  static std::vector<GeometryHandle> surfEvaluators(0);
   curveEvaluators.resize(0);
   surfEvaluators.resize(0);
 
@@ -136,23 +144,23 @@ int MeshGeometry::classify_bucket_internal(const stk::mesh::Bucket& bucket, size
         {
           if (geomKernel->is_curve(geomEvaluators[s]->mGeometry))
             {
-              curveEvaluators.push_back(s);
+              curveEvaluators.push_back(geomEvaluators[s]->mGeometry);
             }
           else if (geomKernel->is_surface(geomEvaluators[s]->mGeometry))
             {
-              surfEvaluators.push_back(s);
+              surfEvaluators.push_back(geomEvaluators[s]->mGeometry);
             }
           // bcarnes: what if neither is true? can that happen? should we throw an error?
         }
     }
 
-  curveOrSurfaceEvaluator = 0;
+  curveOrSurfaceEvaluator.m_id = 0;
   if ( curveEvaluators.size() > 1 )
     {
       // This is a bucket representing a vertex.  No need to do anything
       // since the node will already be on the vertex, and no new nodes
       // ever get created assigned to vertices during refinement.
-      curveOrSurfaceEvaluator = 0;
+      curveOrSurfaceEvaluator.m_id = 0;
       return 0;
     }
   if ( curveEvaluators.size() == 1 )
@@ -204,44 +212,84 @@ void MeshGeometry::pre_process(PerceptMesh* eMesh)
       partv.push_back(geomEvaluators[ii]->mPart);
     }
 
-  geomKernel->pre_process(eMesh, partv);
+  if (geomKernel) geomKernel->pre_process(eMesh, partv);
 }
+
 
 void MeshGeometry::snap_points_to_geometry(PerceptMesh* eMesh)
 {
-  stk::mesh::BulkData& bulkData = *eMesh->get_bulk_data();
-
-  // Get all of the nodes. bcarnes: why not just loop over buckets instead of copying all the entities?
-  std::vector<stk::mesh::Entity> nodes;
-  stk::mesh::get_entities(bulkData, stk::topology::NODE_RANK, nodes);
-
+//  stk::mesh::BulkData& bulkData = *eMesh->get_bulk_data();
   pre_process(eMesh);
-
   CoordinatesFieldType* coordField = eMesh->get_coordinates_field();
 
-  // Loop through all of the nodes and choose the "best" projection.
-  // bcarnes: why does the loop run backwards? why is this not a loop over buckets?
-  for(int i=nodes.size()-1; i>-1; i--)
-  {
-    stk::mesh::Entity cur_node = nodes[i];
 
-    stk::mesh::Bucket &node_bucket = m_eMesh.bucket(cur_node);
-    std::vector<int> evaluators, curve_evals, surf_evals;
-    size_t s;
-    for (s=0; s<geomEvaluators.size(); s++)
-    {
-      if(geomEvaluators[s]->mMesh(node_bucket))
-      {
-        if(geomKernel->is_curve(geomEvaluators[s]->mGeometry))
-          {
-            curve_evals.push_back(s);
-          }
-        else if(geomKernel->is_surface(geomEvaluators[s]->mGeometry))
-          {
-            surf_evals.push_back(s);
-          }
-      }
-    }
+
+
+
+  	std::map<stk::mesh::Entity, std::list<GeometryEvaluator*>> nodeMap;
+
+	for (size_t iEval = 0; iEval < geomEvaluators.size(); iEval++) {
+		stk::mesh::Selector elementSelector = *(geomEvaluators[iEval]->mPart);
+		const stk::mesh::BucketVector & bucketsOfElems =
+				elementSelector.get_buckets(stk::topology::NODE_RANK);
+
+		for (size_t iBucket = 0; iBucket < bucketsOfElems.size(); iBucket++) {
+			stk::mesh::Bucket & bucketOfElems = *(bucketsOfElems[iBucket]);
+			const unsigned numElemsInBucket = bucketOfElems.size();
+
+			for (unsigned iNode = 0; iNode < numElemsInBucket; iNode++) {
+
+				stk::mesh::Entity node = bucketOfElems[iNode];
+
+
+
+				std::map<stk::mesh::Entity,std::list<GeometryEvaluator*>>::iterator nodeIter;
+				nodeIter = nodeMap.find(node);
+				if(nodeIter==nodeMap.end()){
+					std::list<GeometryEvaluator*> interimList;
+					interimList.push_back(geomEvaluators[iEval]);
+					nodeMap.insert( std::pair<stk::mesh::Entity,std::list<GeometryEvaluator*>>(node,interimList) );
+				}
+				else{
+					(*nodeIter).second.push_front(geomEvaluators[iEval]);
+				}
+
+
+
+
+			}
+
+		}
+	}
+
+
+
+
+
+  size_t s;
+  std::vector<GeometryHandle> evaluators, curve_evals, surf_evals;
+  for(std::map<stk::mesh::Entity,std::list<GeometryEvaluator*>>::iterator nodeMapIter=nodeMap.begin();nodeMapIter!=nodeMap.end();nodeMapIter++ )
+  {
+
+
+
+
+	  std::pair<stk::mesh::Entity,
+	  			std::list<GeometryEvaluator*>> nodeToEval;
+	  nodeToEval.first=(*nodeMapIter).first;
+	  nodeToEval.second=(*nodeMapIter).second;
+
+
+	  for(std::list<GeometryEvaluator*>::const_iterator evalIter = nodeToEval.second.begin(); evalIter!=nodeToEval.second.end();evalIter++){
+		  if((*evalIter)->mGeometry.m_type==percept::GeomEvalType::CURVE)
+			 curve_evals.push_back((*evalIter)->mGeometry);
+		  else if((*evalIter)->mGeometry.m_type==percept::GeomEvalType::SURFACE)
+			  surf_evals.push_back((*evalIter)->mGeometry);
+	  }
+
+
+
+
     // favor lower order evaluators if they exist
     if(surf_evals.size() > 0)
       evaluators = surf_evals;
@@ -263,17 +311,18 @@ void MeshGeometry::snap_points_to_geometry(PerceptMesh* eMesh)
     int spatialDim = eMesh->get_spatial_dim();
     if(evaluators.size() > 1)
     {
-      double * coords = eMesh->field_data(*coordField , cur_node);
+      double * coords = eMesh->field_data(*coordField , nodeToEval.first);
       double orig_pos[3] = {coords[0], coords[1], (spatialDim==3 ? coords[2] : 0) };
       double smallest_dist_sq = std::numeric_limits<double>::max();
       double best_pos[3] = {0,0,0};
+//      std::cout<< evaluators.size() << std::endl;
       for(s=0; s<evaluators.size(); s++)
       {
         // Always start with the original position.
         for(int f=0; f < spatialDim; f++)
           coords[f] = orig_pos[f];
         // Do the projection (changes "coords" variable).
-        snap_node(eMesh, cur_node, evaluators[s]);
+        snap_node(eMesh, nodeToEval.first, evaluators[s]);
         // See if this projection is closer to the original point
         // than any of the previous ones.
         double dist_sq = 0.0;
@@ -282,8 +331,12 @@ void MeshGeometry::snap_points_to_geometry(PerceptMesh* eMesh)
         if(dist_sq < smallest_dist_sq)
         {
           smallest_dist_sq = dist_sq;
-          for(int f=0; f < spatialDim; f++)
-            best_pos[f] = coords[f];
+          for(int f=0; f < spatialDim; f++){
+
+        	  best_pos[f] = coords[f];
+
+          }
+
         }
       }
       // Load the best projection into the actual coordinates.
@@ -293,7 +346,11 @@ void MeshGeometry::snap_points_to_geometry(PerceptMesh* eMesh)
     // If we know we only have one evaluator don't bother with all
     // of the saving/restoring of positions.
     else if(evaluators.size() > 0)
-      snap_node(eMesh, cur_node, evaluators[0]);
+      snap_node(eMesh, nodeToEval.first, evaluators[0]);
+
+    surf_evals.clear();
+    curve_evals.clear();
+    evaluators.clear();
   }
 }
 
@@ -310,7 +367,7 @@ void MeshGeometry::normal_at(PerceptMesh* eMesh, stk::mesh::Entity node, std::ve
     // and vertices).  We first create a list of all the evaluators that
     // might be relevant.
 
-    size_t curveOrSurfaceEvaluator;
+    GeometryHandle curveOrSurfaceEvaluator;
     int type = classify_bucket(bucket, curveOrSurfaceEvaluator);
     switch (type) {
     case 0:
@@ -339,7 +396,7 @@ void MeshGeometry::point_at(PerceptMesh* eMesh, stk::mesh::Entity node, std::vec
   {
     stk::mesh::Bucket& bucket = eMesh->bucket(node);
 
-    size_t curveOrSurfaceEvaluator;
+    GeometryHandle curveOrSurfaceEvaluator;
     int type = classify_bucket(bucket, curveOrSurfaceEvaluator);
     switch (type) {
     case 0:
@@ -377,7 +434,7 @@ void MeshGeometry::snap_points_to_geometry(PerceptMesh* eMesh, std::vector<stk::
     // and vertices).  We first create a list of all the evaluators that
     // might be relevant.
 
-    size_t curveOrSurfaceEvaluator;
+    GeometryHandle curveOrSurfaceEvaluator;
     int type = classify_bucket(bucket, curveOrSurfaceEvaluator);
     switch (type) {
     case 0:
@@ -401,7 +458,7 @@ void MeshGeometry::snap_points_to_geometry(PerceptMesh* eMesh, std::vector<stk::
   }
 }
 
-void MeshGeometry::snap_node(PerceptMesh *eMesh, stk::mesh::Entity node, size_t evaluator_idx)
+void MeshGeometry::snap_node(PerceptMesh *eMesh, stk::mesh::Entity node, GeometryHandle geomHand /*size_t evaluator_idx*/)
 {
   CoordinatesFieldType* coordField = eMesh->get_coordinates_field();
 
@@ -425,7 +482,7 @@ void MeshGeometry::snap_node(PerceptMesh *eMesh, stk::mesh::Entity node, size_t 
     edge_length_ave /= ((double)node_elements.size());
 
     double *crd = &coord[0];
-    geomKernel->snap_to(crd, geomEvaluators[evaluator_idx]->mGeometry, &edge_length_ave, 0, 0, &node);
+    geomKernel->snap_to(crd, geomHand /*geomEvaluators[evaluator_idx]->mGeometry*/, &edge_length_ave, 0, 0, &node);
     coord_in[0] = coord[0];
     coord_in[1] = coord[1];
     if (spatialDim == 3)
@@ -439,28 +496,28 @@ void MeshGeometry::snap_node(PerceptMesh *eMesh, stk::mesh::Entity node, size_t 
 
 void MeshGeometry::print_node_movement_summary()
 {
-  for (MaxDeltaOnGeometryType::iterator iter = m_checkMovementMap.begin(); iter != m_checkMovementMap.end(); ++iter)
-    {
-      std::cout << "MeshGeometry::print_node_movement_summary, delta= " << iter->second << " on geometry= " << iter->first << " = " << geomKernel->get_attribute(iter->first) << std::endl;
-    }
-  for (MaxDeltaOnGeometryType::iterator iter = m_checkCPUTimeMap.begin(); iter != m_checkCPUTimeMap.end(); ++iter)
-    {
-      std::cout << "MeshGeometry::print_node_movement_summary, cpu= " << iter->second << " on geometry= " << iter->first << " = " << geomKernel->get_attribute(iter->first) << std::endl;
-    }
+//  for (MaxDeltaOnGeometryType::iterator iter = m_checkMovementMap.begin(); iter != m_checkMovementMap.end(); ++iter)
+//    {
+//      std::cout << "MeshGeometry::print_node_movement_summary, delta= " << iter->second << " on geometry= " << iter->first << " = " << geomKernel->get_attribute(iter->first) << std::endl;
+//    }
+//  for (MaxDeltaOnGeometryType::iterator iter = m_checkCPUTimeMap.begin(); iter != m_checkCPUTimeMap.end(); ++iter)
+//    {
+//      std::cout << "MeshGeometry::print_node_movement_summary, cpu= " << iter->second << " on geometry= " << iter->first << " = " << geomKernel->get_attribute(iter->first) << std::endl;
+//    }
 }
 
-void MeshGeometry::normal_at(PerceptMesh *eMesh, stk::mesh::Entity node, size_t evaluator_idx, std::vector<double>& normal)
+void MeshGeometry::normal_at(PerceptMesh *eMesh, stk::mesh::Entity node, GeometryHandle & curveOrSurfaceEvaluator/*size_t& curveOrSurfaceEvaluator*//*size_t evalautor_idx*/, std::vector<double>& normal)
 {
   CoordinatesFieldType* coordField = eMesh->get_coordinates_field();
 
   {
     double * coord = eMesh->field_data( *coordField , node );
 
-    geomKernel->normal_at(coord, geomEvaluators[evaluator_idx]->mGeometry, normal, (void *)(&node));
+    geomKernel->normal_at(coord, curveOrSurfaceEvaluator, /*geomEvaluators[evaluator_idx]->mGeometry,*/ normal, (void *)(&node));
   }
 }
 
-void MeshGeometry::point_at(PerceptMesh *eMesh, stk::mesh::Entity node, size_t evaluator_idx, std::vector<double>& coords, bool use_node_coords)
+void MeshGeometry::point_at(PerceptMesh *eMesh, stk::mesh::Entity node, GeometryHandle & curveOrSurfaceEvaluator/*size_t& curveOrSurfaceEvaluator*//*size_t evalautor_idx*/, std::vector<double>& coords, bool use_node_coords)
 {
   CoordinatesFieldType* coordField = eMesh->get_coordinates_field();
 
@@ -485,7 +542,7 @@ void MeshGeometry::point_at(PerceptMesh *eMesh, stk::mesh::Entity node, size_t e
     edge_length_ave /= ((double)node_elements.size());
 
     double *crd = &coord[0];
-    geomKernel->snap_to(crd, geomEvaluators[evaluator_idx]->mGeometry, &edge_length_ave, 0, 0, &node);
+    geomKernel->snap_to(crd, curveOrSurfaceEvaluator /*geomEvaluators[evaluator_idx]->mGeometry*/, &edge_length_ave, 0, 0, &node);
     coord_out[0] = coord[0];
     coord_out[1] = coord[1];
     if (spatialDim == 3)
@@ -493,16 +550,16 @@ void MeshGeometry::point_at(PerceptMesh *eMesh, stk::mesh::Entity node, size_t e
   }
 }
 
-void MeshGeometry::snap_nodes(PerceptMesh *eMesh, stk::mesh::Bucket &bucket, size_t evaluator_idx)
-{
-  const unsigned num_nodes_in_bucket = bucket.size();
-
-  for (unsigned iNode = 0; iNode < num_nodes_in_bucket; iNode++)
-  {
-    stk::mesh::Entity node = bucket[iNode];
-    snap_node(eMesh, node, evaluator_idx);
-  }
-}
+//void MeshGeometry::snap_nodes(PerceptMesh *eMesh, stk::mesh::Bucket &bucket, size_t evaluator_idx)
+//{
+//  const unsigned num_nodes_in_bucket = bucket.size();
+//
+//  for (unsigned iNode = 0; iNode < num_nodes_in_bucket; iNode++)
+//  {
+//    stk::mesh::Entity node = bucket[iNode];
+//    snap_node(eMesh, node, evaluator_idx);
+//  }
+//}
 
 bool MeshGeometry::contains_dbg_node
 (

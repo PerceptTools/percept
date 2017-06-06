@@ -19,25 +19,34 @@
 #include <percept/Histograms.hpp>
 
 #include <adapt/HangingNodeAdapter.hpp>
+#include <adapt/TEA_SelectIfRefined.hpp>
 
 #define USE_ADAPT_PERFORMANCE_TESTING_CALLGRIND 0
 #if USE_ADAPT_PERFORMANCE_TESTING_CALLGRIND
 #include "/usr/netpub/valgrind-3.8.1/include/valgrind/callgrind.h"
 #endif
 
-//#define DEBUG_TE 1
-#define DEBUG_TE !defined(NDEBUG)
+#define DO_ALT_TIMER 1
 
 #if DO_TIMING
+
 #define TIMING(code) code
 #define TIMER(name) stk::diag::Timer timer ## name ( #name, Base::rootTimer());  stk::diag::TimeBlock tbTimer ## name (timer ## name)
 #define TIMER2(name,parentName) stk::diag::Timer timer ## name ( #name, timer ## parentName);  stk::diag::TimeBlock tbTimer ## name (timer ## name)
+#define TIMER3(name,parentName) \
+   stk::diag::Timer timer ## name ( #name, timer ## parentName); \
+   stk::diag::Timer * altTimer ## name = Base::getAlternateRootTimer(); \
+   if (altTimer ## name && DO_ALT_TIMER) \
+     Base::setAlternateRootTimer(& timer ## name ); \
+   stk::diag::TimeBlock tbTimer ## name (timer ## name)
+
 #define START_TIMER(name) do { timersLocal_[#name] = stk::cpu_time(); } while(0)
 #define STOP_TIMER(name)  do { timersLocal_[#name] = stk::cpu_time() - timersLocal_[#name]; timers_[#name] += timersLocal_[#name]; } while(0)
 #else
 #define TIMING(code) do {  } while(0)
 #define TIMER(name) do {} while(0)
 #define TIMER2(name,parentName) do {} while(0)
+#define TIMER3(name,parentName) do {} while(0)
 #endif
 #include <stk_mesh/base/MeshUtils.hpp>
 
@@ -60,6 +69,7 @@
       bool                                m_debug;
       bool                                m_debug_print;
       AdaptedMeshVerifier                *m_adaptedMeshVerifier;
+
     public:
       typedef HangingNodeAdapter<RefinePredicate> Base;
 
@@ -202,8 +212,10 @@
             if (fid[onameIn] > 0) oname += "-s" + fileid_ss.str();
             if (Base::m_eMesh.get_rank() == 0)
               std::cout << "oname= " << oname << " " << msg << std::endl;
+            bool sv = Base::m_eMesh.get_output_active_children_only();
             Base::m_eMesh.output_active_children_only(false);
             Base::m_eMesh.save_as(oname);
+            Base::m_eMesh.output_active_children_only(sv);
             ++fid[onameIn];
           }
       }
@@ -279,8 +291,11 @@
         Base::get_node_neighbors(element, selected_neighbors);
 
         // for all node neighbors that are leaves
-        for (LocalSetType::iterator neighbor = selected_neighbors.begin();
-             neighbor != selected_neighbors.end(); ++neighbor)
+        LocalSetType::iterator neighbor_begin = selected_neighbors.begin();
+        LocalSetType::iterator neighbor_end = selected_neighbors.end();
+
+        for (LocalSetType::iterator neighbor = neighbor_begin;
+             neighbor != neighbor_end; ++neighbor)
           {
             stk::mesh::Entity neigh = *neighbor;
 
@@ -300,12 +315,9 @@
                     VERIFY_OP_ON(eMesh.is_valid(parent), ==, true, "hmmm");
                     VERIFY_OP_ON(eMesh.isGhostElement(parent), ==, false, "bad parent 2");
 
-                    // FIXME
                     if (isEdgeN)
                       {
                         int jedge_1 = -1;
-                        //bool ien = eMesh.is_edge_neighbor(element, parent, &jedge_0, &jedge_1, 0);
-                        //if (ien && jedge_0 == edge_0)
                         if (s_allow_skip_edge_neighbor)
                           {
                             bool ien = is_edge_neighbor_across_given_edge(element, parent, edge_0, &jedge_1, 0);
@@ -330,7 +342,6 @@
                             return true;
                           }
 
-#if 1
                         static std::vector<stk::mesh::Entity> children;
                         eMesh.getChildren(parent, children, true, false);
                         for (unsigned ii=0; ii < children.size(); ++ii)
@@ -345,7 +356,7 @@
                                         << " isNParent= " << isNParent
                                         << std::endl;
                           }
-#endif
+
                         VERIFY_OP_ON(refine_field_elem[0], ==, 0, "hmmm");
                         ++nchange_2;
                         did_change = true;
@@ -381,6 +392,7 @@
           stk::mesh::communicate_field_data(eMesh.get_bulk_data()->aura_ghosting(), fields);
         }
 
+        LocalSetType selected_neighbors;
         std::vector<stk::mesh::Entity> vec;
         stk::mesh::Selector on_locally_owned_part =  ( eMesh.get_fem_meta_data()->locally_owned_part() );
         stk::mesh::get_selected_entities(on_locally_owned_part, eMesh.get_bulk_data()->buckets(eMesh.element_rank()), vec);
@@ -458,7 +470,7 @@
           }
 
         // now enforce no neighbors of TEs are marked without marking TE parents
-        LocalSetType selected_neighbors;
+        selected_neighbors.clear();
         size_t qsize= elementQ.size();
         size_t nele=0;
 
@@ -482,8 +494,10 @@
                 // FIXME for edge neigh...
 
                 // for all node neighbors that are leaves and TE's and not yet marked, put on queue
-                for (LocalSetType::iterator neighbor = selected_neighbors.begin();
-                     neighbor != selected_neighbors.end(); ++neighbor)
+                LocalSetType::iterator neighbor_begin = selected_neighbors.begin();
+                LocalSetType::iterator neighbor_end = selected_neighbors.end();
+                for (LocalSetType::iterator neighbor = neighbor_begin;
+                     neighbor != neighbor_end; ++neighbor)
                   {
                     stk::mesh::Entity neigh = *neighbor;
                     if (neigh == element) continue;
@@ -614,12 +628,18 @@
   CALLGRIND_START_INSTRUMENTATION;
   CALLGRIND_TOGGLE_COLLECT;
 #endif
-        TIMING(
-               stk::diag::Timer timerRefine_("TE_Refine", Base::rootTimer());
-               stk::diag::TimeBlock timerRefineBlock_(timerRefine_);
-          );
+
+#if DO_TIMING
+        stk::diag::Timer timerRefine_("TE_Refine", Base::rootTimer());
+        stk::diag::TimeBlock timerRefineBlock_(timerRefine_);
+        stk::diag::Timer *altTimer = Base::getAlternateRootTimer();
+        if (altTimer && DO_ALT_TIMER)
+          Base::setAlternateRootTimer(&timerRefine_);
+#endif
 
         PerceptMesh& eMesh = Base::m_eMesh;
+
+        bool do_filter = false;
 
         bool check_geom=false;
         if (check_geom)
@@ -630,17 +650,33 @@
 
         if (1)
           {
-            Base::check_parent_ownership();
-            if (Base::check_sides_on_same_proc_as_owned_element("TEA:start refine", false))
+            {
+              TIMER2(TER_ReqSides_CPO,Refine_);
+              Base::check_parent_ownership();
+            }
+            bool csop = false;
+            {
+              TIMER2(TER_ReqSides_CSOP,Refine_);
+              csop = Base::check_sides_on_same_proc_as_owned_element("TEA:start refine", false);
+            }
+            if (csop)
               {
                 if (eMesh.get_rank()==0) std::cout << eMesh.rank() << " check_sides_on_same_proc_as_owned_element: "
                                                    << " failed, doing fix_side_sets_2" << std::endl;
-                Base::fix_side_sets_2();
-                eMesh.get_bulk_data()->modification_end();
-                Base::require_sides_on_same_proc_as_pos_perm_element();
+                {
+                  TIMER2(FSS_TER_ReqSides,Refine_);
+                  Base::fix_side_sets_2(false,0,0,0,"TEARef");
+                }
+                Base::mod_end(&timerRefine_,"TEARef");
+                {
+                  TIMER2(TER_ReqSides_RSO,Refine_);
+                  Base::require_sides_on_same_proc_as_pos_perm_element();
+                }
               }
-            Base::check_sides_on_same_proc_as_owned_element("TEA:start refine after fix_side_sets_2", true);
-            //require_sides_on_same_proc_as_pos_perm_element(true);
+            {
+              TIMER2(TER_ReqSides2,Refine_);
+              Base::check_sides_on_same_proc_as_owned_element("TEA:start refine after fix_side_sets_2", true);
+            }
           }
 
         bool checkDB = false;
@@ -649,7 +685,6 @@
         this->special_processing("tea_pre_refine");
 
         START_TIMER(Refine);
-        TIMER2(TERefine,Refine_);
         if (m_debug)
           {
             std::vector<double> load_factor;
@@ -668,15 +703,11 @@
             m_transition_element_field_set = true;
           }
 
-        //Base::getNodeRegistry().getMap().clear();
-
         if (!m_refine_field_set)
           {
             m_refine_field_set = true;
             m_refine_field = eMesh.get_fem_meta_data()->template get_field<RefineFieldType>(stk::topology::ELEMENT_RANK, "refine_field");
           }
-
-        //IAdapter& breaker = *this;
 
         {
           START_TIMER(0TER_Verifier);
@@ -704,7 +735,10 @@
 
 
         // ensure no remaining marks from prior run
-        clearTERefineField();
+        {
+          TIMER2(TER_clearTEField,Refine_);
+          clearTERefineField();
+        }
 
         this->special_processing("tea_before_enforce_te_consistency");
         //save("after-special-proc");
@@ -748,22 +782,31 @@
             this->special_processing("tea_after_enforce_te_consistency");
 
             {
-              TIMER2(TER_doMark0,Refine_);
+              TIMER3(TER_doMark0,Refine_);
               START_TIMER(0TER_doMark0);
               Base:: m_predicate_refine.setRefineStage(-10);
               Base::m_predicate_refine.setMarkNone(false);
 
+              TEA_SelectIfRefined tea_sr(Base::m_eMesh);
+              if (do_filter)
+                {
+                  tea_sr.initialize();
+                  Base::setRefinerSelector(&tea_sr);
+                }
               Base:: initializeRefine();
 
               Base::doMark(1);
               Base:: m_predicate_refine.setRefineStage(0);
-              Base::doMark(1);
+              //Base::doMark(1);
 
               if (0)
               {
                 //TIMER2(ProlongCoord,DoRefine_);
                 Base::getNodeRegistry().prolongate(Base::m_eMesh.get_coordinates_field());
               }
+              Base::setRefinerSelector(0);
+              if (0 && Base::m_eMesh.get_rank() == 0)
+                Base::getRefinementInfo().printTable(std::cerr, 0, false, "TER_doMark0");
               STOP_TIMER(0TER_doMark0);
             }
             if (checkDB) Base::m_nodeRegistry->checkDB("TEA refine 1.0");
@@ -775,7 +818,7 @@
                 STOP_TIMER(0Refine_getOrCheckTransitionElementSet);
               }
 
-            save1("after-mark","after-mark.e");
+            save1("after-mark","0after-mark.e");
             if (0)
             {
               stk::mesh::EntityId st[] = {87, 476, 893, 1057};
@@ -790,7 +833,7 @@
             if (checkDB) Base::m_nodeRegistry->checkDB("TEA refine 1.1");
             {
               {
-                TIMER2(TER_RefUTE,Refine_);
+                TIMER3(TER_RefUTE,Refine_);
                 START_TIMER(0TER_RefUTE);
                 Base::setNeedsRemesh(true);
                 s_do_transition_break = true;
@@ -805,10 +848,20 @@
               }
 
               {
-                TIMER2(TER_Refine1,Refine_);
+                TIMER3(TEA_Refine1,Refine_);
                 START_TIMER(0TER_Refine1);
                 clearTERefineField();
+                Base::m_removeFromNewNodesPart = true;
+                TEA_SelectIfRefined tea_sr(Base::m_eMesh);
+                if (do_filter)
+                  {
+                    tea_sr.initialize();
+                    Base::setRefinerSelector(&tea_sr);
+                  }
                 Base::doRefine();
+                Base::setRefinerSelector(0);
+                if (0 && Base::m_eMesh.get_rank() == 0)
+                  Base::getRefinementInfo().printTable(std::cerr, 0, false, "TEA_Refine1");
                 STOP_TIMER(0TER_Refine1);
               }
 
@@ -872,8 +925,14 @@
 
         if (checkDB) Base::m_nodeRegistry->checkDB("TEA refine 2");
 
+        s_do_transition_break = true;
+        Base:: m_predicate_refine.setMarkNone(false);
+        Base:: m_predicate_refine.setRefineStage(0);
+
+        // leaving this in - used to be necessary in prior versions, deprecated now
+        if (0)
         {
-          TIMER2(TER_Refine2,Refine_);
+          TIMER3(TER_Refine2,Refine_);
           START_TIMER(0TER_Refine2);
           s_do_transition_break = true;
           Base:: m_predicate_refine.setMarkNone(false);
@@ -908,6 +967,21 @@
         printGeometryStats("refine end");
 
         STOP_TIMER(Refine);
+        if (m_debug)
+          {
+            std::vector<double> load_factor;
+            eMesh.get_load_factor(load_factor, true, "after refine");
+          }
+
+        this->special_processing("tea_post_refine");
+
+        if (1)
+          {
+            TIMER2(TER_CheckSides, Refine_);
+            //Base::check_parent_ownership();
+            Base::check_sides_on_same_proc_as_owned_element("TEA:end refine", true);
+          }
+
         if (1 || m_debug)
           {
             stk::ParallelMachine pm = Base::m_eMesh.get_bulk_data()->parallel();
@@ -918,7 +992,7 @@
                 stk::all_reduce( pm, stk::ReduceSum<1>( &it->second ));
               }
 
-            if (m_debug && eMesh.get_rank() == 0)
+            if ((1 || m_debug) && eMesh.get_rank() == 0)
               {
                 std::cout << "\nTransitionElementAdapter::refine timing info: " << std::endl;
                 double time_main = timers_["Refine"];
@@ -933,26 +1007,17 @@
               }
           }
 
-        if (m_debug)
-          {
-            std::vector<double> load_factor;
-            eMesh.get_load_factor(load_factor, true, "after refine");
-          }
-
-        this->special_processing("tea_post_refine");
-
-        if (1)
-          {
-            Base::check_parent_ownership();
-            Base::check_sides_on_same_proc_as_owned_element("TEA:end refine", true);
-          }
-
         if (checkDB) Base::m_nodeRegistry->checkDB("TEA end");
         if (check_geom)
           {
             bool isGeometryBad = eMesh.check_mesh_volumes(true, 0.0);
             VERIFY_OP_ON(isGeometryBad, ==, false, "bad vol for REFINED mesh");
           }
+
+#if DO_TIMING
+        if (altTimer && DO_ALT_TIMER)
+          Base::setAlternateRootTimer(altTimer);
+#endif
 
 #if USE_ADAPT_PERFORMANCE_TESTING_CALLGRIND
   CALLGRIND_TOGGLE_COLLECT;
@@ -990,15 +1055,20 @@
 
       virtual void unrefine( bool enforce_2_to_1_what[3]) {
 
-        TIMING(
-               stk::diag::Timer timerUnrefine_("TE_UnRef", Base::rootTimer());
-             stk::diag::TimeBlock timerUnrefineBlock_(timerUnrefine_);
-          );
+#if DO_TIMING
+        stk::diag::Timer timerUnrefine_("TE_UnRef", Base::rootTimer());
+        stk::diag::TimeBlock timerUnrefineBlock_(timerUnrefine_);
+
+        stk::diag::Timer *altTimer = Base::getAlternateRootTimer();
+        if (altTimer && DO_ALT_TIMER)
+          Base::setAlternateRootTimer(&timerUnrefine_);
+
+#endif
+
         save1("before-unrefine","0before-unref.e");
 
         this->special_processing("tea_pre_unrefine");
 
-        TIMER2(TE_UnRefUTE,Unrefine_);
         check_enforce_what_values(enforce_2_to_1_what);
 
         printGeometryStats("unrefine start");
@@ -1025,10 +1095,9 @@
 
         if (1)
           {
-            Base::m_eMesh.get_bulk_data()->modification_begin();
+            Base::mod_begin(&timerUnrefine_);
             Base::removeDanglingNodes();
-            stk::mesh::fixup_ghosted_to_shared_nodes(*Base::m_eMesh.get_bulk_data());
-            Base::m_eMesh.get_bulk_data()->modification_end();
+            Base::mod_end(&timerUnrefine_,"TEARemoveDN");
           }
 
         if (m_adaptedMeshVerifier && !m_adaptedMeshVerifier->isValid(Base::m_eMesh, false))
@@ -1039,6 +1108,12 @@
         save1("after-unrefine","0after-unref.e");
 
         this->special_processing("tea_post_unrefine");
+
+#if DO_TIMING
+        if (altTimer && DO_ALT_TIMER)
+          Base::setAlternateRootTimer(altTimer);
+#endif
+
       }
 
       virtual void
@@ -1073,6 +1148,7 @@
                 const bool check_for_family_tree = false;
                 bool isParent = eMesh.isParentElement(element, check_for_family_tree);
 
+                //% ghost
                 int *transition_element = 0;
                 transition_element = stk::mesh::field_data( *transition_element_field , element );
 
@@ -1089,9 +1165,9 @@
                         eMesh.print(element);
                         {
                           std::string file = "te.err.dat."+toString(eMesh.get_bulk_data()->parallel_size()) + "."+toString(eMesh.get_rank())+".vtk";
-                          std::set<stk::mesh::Entity> elem_set;
+                          std::set<stk::mesh::Entity> elem_set_debug;
                           static std::vector<stk::mesh::Entity> children;
-                          elem_set.insert(element);
+                          elem_set_debug.insert(element);
                           stk::mesh::Entity parentOfElem = eMesh.getParent(element, true);
                           if (eMesh.is_valid(parentOfElem))
                             {
@@ -1102,7 +1178,7 @@
                               for (unsigned ich=0; ich < children.size(); ++ich)
                                 {
                                   eMesh.print(children[ich]);
-                                  elem_set.insert(children[ich]);
+                                  elem_set_debug.insert(children[ich]);
                                 }
 
                             }
@@ -1113,9 +1189,9 @@
                           for (unsigned ich=0; ich < children.size(); ++ich)
                             {
                               eMesh.print(children[ich]);
-                              elem_set.insert(children[ich]);
+                              elem_set_debug.insert(children[ich]);
                             }
-                          eMesh.dump_vtk(file, false, &elem_set);
+                          eMesh.dump_vtk(file, false, &elem_set_debug);
                         }
 
                         throw std::runtime_error("bad element - transition_element found that is a parent");
@@ -1147,6 +1223,7 @@
 
                 int *transition_element = 0;
                 transition_element = stk::mesh::field_data( *transition_element_field , element );
+                //% ghost
 
                 if (transition_element[0])
                   {
@@ -1193,6 +1270,7 @@
           stk::mesh::communicate_field_data(eMesh.get_bulk_data()->aura_ghosting(), fields);
         }
 
+        LocalSetType neighbors;
         const stk::mesh::BucketVector & buckets = eMesh.get_bulk_data()->buckets( eMesh.element_rank() );
         stk::mesh::Selector on_locally_owned_part =  ( eMesh.get_fem_meta_data()->locally_owned_part() );
 
@@ -1224,7 +1302,6 @@
                         }
                       bool local_val = true;
 
-                      LocalSetType neighbors;
                       neighbors.clear();
                       Base::get_node_neighbors(element, neighbors);
 
@@ -1233,22 +1310,16 @@
                       bool hasChildren = eMesh.getChildren(parent, children, true, false);
                       (void)hasChildren;
 
-                      for (LocalSetType::iterator it = neighbors.begin(); it != neighbors.end(); ++it)
+                      LocalSetType::iterator neighbor_begin = neighbors.begin();
+                      LocalSetType::iterator neighbor_end = neighbors.end();
+                      for (LocalSetType::iterator it = neighbor_begin; it != neighbor_end; ++it)
                         {
                           stk::mesh::Entity neigh = *it;
-                          // if (std::find(children.begin(), children.end(), neigh) != children.end())
-                          //   continue;
-                          // if (neigh == parent || neigh == element)
-                          //   continue;
 
                           bool isNParent = (eMesh.hasFamilyTree(neigh) && eMesh.isParentElement(neigh));
 
                           int *refine_field_neigh = stk::mesh::field_data( *m_refine_field , neigh );
 
-                          //if (isNParent && refine_field_elem[0] < 1.9)
-                          //  continue;
-
-                          //if (refine_field_neigh[0] > 0.9 && refine_field_neigh[0] < 1.1)
                           if (refine_field_neigh[0] >= 1)
                             {
 
@@ -1259,12 +1330,9 @@
                               if (isEdgeN)
                                 {
 
-                                  //if (isEdgeN && isNParent && refine_field_neigh[0] > 1.9)
-                                  if (isEdgeN)
+                                  if (isEdgeN)  // FIXME
                                     {
                                       int jedge_1 = -1;
-                                      //bool ien = eMesh.is_edge_neighbor(element, parent, &jedge_0, &jedge_1, 0);
-                                      //if (ien && jedge_0 == edge_0)
                                       if (s_allow_skip_edge_neighbor)
                                         {
                                           bool ien = is_edge_neighbor_across_given_edge(element, parent, edge_0, &jedge_1, 0);
@@ -1273,7 +1341,6 @@
                                         }
                                     }
 
-                                  //return false;
                                   ++nbad_elements;
                                   val = false;
                                   local_val = false;
@@ -1289,7 +1356,6 @@
                         }
                       if (local_val)
                         {
-                          //Base::getNodeRegistry().getMap()
                           unsigned nedges = (unsigned)bucket_topo_data->edge_count;
                           for (unsigned iSubDimOrd = 0; iSubDimOrd < nedges; ++iSubDimOrd)
                             {
@@ -1337,6 +1403,8 @@
 
         TransitionElementType *transition_element_field = m_transition_element_field;
 
+        LocalSetType neighbors;
+
         {
           std::vector< const stk::mesh::FieldBase *> fields;
           fields.push_back(m_refine_field);
@@ -1374,7 +1442,6 @@
                           throw std::runtime_error("checkTransitionElements1: bad transition element mark");
                         }
 
-                      LocalSetType neighbors;
                       neighbors.clear();
                       Base::get_node_neighbors(element, neighbors);
 
@@ -1383,22 +1450,16 @@
                       bool hasChildren = eMesh.getChildren(parent, children, true, false);
                       (void)hasChildren;
 
-                      for (LocalSetType::iterator it = neighbors.begin(); it != neighbors.end(); ++it)
+                      LocalSetType::iterator neighbor_begin = neighbors.begin();
+                      LocalSetType::iterator neighbor_end = neighbors.end();
+                      for (LocalSetType::iterator it = neighbor_begin; it != neighbor_end; ++it)
                         {
                           stk::mesh::Entity neigh = *it;
-                          // if (std::find(children.begin(), children.end(), neigh) != children.end())
-                          //   continue;
-                          // if (neigh == parent || neigh == element)
-                          //   continue;
 
                           bool isNParent = (eMesh.hasFamilyTree(neigh) && eMesh.isParentElement(neigh));
 
                           int *refine_field_neigh = stk::mesh::field_data( *m_refine_field , neigh );
 
-                          //if (isNParent && refine_field_elem[0] < 1.9)
-                          //  continue;
-
-                          //if (refine_field_neigh[0] > 0.9 && refine_field_neigh[0] < 1.1)
                           if (refine_field_neigh[0] >= 1)
                             {
                               bool isEdgeN = false;
@@ -1408,12 +1469,8 @@
                               if (isEdgeN)
                                 {
 
-                                  //if (isEdgeN && isNParent && refine_field_neigh[0] > 1.9)
-                                  if (isEdgeN)
                                     {
                                       int jedge_1 = -1;
-                                      //bool ien = eMesh.is_edge_neighbor(element, parent, &jedge_0, &jedge_1, 0);
-                                      //if (ien && jedge_0 == edge_0)
                                       if (s_allow_skip_edge_neighbor)
                                         {
                                           bool ien = is_edge_neighbor_across_given_edge(element, parent, edge_0, &jedge_1, 0);
@@ -1426,7 +1483,6 @@
 
                                   if (refine_field_parent[0] <= 1)
                                     {
-                                      //return false;
                                       ++nbad_elements;
                                       val = false;
                                       transition_element = stk::mesh::field_data( *transition_element_field , neigh );

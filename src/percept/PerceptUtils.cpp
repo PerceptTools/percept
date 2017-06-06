@@ -11,6 +11,8 @@
 #include <stk_mesh/base/Field.hpp>
 #include <stk_mesh/base/MetaData.hpp>
 
+#include <stk_util/diag/Timer.hpp>
+
 #include <Shards_CellTopologyData.h>
 
 namespace percept {
@@ -51,4 +53,17 @@ double volume(stk::mesh::Entity element, const stk::mesh::FieldBase *coord_field
   return cellVol;
 }
 
+stk::diag::Timer& rootTimerStructured() { 
+  static stk::diag::TimerSet s_timerSet(sierra::Diag::TIMER_ALL);
+  static stk::diag::Timer s_timer = stk::diag::createRootTimer("Structured", s_timerSet);
+  return s_timer;
+}
+
+void printTimersTableStructured() {
+  std::ostringstream str;
+  rootTimerStructured().stop();
+  stk::diag::printTimersTable(str, rootTimerStructured(), stk::diag::METRICS_ALL, false);
+  
+  std::cout << str.str() << std::endl;
+}
 }

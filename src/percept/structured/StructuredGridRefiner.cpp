@@ -5,40 +5,50 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-#include <percept/StructuredGridRefiner.hpp>
+#include <percept/structured/StructuredGridRefiner.hpp>
+#include <percept/PerceptUtils.hpp>
 #include <adapt/UniformRefinerPattern.hpp>
 #include <adapt/UniformRefiner.hpp>
+#include <sys/time.h>
 
 namespace percept {
+
+  void get_new_sizes(const SGridSizes<UInt, uint64_t>& input_sizes,SGridSizes<UInt, uint64_t>& output_sizes  ) {
+    // new sizes
+    const unsigned m_index_base =0;
+    UInt sizes[3], new_sizes[3];
+    for (UInt ii=0; ii < 3; ++ii)
+      {
+        sizes[ii] = input_sizes.node_max[ii] - input_sizes.node_min[ii] + 1;
+        new_sizes[ii] = 2 * sizes[ii] - 1;
+        output_sizes.node_min[ii] = 2*(input_sizes.node_min[ii] - m_index_base) + m_index_base;
+        output_sizes.node_max[ii] = output_sizes.node_min[ii] + new_sizes[ii] - 1;
+        output_sizes.cell_min[ii] = 2*(input_sizes.cell_min[ii] - m_index_base) + m_index_base;
+        output_sizes.cell_max[ii] = output_sizes.cell_min[ii] + new_sizes[ii] - 2;
+        output_sizes.node_size[ii] = new_sizes[ii];
+        output_sizes.cell_size[ii] = new_sizes[ii] - 1;
+        output_sizes.node_size_global[ii] = 2 * input_sizes.node_size_global[ii] - 1;
+      }
+  }
 
   void StructuredGridRefiner::do_refine_structured()
   {
     m_output->m_sblocks.resize(0);
+    const int my_rank = stk::parallel_machine_rank(m_output->m_comm);;
 
+    double runTime = 0;
     for (unsigned iblock=0; iblock < m_input->m_sblocks.size(); ++iblock)
       {
         std::shared_ptr<StructuredBlock> sgi = m_input->m_sblocks[iblock];
 
         std::array<unsigned, 9> nijk{{0,0,0,0,0,0,0,0,0}};
-        std::array<unsigned, 3> node_size_global{{sgi->m_sizes.node_size_global[0], sgi->m_sizes.node_size_global[1], sgi->m_sizes.node_size_global[2]}};
-        // for (unsigned ii=0; ii < 3; ++ii)
-        //   {
-        //     node_size_global[ii] = 2*node_size_global[ii] - 1;
-        //   }
-        std::shared_ptr<StructuredBlock> sgiNew ( new StructuredBlock(&m_eMesh, iblock, nijk, node_size_global, sgi->m_name+"_refined", sgi->m_base, sgi->m_zone, m_output.get()) );
+        std::array<unsigned, 3> node_size_global{{sgi->m_sizes.node_size_global[0], 
+                sgi->m_sizes.node_size_global[1], sgi->m_sizes.node_size_global[2]}};
+        
+        std::shared_ptr<StructuredBlock> sgiNew ( new StructuredBlock(sgi->m_comm, iblock, nijk, node_size_global, sgi->m_name+"_refined", sgi->m_base, sgi->m_zone, m_output.get()) );
         m_output->m_sblocks.push_back(sgiNew);
 
-        StructuredGridRefinerImpl<unsigned, uint64_t, MDArray>
-          refiner(sgi->m_name,
-                  sgi->m_sizes,
-                  sgiNew->m_sizes,
-                  sgi->m_loop_ordering, sgi->m_access_ordering,
-                  sgi->m_sgrid_coords,
-                  &sgiNew->m_sgrid_coords,
-                  m_debug);
-
-        // first, call to get new sizes
-        refiner.get_new_sizes();
+	get_new_sizes(sgi->m_sizes,sgiNew->m_sizes);
 
         bool debug = m_debug > 0;
         if (debug)
@@ -54,32 +64,43 @@ namespace percept {
                     << sgiNew->m_sizes.node_size[A2]
                     << std::endl;
 
+#if defined(WITH_KOKKOS)
+        Kokkos::Experimental::resize(sgiNew->m_sgrid_coords,
+                                     sgiNew->m_sizes.node_size[A0],
+                                     sgiNew->m_sizes.node_size[A1],
+                                     sgiNew->m_sizes.node_size[A2], 3);
+#else
         sgiNew->m_sgrid_coords.resize(sgiNew->m_sizes.node_size[A0],
                                       sgiNew->m_sizes.node_size[A1],
                                       sgiNew->m_sizes.node_size[A2], 3);
+#endif
+        StructuredGridRefinerImpl<unsigned, uint64_t, MTSGridField::Array4D> refiner(sgi,sgiNew,m_debug);
 
-
-        if (debug && m_eMesh.get_rank() == 0)
+        if (debug && my_rank == 0)
           std::cout << "StructuredGridRefiner: start block " << sgi->m_name << " refine..." << std::endl;
-        double cpu_0 = m_eMesh.start_cpu_timer();
+        
+        struct timeval begin, end;
+        gettimeofday(&begin,NULL);
+        {
+          stk::diag::Timer     my_timer(sgi->m_name, rootTimerStructured());
+          stk::diag::Timer     my_refine_timer("refine", my_timer);
+          stk::diag::TimeBlock my_timeblock(my_refine_timer);
 
-        refiner.refine();
-
-        cpu_0 = m_eMesh.stop_cpu_timer(cpu_0);
-
-        if (debug && m_eMesh.get_rank() == 0)
-          std::cout << "StructuredGridRefiner: ...end block " << sgi->m_name << " refine, cpu time= " << cpu_0 << " sec." << std::endl;
-
-
+          refiner.refine();
+        }
+        gettimeofday(&end,NULL);
+        runTime += 1.0*(end.tv_sec-begin.tv_sec) +
+          1.0e-6*(end.tv_usec-begin.tv_usec);
+        
         // deal with zone connectivity
         {
           int nconn = sgi->m_zoneConnectivity.size();
           for (int i = 0; i < nconn; i++) {
             Ioss::ZoneConnectivity& zc = sgi->m_zoneConnectivity[i];
-
+            
             std::string connectname = zc.m_connectionName;
             std::string donorname = zc.m_donorName;
-
+            
             std::array<cgsize_t, 3> range_beg = zc.m_rangeBeg;
             std::array<cgsize_t, 3> range_end = zc.m_rangeEnd;
             std::array<cgsize_t, 3> donor_beg = zc.m_donorRangeBeg;
@@ -95,58 +116,44 @@ namespace percept {
             int owner_zone = zc.m_ownerZone;
             (void) owner_zone;
             int donor_zone = zc.m_donorZone;
-
+            
             bool owns_nodes = sgi->m_zone < donor_zone || donor_zone == -1;
             sgiNew->m_zoneConnectivity.emplace_back(connectname, sgi->m_zone, donorname, donor_zone, transform,
                                                     range_beg, range_end, donor_beg, donor_end,
                                                     owns_nodes);
           }
         }
-
+        
         // deal with boundary conditions
         {
           int nbc = sgi->m_boundaryConditions.size();
           for (int i = 0; i < nbc; i++) {
             Ioss::BoundaryCondition& bc = sgi->m_boundaryConditions[i];
-
+            
             std::string bcname = bc.m_bcName;
             //std::string donorname = zc.m_donorName;
             // FIXME
             CG_BCType_t bctype = CGNS_ENUMV( BCTypeNull );
             (void)bctype;
-
+            
             Ioss::IJK_t range_beg = bc.m_rangeBeg;
             Ioss::IJK_t range_end = bc.m_rangeEnd;
             for (unsigned j=0; j < 3; ++j)
               {
                 range_beg[j] = 2*(range_beg[j] - m_index_base) + m_index_base;
                 range_end[j] = 2*(range_end[j] - m_index_base) + m_index_base;
-               }
-
+              }
+            
             sgiNew->m_boundaryConditions.emplace_back(bcname, range_beg, range_end);
           }
         }
       }
+    std::cout << "Runtime (seconds) over " <<  m_input->m_sblocks.size() << " blocks was " << runTime << std::endl;
   }
-
 
   void StructuredGridRefiner::do_refine()
   {
-    if (m_alg == STRUCTURED_ONLY)
-      {
-        if (m_eMesh.get_rank() == 0)
-          std::cout << "StructuredGridRefiner: start refine..." << std::endl;
-        double cpu_0 = m_eMesh.start_cpu_timer();
-
-        do_refine_structured();
-
-        cpu_0 = m_eMesh.stop_cpu_timer(cpu_0);
-
-        if (m_eMesh.get_rank() == 0)
-          std::cout << "StructuredGridRefiner: ...end refine, cpu time= " << cpu_0 << " sec." << std::endl;
-
-        return;
-      }
+    do_refine_structured();
   }
 
   void StructuredGridRefiner::print(std::ostream& out, int level)
@@ -155,11 +162,6 @@ namespace percept {
     m_input->print(out, level);
     out << "refined grid: " << std::endl;
     m_output->print(out,level);
-  }
-
-  void StructuredGridRefiner::post_proc()
-  {
-
   }
 
   // Create a structured block with twice the cells in each direction

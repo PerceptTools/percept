@@ -553,7 +553,8 @@ namespace percept {
     {
       stk::ParallelMachine pm = MPI_COMM_WORLD ;
       {
-        percept::TetWedgeFixture fixture(pm, false, true);
+        // broken if last arg is true (i.e. create sides)
+        percept::TetWedgeFixture fixture(pm, false, false);
 
         fixture.m_metaData.commit();
         fixture.populate();

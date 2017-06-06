@@ -110,14 +110,18 @@
       // eq (9.53)
       CV[0] = Q[0];
       ki=1;
+      int inc=0;
       for (int k=0; k <= n-1; k++)
         {
           CV[ki++] = Pk1[k];
           CV[ki++] = Pk2[k];
-          if (m_isCorner[k+1])
-            CV[ki++] = Q[k+1];
+          if (k < n-1 && m_isCorner[k+1])
+            {
+              ++inc;
+              CV[ki++] = Q[k+1];
+            }
         }
-      if (debug_print) std::cout << "ki= " << ki << " CV.size= " << CV.size() << " n= " << n <<  std::endl;
+      if (debug_print) std::cout << "ki= " << ki << " CV.size= " << CV.size() << " n= " << n <<  " inc= " << inc << " ncorner= " << ncorner <<std::endl;
       CV[ki] = Q[n];
       if (debug_print) std::cout << "\nLocalCubicSplineFit::fit_internal" << std::endl;
       DPRINTLN(Q);

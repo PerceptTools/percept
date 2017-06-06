@@ -32,7 +32,7 @@ public:
 
   virtual bool debug_dump_file(const std::string& file_name);
 
-  virtual std::string get_attribute(GeometryHandle geom) const;
+  virtual std::string get_attribute(GeometryHandle geom) const ;
 
   virtual void snap_to(KernelPoint& point, GeometryHandle geom,
                        double *converged_tolerance = NULL,
@@ -40,10 +40,6 @@ public:
                        double *uvw_hint = NULL,
                        void *extra_hint = NULL);
   virtual void normal_at(KernelPoint& point, GeometryHandle geom, std::vector<double>& normal, void *extra_hint = NULL);
-
-  virtual bool is_curve(GeometryHandle geom) const;
-
-  virtual bool is_surface(GeometryHandle geom) const;
 
   bool in_face(stk::mesh::Entity face, double *uv) const;
 

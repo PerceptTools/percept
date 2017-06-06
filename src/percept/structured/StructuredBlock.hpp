@@ -16,6 +16,7 @@
 #include <cgnslib.h>
 
 #include <percept/function/MDArray.hpp>
+#include <percept/MeshType.hpp>
 
 #include <array>
 #include <unordered_map>
@@ -24,7 +25,6 @@
 
 namespace percept {
 
-  class PerceptMesh;
   class BlockStructuredGrid;
 
   template<typename UInt, typename UInt64>
@@ -42,11 +42,12 @@ namespace percept {
 
   class StructuredBlock {
   public:
-    typedef MDArray Array4D;
+    //typedef MDArray Array4D;
+    using Array4D = StructuredGrid::MTField::Array4D;
+    stk::ParallelMachine m_comm;
 
   protected:
 
-    PerceptMesh* m_eMesh;
     unsigned m_iblock;
     Ioss::StructuredBlock *m_sblock;
 
@@ -76,10 +77,10 @@ namespace percept {
   public:
 
     // create a StructuredBlock from an Ioss CGNS-based Ioss::StructuredBlock
-    StructuredBlock(PerceptMesh* eMesh, unsigned iblock, Ioss::StructuredBlock *sb, BlockStructuredGrid *bsg);
+    StructuredBlock(stk::ParallelMachine comm, unsigned iblock, Ioss::StructuredBlock *sb, BlockStructuredGrid *bsg);
 
     // create a StructuredBlock with the given sizes @param njik (this mirrors the data in CGNS - nijk[0..2] give the node sizes in i,j,k, other entries ignored
-    StructuredBlock(PerceptMesh* eMesh, unsigned iblock, const std::array<unsigned,9>& nijk, const std::array<unsigned,3>& node_size_global, const std::string& name, int base, int zone, BlockStructuredGrid *bsg);
+    StructuredBlock(stk::ParallelMachine comm, unsigned iblock, const std::array<unsigned,9>& nijk, const std::array<unsigned,3>& node_size_global, const std::string& name, int base, int zone, BlockStructuredGrid *bsg);
 
     // can be "empty" if the block is not on this processor
     bool is_empty();
@@ -89,7 +90,7 @@ namespace percept {
 
     // create a 1x1x1 cube of given sizes
     static std::shared_ptr<StructuredBlock>
-    fixture_1(PerceptMesh* eMesh, std::array<unsigned,3> sizes=std::array<unsigned,3>{{2u,2u,2u}}, unsigned iblock = 0, int base = 0, int zone = 0, BlockStructuredGrid *bsg = 0);
+    fixture_1(stk::ParallelMachine comm, std::array<unsigned,3> sizes=std::array<unsigned,3>{{2u,2u,2u}}, unsigned iblock = 0, int base = 0, int zone = 0, BlockStructuredGrid *bsg = 0);
 
     // return the ordinal of the given i,j,k in the list of all nodes
     uint64_t local_offset(uint64_t i, uint64_t j, uint64_t k, unsigned *sizes);

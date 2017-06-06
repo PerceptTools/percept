@@ -17,7 +17,6 @@
 
 #include <stk_mesh/base/FieldParallel.hpp>
 #include <percept/MeshType.hpp>
-//#include <percept/MeshTypeSpec.hpp>
 
 #include <percept/mesh/mod/smoother/ReferenceMeshSmootherConjugateGradient.hpp>
 #include <percept/mesh/mod/smoother/ReferenceMeshSmootherConjugateGradientDef.hpp>
@@ -28,17 +27,10 @@
 #include "mpi.h"
 #include <cstdio>
 
-
 namespace percept {
-
-
-
   template class ReferenceMeshSmootherConjugateGradientImpl<STKMesh>;
   template class ReferenceMeshSmootherConjugateGradientImpl<StructuredGrid>;
-
 }
-
-
 
 #endif
 

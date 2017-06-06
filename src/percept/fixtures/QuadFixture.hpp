@@ -15,6 +15,7 @@
 #include <Shards_BasicTopologies.hpp>
 
 #include <stk_util/parallel/Parallel.hpp>
+#include <stk_util/parallel/CommSparse.hpp>
 
 #include <stk_mesh/base/Types.hpp>
 #include <stk_mesh/base/MetaData.hpp>
@@ -149,7 +150,7 @@
 
         void fix_node_sharing(stk::mesh::BulkData& bulk_data)
         {
-            stk::CommAll comm(bulk_data.parallel());
+            stk::CommSparse comm(bulk_data.parallel());
 
             for (int phase=0;phase<2;++phase)
             {
@@ -175,7 +176,7 @@
 
                 if (phase == 0 )
                 {
-                    comm.allocate_buffers( bulk_data.parallel_size()/4 );
+                  comm.allocate_buffers(); // bulk_data.parallel_size()/4 );
                 }
                 else
                 {

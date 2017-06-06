@@ -17,106 +17,87 @@
 #include <percept/mesh/mod/smoother/SmootherMetricShapeB1Gen.hpp>
 #include <boost/unordered_map.hpp>
 #include <stk_mesh/base/FieldParallel.hpp>
+#include <percept/PerceptUtils.hpp>
 
-  namespace percept {
+namespace percept {
 
-    /// A smoother based on a reference mesh - tries to make the new mesh the same local size as original
+/// A smoother based on a reference mesh - tries to make the new mesh the same local size as original
 
-    template<typename MeshType>
-    class ReferenceMeshSmootherBaseImpl : public MeshSmootherImpl<MeshType> {
+template<typename MeshType>
+class ReferenceMeshSmootherBaseImpl : public MeshSmootherImpl<MeshType> {
 
-    public:
+public:
 
-      using Base = MeshSmootherImpl<MeshType>;
+	using Base = MeshSmootherImpl<MeshType>;
 
-      typedef std::vector<double> Vector;
-      typedef boost::unordered_map<typename MeshType::MTNode , Vector  > NodeMap;
+	typedef std::vector<double> Vector;
+	typedef boost::unordered_map<typename MeshType::MTNode , Vector  > NodeMap;
 
-      ReferenceMeshSmootherBaseImpl(PerceptMesh *eMesh,
-                                typename MeshType::MTSelector *boundary_selector=0,
-                                typename MeshType::MTMeshGeometry *meshGeometry=0,
-                                int inner_iterations = 100,
-                                double grad_norm =1.e-8,
-                                int parallel_iterations = 20)
-        : MeshSmootherImpl<MeshType>(eMesh, boundary_selector, meshGeometry, inner_iterations, grad_norm, parallel_iterations),
-          m_scale(0),
-          m_dmax(0),
-          m_dmax_relative(0),
-          m_dnew(0), m_dold(0), m_d0(1), m_dmid(0), m_dd(0), m_alpha(0), m_alpha_0(0), m_grad_norm(0), m_grad_norm_scaled(0),
-          m_total_metric(0),
-          m_stage(0),
-          m_omega(0),
-          m_omega_prev(0),
-          m_iter(0),
-          m_num_invalid(0), m_global_metric(std::numeric_limits<double>::max()), m_untangled(false), m_num_nodes(0),
-          m_use_ref_mesh(true), m_do_animation(0)
-      {
-        if (eMesh->getProperty("ReferenceMeshSmootherBase_do_anim") != "")
-          {
-            m_do_animation = toInt(eMesh->getProperty("ReferenceMeshSmootherBase_do_anim"));
-            std::cout << "m_do_animation= " << m_do_animation << std::endl;
-          }
-      }
+	ReferenceMeshSmootherBaseImpl(PerceptMesh *eMesh,
+			typename MeshType::MTSelector *boundary_selector=0,
+			typename MeshType::MTMeshGeometry *meshGeometry=0,
+			int inner_iterations = 100,
+			double grad_norm =1.e-8,
+			int parallel_iterations = 20);
 
+protected:
 
-    protected:
+	virtual int get_num_stages() { return 2; }
+	virtual void run_algorithm();
+	virtual double run_one_iteration();
 
-      virtual int get_num_stages() { return 2; }
-      virtual void run_algorithm();
-      virtual double run_one_iteration();
+	void sync_fields(int iter=0);
+	virtual bool check_convergence();
 
-      void sync_fields(int iter=0);
-      virtual bool check_convergence();
+	void project_all_delta_to_tangent_plane(typename MeshType::MTField *field);
+	void check_project_all_delta_to_tangent_plane(typename MeshType::MTField *field);
 
-      void project_all_delta_to_tangent_plane(typename MeshType::MTField *field);
-      void check_project_all_delta_to_tangent_plane(typename MeshType::MTField *field);
+	template<typename T>
+	void check_equal(T& val)
+	{
+		T global_min = val, global_max=val;
+		stk::all_reduce( Base::m_eMesh->get_bulk_data()->parallel() , stk::ReduceMax<1>( & global_max ) );
+		stk::all_reduce( Base::m_eMesh->get_bulk_data()->parallel() , stk::ReduceMax<1>( & global_max ) );
+		VERIFY_OP_ON( global_max, ==, val , "bad parallel val");
+		VERIFY_OP_ON( global_min, ==, val , "bad parallel val");
+		VERIFY_OP_ON( global_max, ==, global_min , "bad parallel val");
+	}
 
-      template<typename T>
-      void check_equal(T& val)
-      {
-        T global_min = val, global_max=val;
-        stk::all_reduce( Base::m_eMesh->get_bulk_data()->parallel() , stk::ReduceMax<1>( & global_max ) );
-        stk::all_reduce( Base::m_eMesh->get_bulk_data()->parallel() , stk::ReduceMax<1>( & global_max ) );
-        VERIFY_OP_ON( global_max, ==, val , "bad parallel val");
-        VERIFY_OP_ON( global_min, ==, val , "bad parallel val");
-        VERIFY_OP_ON( global_max, ==, global_min , "bad parallel val");
-      }
+public:
+	NodeMap m_current_position;
+	NodeMap m_delta;
+	NodeMap m_weight;
+	NodeMap m_nweight;
 
-    public:
-      NodeMap m_current_position;
-      NodeMap m_delta;
-      NodeMap m_weight;
-      NodeMap m_nweight;
+	double m_scale;
+	typedef long double Double;
+	Double m_dmax;
+	Double m_dmax_relative;
+	Double m_dnew, m_dold, m_d0, m_dmid, m_dd, m_alpha, m_alpha_0, m_grad_norm, m_grad_norm_scaled;
+	Double m_total_metric;
+	int m_stage;
+	double m_omega;
+	double m_omega_prev;
+	int m_iter;
 
-      double m_scale;
-      typedef long double Double;
-      Double m_dmax;
-      Double m_dmax_relative;
-      Double m_dnew, m_dold, m_d0, m_dmid, m_dd, m_alpha, m_alpha_0, m_grad_norm, m_grad_norm_scaled;
-      Double m_total_metric;
-      int m_stage;
-      double m_omega;
-      double m_omega_prev;
-      int m_iter;
+	size_t m_num_invalid;
+	Double m_global_metric;
+	bool m_untangled;
+	size_t m_num_nodes;
 
-      size_t m_num_invalid;
-      Double m_global_metric;
-      bool m_untangled;
-      size_t m_num_nodes;
+	typename MeshType::MTField *m_coord_field_original;
+	typename MeshType::MTField *m_coord_field_projected;
+	typename MeshType::MTField *m_coord_field_current;
+	typename MeshType::MTField *m_coord_field_lagged;
 
-      typename MeshType::MTField *m_coord_field_original;
-      typename MeshType::MTField *m_coord_field_projected;
-      typename MeshType::MTField *m_coord_field_current;
-      typename MeshType::MTField *m_coord_field_lagged;
+	SmootherMetricImpl<MeshType> *m_metric;
+public:
+	bool m_use_ref_mesh;
+	int m_do_animation;
+};
 
-      SmootherMetricImpl<MeshType> *m_metric;
-    public:
-      bool m_use_ref_mesh;
-      int m_do_animation;
-    };
-
-    using ReferenceMeshSmootherBase = ReferenceMeshSmootherBaseImpl<STKMesh>;
-  }
+using ReferenceMeshSmootherBase = ReferenceMeshSmootherBaseImpl<STKMesh>;
+}
 
 #endif
 #endif

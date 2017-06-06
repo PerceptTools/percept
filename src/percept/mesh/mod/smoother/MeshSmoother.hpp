@@ -74,13 +74,13 @@
       void run( bool always_smooth=true, int debug=0);
       virtual void run_algorithm() = 0;
 
+
       static bool select_bucket(typename MeshType::MTBucket& bucket, PerceptMesh *eMesh);
-
       std::pair<bool,int> get_fixed_flag(typename MeshType::MTNode node_ptr);
-
-      int classify_node(typename MeshType::MTNode node, size_t& curveOrSurfaceEvaluator) const;
+      int classify_node(typename MeshType::MTNode node, GeometryHandle curveOrSurfaceEvaluator /*size_t& curveOrSurfaceEvaluator*/) const;
       void project_delta_to_tangent_plane(typename MeshType::MTNode node, double *delta, double *norm=0);
       void enforce_tangent_plane(typename MeshType::MTNode node, double rhs[3], double lhs[3][3], double *norm=0);
+
       /// if reset is true, don't actually modify the node's coordinates and only
       /// return the snapped position in @param coordinate
       void snap_to(typename MeshType::MTNode node_ptr,  double *coordinate, bool reset=false) const;

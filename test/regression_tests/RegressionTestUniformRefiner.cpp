@@ -66,9 +66,7 @@
 #include <adapt/UniformRefinerPattern_def.hpp>
 #include <stk_mesh/base/MeshUtils.hpp>
 
-#if defined(STK_BUILT_IN_SIERRA)
-#include "stk_unit_test_utils/ReadWriteSidesetTester.hpp"
-#endif
+#include <stk_unit_test_utils/ReadWriteSidesetTester.hpp>
 
 // this is for testing the local-refine refactoring
 #define UNIFORM_REFINER UniformRefiner
@@ -1804,29 +1802,6 @@
 
       }
 
-      //======================================================================================================================
-      //======================================================================================================================
-      //======================================================================================================================
-
-      TEST(regr_uniformRefiner, break_tet4_tet4_0)
-      {
-        EXCEPTWATCH;
-        MPI_Barrier( MPI_COMM_WORLD );
-
-        stk::ParallelMachine pm = MPI_COMM_WORLD ;
-        //const unsigned p_rank = stk::parallel_machine_rank( pm );
-        const unsigned p_size = stk::parallel_machine_size( pm );
-        if (p_size == 1 || p_size == 3)
-          {
-            // start_demo_uniformRefiner_break_tet4_tet4
-            percept::PerceptMesh eMesh(3u);
-            eMesh.open_read_only(input_files_loc+"break_test"+path_sep+"tet"+path_sep+"cylinder-from-hex"+path_sep+"cylinder_tet4.e");
-
-            eMesh.save_as(output_files_loc+"cylinder_tet4_0.e");
-            // end_demo
-
-          }
-      }
 
 #if 1
       //======================================================================================================================

@@ -29,7 +29,7 @@ public:
         int i=1;
         while (!file.eof())
         {
-            geometry_entities.push_back(i);
+            geometry_entities.push_back(GeometryHandle(i,CURVE));
             char string[256];
             file.getline(string, 255);
             geometryAttribute[i]=string;
@@ -40,7 +40,7 @@ public:
 
     virtual std::string get_attribute(GeometryHandle geom) const
     {
-      return geometryAttribute[geom];
+      return geometryAttribute[geom.m_id];
     }
 
     virtual void snap_to(KernelPoint& point, GeometryHandle geom,
@@ -49,17 +49,6 @@ public:
                          double *uvw_hint = NULL, void *extra_hint = NULL) {}
 
   virtual void normal_at(KernelPoint& point, GeometryHandle geom, std::vector<double>& normal, void *extra_hint = NULL) {}
-
-
-    virtual bool is_curve(GeometryHandle geom) const
-    {
-      return true;
-    }
-
-    virtual bool is_surface(GeometryHandle geom) const
-    {
-      return true;
-    }
 
 private:
     std::map<int, std::string> geometryAttribute;

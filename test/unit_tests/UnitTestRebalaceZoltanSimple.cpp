@@ -120,7 +120,7 @@ TEST(UnitTestZoltanSimple, testUnit)
           stk::mesh::Entity  n_left  = bulk_data.get_entity( NODE_RANK, nid_left  );
           stk::mesh::Entity  n_right = bulk_data.get_entity( NODE_RANK, nid_right );
           const stk::mesh::EntityId constraint_entity_id =  1 + ix + nny * nnx;
-          stk::mesh::Entity  c = bulk_data.declare_entity( constraint_rank, constraint_entity_id, add );
+          stk::mesh::Entity  c = bulk_data.declare_constraint(constraint_entity_id, add );
           bulk_data.declare_relation( c , n_left  , 0 );
           bulk_data.declare_relation( c , n_right , 1 );
         }
@@ -133,7 +133,7 @@ TEST(UnitTestZoltanSimple, testUnit)
             stk::mesh::EntityId elem_id = 1 + ix + iy * nx ;
             stk::mesh::Entity  elem  = bulk_data.get_entity( element_rank, elem_id);
             const stk::mesh::EntityId constraint_entity_id =  elem_id + (ny+1) * (nx+1);
-            stk::mesh::Entity  c = bulk_data.declare_entity( constraint_rank, constraint_entity_id, add );
+            stk::mesh::Entity  c = bulk_data.declare_constraint(constraint_entity_id, add );
             bulk_data.declare_relation( c , elem  , 0 );
           }
         }

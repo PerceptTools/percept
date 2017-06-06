@@ -77,7 +77,7 @@ TEST(nodeRegistry, createAddNodes_serial_and_1st_parallel)
   if (p_size >= 3)
     return;
 
-  //stk::CommAll comm_all(eMesh.get_bulk_data()->parallel());
+  //stk::CommSparse comm_all(eMesh.get_bulk_data()->parallel());
   NodeRegistry nodeRegistry(eMesh);
   nodeRegistry.initialize();
 
@@ -316,10 +316,10 @@ TEST(nodeRegistry, test_parallel_1_0)
     eMesh.get_bulk_data()->modification_begin();
     if (p_size == 1)
       {
-        stk::mesh::Entity elem0 = eMesh.get_bulk_data()->declare_entity(stk::topology::ELEMENT_RANK, elem_num_local_hex20, block_hex_20);
+        stk::mesh::Entity elem0 = eMesh.get_bulk_data()->declare_element(elem_num_local_hex20, {&block_hex_20});
         for(unsigned node_ord = 0 ; node_ord < 20; ++node_ord)
         {
-          stk::mesh::Entity new_node = eMesh.get_bulk_data()->declare_entity(stk::topology::NODE_RANK, node_ord+1000);
+          stk::mesh::Entity new_node = eMesh.get_bulk_data()->declare_node(node_ord+1000);
           eMesh.get_bulk_data()->declare_relation( elem0 , new_node , node_ord);
         }
       }
@@ -327,19 +327,19 @@ TEST(nodeRegistry, test_parallel_1_0)
       {
         if (p_rank == 0)
         {
-          stk::mesh::Entity elem1 = eMesh.get_bulk_data()->declare_entity(stk::topology::ELEMENT_RANK, elem_num_local_hex20, block_hex_20);
+          stk::mesh::Entity elem1 = eMesh.get_bulk_data()->declare_element(elem_num_local_hex20, {&block_hex_20});
           for(unsigned node_ord = 0 ; node_ord < 20; ++node_ord)
           {
-            stk::mesh::Entity new_node = eMesh.get_bulk_data()->declare_entity(stk::topology::NODE_RANK, node_ord+2000);
+            stk::mesh::Entity new_node = eMesh.get_bulk_data()->declare_node(node_ord+2000);
             eMesh.get_bulk_data()->declare_relation( elem1 , new_node , node_ord);
           }
         }
         if (p_rank == 1)
         {
-          stk::mesh::Entity elem2 = eMesh.get_bulk_data()->declare_entity(stk::topology::ELEMENT_RANK, elem_num_ghost_hex20, block_hex_20);
+          stk::mesh::Entity elem2 = eMesh.get_bulk_data()->declare_element(elem_num_ghost_hex20, {&block_hex_20});
           for(unsigned node_ord = 0 ; node_ord < 20; ++node_ord)
           {
-            stk::mesh::Entity new_node = eMesh.get_bulk_data()->declare_entity(stk::topology::NODE_RANK, node_ord+3000);
+            stk::mesh::Entity new_node = eMesh.get_bulk_data()->declare_node(node_ord+3000);
             eMesh.get_bulk_data()->declare_relation( elem2 , new_node , node_ord);
           }
         }
@@ -433,9 +433,10 @@ TEST(nodeRegistry, test_parallel_1_0)
           out << YAML::Key << 3;
           out << YAML::Value << 4;
           out << YAML::EndMap;
-          //std::cout << "out=\n" << out.c_str() << "\n=out" << std::endl;
-          std::string expected_result = "&NodeRegistry::map\n?\n  - 1\n  - 2\n:\n  - -1\n  - -2\n1: 2\n3: 4";
-          //std::cout << "out2=\n" << expected_result << std::endl;
+          std::cout << "out=\n" << out.c_str() << "\n=out" << std::endl;
+          //std::string expected_result = "&NodeRegistry::map\n?\n  - 1\n  - 2\n:\n  - -1\n  - -2\n1: 2\n3: 4";
+          std::string expected_result = "&NodeRegistry::map\n? - 1\n  - 2\n: - -1\n  - -2\n1: 2\n3: 4";
+          std::cout << "out2=\n" << expected_result << std::endl;
           EXPECT_TRUE(expected_result == std::string(out.c_str()));
         }
 
@@ -452,27 +453,29 @@ TEST(nodeRegistry, test_parallel_1_0)
         file1 << yaml.c_str();
         file1.close();
         std::ifstream file2("out.yaml");
-        YAML::Parser parser(file2);
+        //YAML::Parser parser(file2);
         YAML::Node doc;
 
         try {
-          while(parser.GetNextDocument(doc)) {
+          //while(parser.GetNextDocument(doc)) {
+          if (1) {
+            doc = YAML::Load(file2);
             std::cout << "\n read doc.Type() = " << doc.Type() << " doc.Tag()= " << doc.Tag() << " doc.size= " << doc.size() << std::endl;
             if (doc.Type() == YAML::NodeType::Map)
               {
-                for(YAML::Iterator it=doc.begin();it!=doc.end();++it) {
+                for(YAML::const_iterator it=doc.begin();it!=doc.end();++it) {
                   int key, value;
-                  std::cout << "read it.first().Type() = " << it.first().Type() << " it.first().Tag()= " << it.first().Tag() << std::endl;
-                  std::cout << "read it.second().Type() = " << it.second().Type() << " it.second().Tag()= " << it.second().Tag() << std::endl;
-                  const YAML::Node& keySeq = it.first();
-                  for(YAML::Iterator itk=keySeq.begin();itk!=keySeq.end();++itk) {
-                    *itk >> key;
+                  std::cout << "read it.first().Type() = " << it->first.Type() << " it.first().Tag()= " << it->first.Tag() << std::endl;
+                  std::cout << "read it.second().Type() = " << it->second.Type() << " it.second().Tag()= " << it->second.Tag() << std::endl;
+                  const YAML::Node& keySeq = it->first;
+                  for(YAML::const_iterator itk=keySeq.begin();itk!=keySeq.end();++itk) {
+                    key = itk->as<int>();
                     std::cout << "read key= " << key << std::endl;
                   }
 
-                  const YAML::Node& valSeq = it.second();
-                  for(YAML::Iterator itv=valSeq.begin();itv!=valSeq.end();++itv) {
-                    *itv >> value;
+                  const YAML::Node& valSeq = it->second;
+                  for(YAML::const_iterator itv=valSeq.begin();itv!=valSeq.end();++itv) {
+                    value = itv->as<int>();
                     std::cout << "read value= " << value << std::endl;
                   }
 
@@ -667,7 +670,7 @@ TEST(nodeRegistry, test_serial_hex8_tet4_24_1)
     std::cout << "P[" << p_rank << "] nodeId_0 = " << nodeIds_onSE_0 << " node_0= " << node_0 << std::endl;
     if (p_size == 2)
     {
-      EXPECT_EQ(eMesh.identifier(nodeIds_onSE_0[0]), 14u);
+      EXPECT_EQ(eMesh.identifier(nodeIds_onSE_0[0]), 15u);
     }
 
     // end_demo

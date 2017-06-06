@@ -75,7 +75,10 @@
       // far away from the "action", this can return false - be aware
       // that even though an element may not be refined, if it's possible
       // that its neighbor is refined, this must return true
-      virtual bool operator()(stk::mesh::Entity element)=0;
+      virtual bool operator()(stk::mesh::Entity element) { throw std::runtime_error("not impl"); }
+      virtual bool use_batch_filter() { return false; }
+      virtual void batch_filter(stk::mesh::EntityRank rank, std::vector<stk::mesh::Entity>& elements) { throw std::runtime_error("not impl"); }
+      virtual void batch_filter(stk::mesh::EntityRank rank, SetOfEntities& elements) { throw std::runtime_error("not impl"); }
     };
 
     //========================================================================================================================
@@ -94,6 +97,7 @@
 
       virtual ~Refiner();
 
+      void doProgressPrint(const std::string& str);
       virtual void
       doBreak(int num_registration_loops=1);
 
@@ -151,8 +155,8 @@
       bool
       getDoRebalance(double *threshold = 0) { if (threshold) *threshold = m_rebalThreshold; return m_doRebalance; }
 
-      std::vector< RefinementInfoByType >&
-      getRefinementInfoByType();
+      RefinementInfo&
+      getRefinementInfo();
 
       void
       setQueryPassOnly(bool doQueryOnly);
@@ -174,7 +178,6 @@
 
       // ================================ unrefine
 
-      //typedef std::set<stk::mesh::Entity, stk::mesh::EntityLess> NodeSetType;
       typedef SetOfEntities NodeSetType;
 
       virtual void
@@ -192,6 +195,11 @@
       stk::diag::Timer *getAlternateRootTimer() { return m_alternateRootTimer; }
       void setAlternateRootTimer(stk::diag::Timer *timer) { m_alternateRootTimer = timer; }
 
+      stk::diag::Timer *getModBegEndRootTimer() { return m_modBegEndRootTimer; }
+      void setModBegEndRootTimer(stk::diag::Timer *timer) { m_modBegEndRootTimer = timer; }
+
+      void reset_family_tree_to_node_relations();
+
       /// for quad/hex hangin node topology, we don't need to remesh during unrefinement
       ///   default is on (for tri/tet local refinement)
       void
@@ -208,6 +216,9 @@
 
       bool
       getDoLevelBasedUnrefinement() { return m_doLevelBasedUnrefinement; }
+
+      void mod_begin(stk::diag::Timer *timer=0);
+      void mod_end(stk::diag::Timer *timer=0, const std::string& msg="");
 
 
 #if  defined(STK_PERCEPT_HAS_GEOMETRY)
@@ -229,7 +240,7 @@
 
       void check_db(std::string msg="") ;
 
-      void fix_side_sets_2(bool allow_not_found=false, SetOfEntities *avoid_elems = 0, SetOfEntities *avoid_sides = 0);
+      void fix_side_sets_2(bool allow_not_found=false, SetOfEntities *avoid_elems = 0, SetOfEntities *avoid_sides = 0, RefinerSelector *sel=0, const std::string& msg="");
 
       /// determine side part to elem part relations
       static
@@ -255,7 +266,6 @@
       void
       unrefinePass2(ElementUnrefineCollection& elements_to_unref);
 
-      static stk::diag::TimerSet &rootTimerSet();
       stk::diag::Timer &rootTimer();
 
       void
@@ -267,12 +277,19 @@
       virtual void
       initializeRefine();
 
+      void check_parent_ownership();
+      void require_sides_on_same_proc_as_pos_perm_element();
+      bool check_sides_on_same_proc_as_owned_element(const std::string& msg, bool doThrow = true);
+      void build_side_set(SetOfEntities& side_set, bool only_roots = false);
+      bool bucket_acceptable(stk::mesh::Bucket& bucket, stk::mesh::EntityRank rank);
+      bool include_side_bucket(stk::mesh::Bucket& side_bucket, stk::mesh::Selector *excludeSelector);
+
     protected:
       void fillElementRankTypeInfo(std::vector<stk::mesh::EntityRank>& ranks);
 
       void getRefinementInfo(std::vector<stk::mesh::EntityRank>& ranks);
 
-      void filterUsingRefinerSelector(std::vector<stk::mesh::Entity>& elements);
+      void filterUsingRefinerSelector(stk::mesh::EntityRank rank, std::vector<stk::mesh::Entity>& elements);
 
       typedef  std::pair<stk::mesh::EntityRank, unsigned > ElementRankTypeInfo;
 
@@ -331,17 +348,10 @@
 
       void get_deleted_sides(SetOfEntities& sides_to_delete, ElementUnrefineCollection& elements_to_unref, SetOfEntities& elements_to_be_remeshed);
 
-      void check_parent_ownership();
-      void require_sides_on_same_proc_as_pos_perm_element();
-      bool check_sides_on_same_proc_as_owned_element(const std::string& msg, bool doThrow = true);
-      void build_side_set(SetOfEntities& side_set);
-
-
-      void remesh(SetOfEntities& parent_elements);
+      void remesh(stk::mesh::Entity parent_element);
       //============= unrefine end
 
       void check_db_ownership_consistency(std::string msg="");
-      void check_db_hanging_nodes();
       void check_db_entities_exist(std::string msg="");
 
       /**  Overrides start =======>
@@ -386,7 +396,9 @@
                                             unsigned elementType,
                                             vector<NeededEntityType>& needed_entity_ranks,
                                             vector<stk::mesh::Entity>& new_elements_pool,
-                                            vector<stk::mesh::Entity>& ft_new_elements_pool
+                                            vector<stk::mesh::Entity>& ft_new_elements_pool,
+                                            vector<stk::mesh::Entity>::iterator * new_elements_pool_end_iter,
+                                            vector<stk::mesh::Entity>::iterator * ft_new_elements_pool_end_iter
                                             );
 
       /** This is a helper method that loops over all sub-dimensional entities whose rank matches on of those in @param needed_entity_ranks
@@ -413,7 +425,7 @@
 
       /// =========>  Overrides  end
 
-
+      void update_node_registry();
 
       void
       removeFamilyTrees();
@@ -485,7 +497,7 @@
       std::string m_geomFile;
       bool m_geomSnap;
 
-      std::vector< RefinementInfoByType > m_refinementInfoByType;
+      RefinementInfo m_refinementInfo;
       bool m_doQueryOnly;
 
       int m_progress_meter_frequency;
@@ -508,7 +520,9 @@
       vector< ElementRankTypeInfo > m_elementRankTypeInfo;
 
       stk::diag::Timer *m_alternateRootTimer;
+      stk::diag::Timer *m_modBegEndRootTimer;
       RefinerSelector *m_refinerSelector;
+      RefinerSelector *m_fixSideSetsSelector;
       bool m_doAddChildrenToParts;
       stk::mesh::PartVector m_excludeParts;
       bool m_avoidFixSideSets;
@@ -520,6 +534,9 @@
       double m_rebalThreshold;
       bool m_removeFromNewNodesPart;
       bool m_do_new_elements;
+      stk::diag::TimerSet m_timerSet;
+      stk::diag::Timer m_timer;
+      std::vector<stk::mesh::Selector> m_fromPartsSelector;
     };
 
 

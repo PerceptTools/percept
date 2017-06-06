@@ -38,11 +38,6 @@
 #include <sstream>
 
 #include <Shards_BasicTopologies.hpp>
-
-//#include <Slib_ExceptionReport.h>
-//#include <stk_util/diag/StringUtil.hpp>
-
-//#include <element/Elem_CellTopology.h>
 #include <adapt/sierra_element/CellTopology.hpp>
 
 using namespace shards;

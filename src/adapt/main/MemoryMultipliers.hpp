@@ -48,15 +48,15 @@ namespace percept {
       return mult_nodes*num_nodes + mult_hex8*num_hex8 + mult_tet4*num_tet4;
     }
 
-    MemorySizeType estimate_memory(std::vector<RefinementInfoByType>& refInfo, bool use_new=true)
+    MemorySizeType estimate_memory(RefinementInfo& refInfo, bool use_new=true)
     {
       num_hex8=0ul;
       num_tet4=0ul;
       num_nodes=0ul;
 
-      for (unsigned i = 0; i < refInfo.size(); i++)
+      for (unsigned i = 0; i < refInfo.m_refinementInfoByType.size(); i++)
         {
-          num_nodes= refInfo[0].m_numNewNodes;
+          num_nodes= refInfo.m_refinementInfoByType[0].m_numNewNodes;
           //std::cout << "irank, rank, m_numNewNodes, m_numNewElems= " << i << " " << refInfo[i].m_rank << " " << refInfo[i].m_numNewNodes
           //<< " " << refInfo[i].m_numNewElemsLast
           //<< std::endl;
@@ -67,20 +67,20 @@ namespace percept {
           //               }
           //             else
           {
-            switch(refInfo[i].m_topology.getKey())
+            switch(refInfo.m_refinementInfoByType[i].m_topology.getKey())
               {
               case shards::Hexahedron<8>::key:
                 if (use_new)
-                  num_hex8 += refInfo[i].m_numNewElemsLast;
+                  num_hex8 += refInfo.m_refinementInfoByType[i].m_numNewElemsLast;
                 else
-                  num_hex8 += refInfo[i].m_numOrigElemsLast;
+                  num_hex8 += refInfo.m_refinementInfoByType[i].m_numOrigElemsLast;
 
                 break;
               case shards::Tetrahedron<4>::key:
                 if (use_new)
-                  num_tet4 += refInfo[i].m_numNewElemsLast;
+                  num_tet4 += refInfo.m_refinementInfoByType[i].m_numNewElemsLast;
                 else
-                  num_tet4 += refInfo[i].m_numOrigElemsLast;
+                  num_tet4 += refInfo.m_refinementInfoByType[i].m_numOrigElemsLast;
                 break;
               default:
                 break;
@@ -93,7 +93,7 @@ namespace percept {
 
     static double MegaByte(MemorySizeType x) { return  ((double)x/1024.0/1024.0); }
 
-    static void process_estimate(MemorySizeType tot_mem, PerceptMesh& eMesh, std::vector<RefinementInfoByType>& refInfo, std::string memory_multipliers_file, std::string input_file, bool use_new=true)
+    static void process_estimate(MemorySizeType tot_mem, PerceptMesh& eMesh, RefinementInfo& refInfo, std::string memory_multipliers_file, std::string input_file, bool use_new=true)
     {
       //const stk::ParallelMachine& comm = eMesh.get_bulk_data()->parallel();
 
@@ -105,7 +105,7 @@ namespace percept {
             stk::mesh::Selector sel_globally_shared(eMesh.get_fem_meta_data()->globally_shared_part());
             stk::mesh::Selector sel_universal(eMesh.get_fem_meta_data()->universal_part());
 
-            std::vector<unsigned> count ;
+            std::vector<size_t> count ;
             stk::mesh::count_entities( sel_universal, *eMesh.get_bulk_data(), count );
 
             unsigned nnodes = count[0];
@@ -117,7 +117,7 @@ namespace percept {
           // FIXME, here's where we would read in some values for memMults from memory_multipliers_file
           if (memory_multipliers_file.size())
             memMults.read_simple(memory_multipliers_file);
-          RefinementInfoByType::countCurrentNodes(eMesh, refInfo);
+          refInfo.countCurrentNodes(eMesh);
           MemorySizeType estMem = memMults.estimate_memory(refInfo, use_new);
           //std::cout << "tmp srk tot_mem = " << MegaByte(tot_mem) << " estMem= " << MegaByte(estMem) << std::endl;
           if (eMesh.get_rank() == 0)
@@ -139,7 +139,7 @@ namespace percept {
           // FIXME, here's where we would read in some values for memMults from memory_multipliers_file
           if (memory_multipliers_file.size())
             memMults.read_simple(memory_multipliers_file);
-          RefinementInfoByType::countCurrentNodes(eMesh, refInfo);
+          refInfo.countCurrentNodes(eMesh);
           MemorySizeType estMem = memMults.estimate_memory(refInfo);
           //std::cout << "tmp srk tot_mem = " << MegaByte(tot_mem) << " estMem= " << MegaByte(estMem) << std::endl;
           if (eMesh.get_rank() == 0)

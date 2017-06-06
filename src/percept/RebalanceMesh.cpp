@@ -371,9 +371,6 @@ namespace percept {
   RebalanceMesh::RebalanceMesh(PerceptMesh& mesh, ScalarFieldType *weight_field, bool deb, bool doAdaptedMesh)
     : m_eMesh(mesh), m_debug(deb), m_weight_field(weight_field), m_rank_to_rebalance(m_eMesh.element_rank()), m_doAdaptedMesh(doAdaptedMesh)
   {
-#ifndef NDEBUG
-    m_debug = true;
-#endif
   }
 
   void RebalanceMesh::build_entities_to_rebalance_list(stk::mesh::EntityVector& vec)

@@ -8,10 +8,15 @@
 #ifndef percept_PerceptUtils_hpp
 #define percept_PerceptUtils_hpp
 
-namespace stk {namespace mesh {
-    class Entity;
-    class FieldBase;
-}}
+namespace stk {
+namespace mesh {
+  class Entity;
+  class FieldBase;
+}
+namespace diag {
+  class Timer;
+}
+}
 
 class CellTopologyData;
 
@@ -20,6 +25,10 @@ namespace percept {
   void computeCentroid(stk::mesh::Entity entity, double centroid[3], const stk::mesh::FieldBase & coord_field);
 
   double volume(stk::mesh::Entity element, const stk::mesh::FieldBase *coord_field, const CellTopologyData * cell_topo_data);
+
+  stk::diag::Timer& rootTimerStructured();
+
+  void printTimersTableStructured();
 }
 
 #endif

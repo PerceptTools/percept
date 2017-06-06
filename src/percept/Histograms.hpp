@@ -143,22 +143,25 @@
       {
         std::stringstream ss(m_root_string);
 
-        YAML::Parser parser(ss);
+        //YAML::Parser parser(ss);
         YAML::Node node, node1;
 
         try {
-          while(parser.GetNextDocument(node)) {
+
+          if (1) {
+            //while(parser.GetNextDocument(node)) {
+            node = YAML::Load(ss);
             //std::cout << "\n read doc.Type() = " << doc.Type() << " doc.Tag()= " << doc.Tag() << " doc.size= " << doc.size() << std::endl;
             if (node.Type() == YAML::NodeType::Scalar)
               {
                 std::string file_name;
-                node >> file_name;
+                file_name = node.as<std::string>();
                 std::cout << "HistogramsParser:: redirecting input from "<< file_name << std::endl;
                 std::ifstream file(file_name.c_str());
-                YAML::Parser parser1(file);
-                while(parser1.GetNextDocument(node1)) {
-                  parse(node1, histograms);
-                }
+                //YAML::Parser parser1(file);
+                //while(parser1.GetNextDocument(node1)) {
+                node1 = YAML::Load(file);
+                parse(node1, histograms);
               }
             else
               {
@@ -179,13 +182,13 @@
 
         set_if_present(node, "step", histograms.m_database_step, int(-1));
 
-        const YAML::Node *y_element_fields = node.FindValue("fields");
+        const YAML::Node y_element_fields = node["fields"];
         if (y_element_fields)
           {
-            for (size_t iter = 0; iter < y_element_fields->size(); iter++)
+            for (size_t iter = 0; iter < y_element_fields.size(); iter++)
               {
                 std::string element_field_name;
-                (*y_element_fields)[iter] >> element_field_name;
+                element_field_name = y_element_fields[iter].as<std::string>();
                 std::string title="Field "+element_field_name;
                 histograms["field."+element_field_name].set_titles(title);
               }
@@ -198,13 +201,13 @@
           std::string mesh_fields[4] =  {"edge_length", "quality_edge", "quality_vol_edge_ratio", "volume"};
           std::set<std::string> valid_values(mesh_fields, mesh_fields+4);
 
-          const YAML::Node *y_mesh_fields = node.FindValue("mesh");
+          const YAML::Node y_mesh_fields = node["mesh"];
           if (y_mesh_fields)
             {
-              for (size_t iter = 0; iter < y_mesh_fields->size(); iter++)
+              for (size_t iter = 0; iter < y_mesh_fields.size(); iter++)
                 {
                   std::string mesh_field_name;
-                  (*y_mesh_fields)[iter] >> mesh_field_name;
+                  mesh_field_name = y_mesh_fields[iter].as<std::string>();
                   if (valid_values.find(mesh_field_name) == valid_values.end())
                     throw std::runtime_error("HistogramsParser:: unrecognized option: " + mesh_field_name);
                   std::string title="Mesh Field "+mesh_field_name;

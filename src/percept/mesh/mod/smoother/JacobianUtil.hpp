@@ -14,7 +14,7 @@
 
 #include <percept/PerceptMesh.hpp>
 #include <percept/MeshType.hpp>
-#include <percept/StructuredCellIndex.hpp>
+#include <percept/structured/StructuredCellIndex.hpp>
 #include <percept/math/DenseMatrix.hpp>
 
   namespace percept {

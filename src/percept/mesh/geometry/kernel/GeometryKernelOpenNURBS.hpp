@@ -32,9 +32,9 @@ public:
 
     virtual void normal_at(KernelPoint& point, GeometryHandle geom, std::vector<double>& normal, void *extra_hint = NULL);
 
-    virtual bool is_curve(GeometryHandle geom) const;
+  bool debug_is_curve(int geom) const;
 
-    virtual bool is_surface(GeometryHandle geom) const;
+  bool debug_is_surface(int geom) const;
 
 private:
     ONX_Model onModel;

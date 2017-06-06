@@ -25,7 +25,8 @@
 #include <percept/mesh/geometry/volume/VolumeUtil.hpp>
 #include "AdaptedMeshVerifier.hpp"
 
-#include <stk_util/parallel/ParallelComm.hpp>  // for CommAll, CommBuffer
+#include <stk_util/parallel/CommSparse.hpp>
+#include <stk_util/parallel/ParallelComm.hpp>  // for CommSparse, CommBuffer
 #include <stk_util/parallel/Parallel.hpp>  // for parallel_machine_rank, etc
 #include <stk_util/util/PairIter.hpp>   // for PairIter
 
@@ -244,7 +245,7 @@ namespace percept
 
     bool debug_print = m_debug;
 #ifndef NDEBUG
-    debug_print = true;
+    //debug_print = true;
 #endif
     if (debug_print)
       {
@@ -885,21 +886,11 @@ namespace percept
 
     // Allocate send and receive buffers:
 
-    stk::CommAll sparse ;
+    stk::CommSparse sparse(mesh.parallel()) ;
 
     try
       {
-        const UType * const s_size = & send_size[0] ;
-        const UType * const r_size = & recv_size[0] ;
-        if (0)
-          {
-            std::cout << "\n\n\n" << std::endl;
-            for (unsigned ii=0; ii < send_size.size(); ++ii)
-              {
-                std::cout << "P[" << parallel_rank << "] send_size[" << ii << "]= " << send_size[ii] << " recv_size= " << recv_size[ii] << std::endl;
-              }
-          }
-        sparse.allocate_buffers( mesh.parallel(), parallel_size / 4 , s_size, r_size);
+        sparse.allocate_buffers(); 
       }
     catch ( const std::exception & X )
       {
@@ -1303,54 +1294,13 @@ namespace percept
 
   void AdaptedMeshVerifier::checkPolarity(percept::PerceptMesh& eMesh)
   {
+    std::ostringstream msg;
+
     for (stk::mesh::EntityRank rank_iter=stk::topology::EDGE_RANK; rank_iter < eMesh.element_rank(); rank_iter++)
       {
         if (LTRACE) std::cout << "P[" << eMesh.get_rank() << "] trace checkPolarity 1.0, rank_iter= " << rank_iter << std::endl;
 
         const stk::mesh::BucketVector & buckets = eMesh.get_bulk_data()->buckets( rank_iter );
-
-        if (1)
-          {
-            size_t count_bad = 0;
-
-            for ( stk::mesh::BucketVector::const_iterator k = buckets.begin() ; k != buckets.end() ; ++k )
-              {
-                stk::mesh::Bucket & bucket = **k ;
-                const unsigned num_elements_in_bucket = bucket.size();
-
-                // Aura sides will not necessarily be connected to an element with positive polarity.
-                if(bucket.member(eMesh.get_bulk_data()->mesh_meta_data().aura_part())) continue;
-
-                if (!bucket.owned()) continue;
-
-                for (unsigned iElement = 0; iElement < num_elements_in_bucket; iElement++)
-                  {
-                    stk::mesh::Entity side = bucket[iElement];
-                    percept::MyPairIterRelation side_to_elem (eMesh, side, eMesh.element_rank());
-                    if (side_to_elem.size() == 0)
-                      {
-                        ++count_bad;
-                        if (count_bad < 5)
-                          {
-                            std::cout << "side with no elements= " << eMesh.print_entity_compact(side) << " \n" << eMesh.print_entity_parts_string(side, "\n") << std::endl;
-                          }
-
-                      }
-                  }
-              }
-            stk::ParallelMachine pm = eMesh.get_bulk_data()->parallel();
-            if (LTRACE) std::cout << "P[" << eMesh.get_rank() << "] trace checkPolarity 1.1, rank_iter= " << rank_iter << std::endl;
-
-            stk::all_reduce( pm, stk::ReduceSum<1>( &count_bad ) );
-            if (LTRACE) std::cout << "P[" << eMesh.get_rank() << "] trace checkPolarity 1.2, rank_iter= " << rank_iter << std::endl;
-
-            if (count_bad)
-              {
-                if (eMesh.get_rank() == 0)
-                  std::cout << "count_bad from: " << eMesh.getProperty("AdaptedMeshVerifier::checkPolarity") << std::endl;
-                VERIFY_MSG("mesh has sides not connected to elements, called from: "+eMesh.getProperty("AdaptedMeshVerifier::checkPolarity"));
-              }
-          }
 
         if (LTRACE) std::cout << "P[" << eMesh.get_rank() << "] trace checkPolarity 2.0, rank_iter= " << rank_iter << std::endl;
 
@@ -1367,33 +1317,38 @@ namespace percept
             for (unsigned iElement = 0; iElement < num_elements_in_bucket; iElement++)
               {
                 stk::mesh::Entity side = bucket[iElement];
-                percept::MyPairIterRelation side_to_elem (eMesh, side, eMesh.element_rank());
+                //percept::MyPairIterRelation side_to_elem (eMesh, side, eMesh.element_rank());
+                const stk::mesh::Entity * side_to_elem = eMesh.get_bulk_data()->begin_elements(side);
+                unsigned side_to_elem_size = eMesh.get_bulk_data()->num_elements(side);
+
+                if (side_to_elem_size == 0)
+                  {
+                    std::cout << eMesh.rank() << "side with no elements= " << eMesh.print_entity_compact(side) << " \n" << eMesh.print_entity_parts_string(side, "\n") 
+                              << " from: " << eMesh.getProperty("AdaptedMeshVerifier::checkPolarity") << std::endl;
+                    VERIFY_MSG("mesh has sides not connected to elements, called from: "+eMesh.getProperty("AdaptedMeshVerifier::checkPolarity"));
+                  }
+
+                const stk::mesh::ConnectivityOrdinal *side_to_elem_ords = eMesh.get_bulk_data()->begin_element_ordinals(side);
                 bool found_good = false;
                 bool found_good_orient = false;
-                std::ostringstream msg;
-                msg << "P[" << eMesh.get_rank() << "] ";
                 bool sideIsLeaf = eMesh.isLeafElement(side);
                 if (!sideIsLeaf)
                   continue;
 
-                if (side_to_elem.size() == 0)
-                  {
-                    msg << "P[" << eMesh.get_rank()
-                        << "] element/side polarity problem, side found that has no connected element, side= " << eMesh.id(side);
-                    found_good=true;
-                    found_good_orient = true;
-                  }
-                for (unsigned ie=0; ie < side_to_elem.size(); ie++)
+                // if (side_to_elem_size == 0)
+                //   {
+                //     msg << "P[" << eMesh.get_rank()
+                //         << "] element/side polarity problem, side found that has no connected element, side= " << eMesh.id(side);
+                //     found_good=true;
+                //     found_good_orient = true;
+                //   }
+                for (unsigned ie=0; ie < side_to_elem_size; ie++)
                   {
                     int permIndex = -1;
                     int permPolarity = 1;
 
-                    unsigned k_element_side = side_to_elem[ie].relation_ordinal();
-                    stk::mesh::Entity element = side_to_elem[ie].entity();
-
-                    bool elementIsLeaf = eMesh.isLeafElement(element);
-                    if (0 && !elementIsLeaf)
-                      continue;
+                    unsigned k_element_side = side_to_elem_ords[ie];
+                    stk::mesh::Entity element = side_to_elem[ie];
 
                     bool isShell = eMesh.topology(element).is_shell();
 
@@ -1402,26 +1357,30 @@ namespace percept
                     if (!isShell && permIndex == 0 && permPolarity > 0 && (rank_iter == eMesh.face_rank()))
                       {
                         found_good_orient = true;
+                        break;
                       }
 
                     if (!isShell && (permIndex < 0 || permPolarity < 0))
                       {
-                        if (1)
+#ifndef NDEBUG
+                        if (0)
                           {
                             msg << "element/side polarity problem: permIndex = " << permIndex << " permPolarity= " << permPolarity << std::endl;
                             msg << "tmp srk element= "; eMesh.print(msg, element, true, true);
                             msg << " side= "; eMesh.print(msg, side, true, true);
                           }
+#endif
                       }
                     else
                       {
                         found_good = true;
+                        break;
                       }
                   }
                 if (!found_good && !found_good_orient)
                   {
                     msg << " found_good_orient= " << found_good_orient << " found_good= " << found_good
-                        << " side_to_elem.size= " << side_to_elem.size()
+                        << " side_to_elem.size= " << side_to_elem_size
                         << " bad from: " << eMesh.getProperty("AdaptedMeshVerifier::checkPolarity");
                     std::cout << msg.str() << std::endl;
                     VERIFY_MSG( "element/side polarity problem: "+msg.str());

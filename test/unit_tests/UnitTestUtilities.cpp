@@ -318,7 +318,7 @@ void io_example( stk::ParallelMachine comm,
   // NOTE: 'out_region' owns 'dbo' pointer at this time...
   Ioss::Region out_region(dbo, "results_output");
 
-  stk::io::define_output_db(out_region, bulk_data, &in_region);
+  stk::io::define_output_db(out_region, bulk_data, {}, &in_region);
   stk::io::write_output_db(out_region,  bulk_data);
 
   // ------------------------------------------------------------------------
@@ -655,7 +655,7 @@ void process_elementblocks(Ioss::Region &region, stk::mesh::BulkData &bulk)
       for (Ioss::NameList::const_iterator I = names.begin(); I != names.end(); ++I) {
         if (*I == "attribute" && names.size() > 1)
           continue;
-        stk::mesh::FieldBase *field = stk::mesh::get_field_by_name<stk::mesh::FieldBase>(*I,meta);
+        stk::mesh::FieldBase *field = stk::mesh::get_field_by_name(*I,meta);
         stk::io::field_data_from_ioss(bulk, field, elements, entity, *I);
 
       }
@@ -688,7 +688,7 @@ void process_nodesets(Ioss::Region &region, stk::mesh::BulkData &bulk)
       for(int i=0; i<node_count; ++i) {
         nodes[i] = bulk.get_entity( stk::topology::NODE_RANK, node_ids[i] );
         if (bulk.is_valid(nodes[i]))
-          bulk.declare_entity(stk::topology::NODE_RANK, node_ids[i], add_parts );
+          bulk.declare_node(node_ids[i], add_parts );
       }
 
 
@@ -741,7 +741,7 @@ void process_surface_entity(const Ioss::SideSet* io ,
         // subsetted out of the analysis mesh. Only process if
         // non-null.
         if (bulk.is_valid(elem)) {
-          stk::mesh::Entity side = bulk.declare_element_side(elem, side_ordinal);
+          stk::mesh::Entity side = bulk.declare_element_side(elem, side_ordinal, stk::mesh::ConstPartVector{});
           bulk.change_entity_parts( side, add_parts );
           sides[is] = side;
         } else {

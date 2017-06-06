@@ -42,7 +42,7 @@ Percept_API_KLSolver::computeLocalIntgDataSizes(
   int &localNumElem,
   int &localMaxIntgPts)
 {
-  std::vector<unsigned> count;
+  std::vector<size_t> count;
   stk::mesh::Selector selector(m_meta.locally_owned_part());
    
   stk::mesh::count_entities( selector, m_mesh, count );

@@ -4,12 +4,12 @@ source module-file
 
 do_parallel_build=-j12
 
-do_build=1
+do_build=0
 
 do_build_superlu=$do_build
 do_build_xml=$do_build
 do_build_boost=$do_build
-do_build_yaml=$do_build
+do_build_yaml=1
 do_build_zlib=$do_build
 do_build_hdf5=$do_build
 do_build_netcdf=$do_build
@@ -140,13 +140,14 @@ fi
 if [ $do_build_yaml -eq 1 ]
 then
 
-  cd $percept_build_dir/packages/yaml-cpp-0.3.0
+  cd $percept_build_dir/packages/yaml-cpp-0.5.3
   mkdir -p build
   cd build
-  cmake -DCMAKE_CXX_COMPILER=mpicxx -DCMAKE_CC_COMPILER=mpicc -DCMAKE_INSTALL_PREFIX=$percept_build_dir/install ..
+  ###cmake -DCMAKE_CXX_COMPILER=mpicxx -DCMAKE_CC_COMPILER=mpicc -DCMAKE_INSTALL_PREFIX=$percept_build_dir/install ..
+  cmake -DCMAKE_INSTALL_PREFIX=$percept_build_dir/install ..
   make clean
   make  $do_parallel_build
-  make -k install
+  make install
 fi
 
 ################################################################################
@@ -155,7 +156,7 @@ fi
 
 if [ $do_build_zlib -eq 1 ]
 then
-  cd $percept_build_dir/packages/zlib-1.2.8
+  cd $percept_build_dir/packages/zlib-1.2.11
   CC=gcc CXX=g++ CFLAGS=-O3 CXXFLAGS=-O3 ./configure --prefix=$percept_build_dir/install/
   make clean
   make $do_parallel_build

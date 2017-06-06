@@ -71,7 +71,6 @@
             BulkData mesh(meta_data, pm);
             //unsigned p_rank = mesh.parallel_rank();
             //unsigned p_size = mesh.parallel_size();
-            const EntityRank elem_rank = stk::topology::ELEMENT_RANK;
 
             // Begin modification cycle so we can create the entities and relations
             mesh.modification_begin();
@@ -84,21 +83,13 @@
             stk::mesh::PartVector shared_parts(1,shared_part);
 
             // Create nodes
-            Entity node = mesh.declare_entity(stk::topology::NODE_RANK,
-                                              p_rank+1,
-                                              empty_parts);
+            Entity node = mesh.declare_node(p_rank+1, empty_parts);
 
-
-            Entity elem = mesh.declare_entity(elem_rank,
-                                               p_rank+1,
-                                               empty_parts);
-
+            Entity elem = mesh.declare_element(p_rank+1, empty_parts);
 
             if (p_rank==0 || p_rank==2)
               {
-                node = mesh.declare_entity(stk::topology::NODE_RANK,
-                                            2,
-                                            empty_parts);
+                node = mesh.declare_node(2, empty_parts);
                 mesh.declare_relation(elem, node, 0);
               }
             else
@@ -118,7 +109,8 @@
       //======================================================================================================================
       //======================================================================================================================
       //======================================================================================================================
-#if 1
+#define DO_PAR_TESTS 0
+#if DO_PAR_TESTS
       TEST(nodeRegistry_regr, test_parallel_1)
       {
         EXCEPTWATCH;
@@ -153,7 +145,7 @@
               return;
 
             bool useGhosting = true;
-            NodeRegistry nodeRegistry(eMesh, useGhosting);
+            NodeRegistry nodeRegistry(eMesh, 0, useGhosting);
             nodeRegistry.initialize();
 
             if (p_size == 3)
@@ -185,8 +177,8 @@
                       element_ghost_p = eMesh.get_bulk_data()->get_entity(stk::topology::ELEMENT_RANK, elem_20);
                     }
 
-                  dw() << "P["<<p_rank<<"] elem_num_local = " << elem_num_local << DWENDL;
-                  dw() << "P["<<p_rank<<"] elem_num_ghost = " << elem_num_ghost << DWENDL;
+                  std::cout << "P["<<p_rank<<"] elem_num_local = " << elem_num_local << std::endl;
+                  std::cout << "P["<<p_rank<<"] elem_num_ghost = " << elem_num_ghost << std::endl;
 
                   stk::mesh::Entity element_local = element_local_p;
                   stk::mesh::Entity element_ghost = element_ghost_p;
@@ -220,8 +212,8 @@
                   std::cout << "P["<<p_rank<<"] nodeRegistry size  = " << nodeRegistry.total_size() << std::endl;
                   std::cout << "P["<<p_rank<<"] nodeRegistry lsize = " << nodeRegistry.local_size() << std::endl;
 
-                  dw() << "P["<<p_rank<<"] nodeRegistry size       = " << nodeRegistry.total_size() << DWENDL;
-                  dw() << "P["<<p_rank<<"] nodeRegistry lsize      = " << nodeRegistry.local_size() << DWENDL;
+                  std::cout << "P["<<p_rank<<"] nodeRegistry size       = " << nodeRegistry.total_size() << std::endl;
+                  std::cout << "P["<<p_rank<<"] nodeRegistry lsize      = " << nodeRegistry.local_size() << std::endl;
 
                   // could do local create of elements here
                   nodeRegistry.beginLocalMeshMods();
@@ -273,11 +265,11 @@
 
                       stk::mesh::Entity node   = eMesh.get_bulk_data()->get_entity(stk::topology::NODE_RANK, nodeIds_onSE.m_entity_id_vector[0]);
 
-                      //EXPECT_EQ(nodeIds_onSE.m_entity_id_vector[0], 42u);
-                      EXPECT_EQ(nodeIds_onSE.m_entity_id_vector[0], 46u);
+                      EXPECT_EQ(nodeIds_onSE.m_entity_id_vector[0], 42u);
+                      //EXPECT_EQ(nodeIds_onSE.m_entity_id_vector[0], 46u);
                       // should be the same node on each proc
-                      std::cout << "P[" << p_rank << "] nodeId = " << nodeIds_onSE << " node= " << node << std::endl;
-                  std::cout << "P["<< eMesh.get_rank() <<"] here 3" << std::endl;
+                      std::cout << "P[" << p_rank << "] nodeId = " << eMesh.id(nodeIds_onSE[0]) << " node= " << eMesh.print_entity_compact(node) << std::endl;
+                      std::cout << "P["<< eMesh.get_rank() <<"] here 3" << std::endl;
 
                     }
 
@@ -304,7 +296,7 @@
       //======================================================================================================================
       //======================================================================================================================
       //======================================================================================================================
-#if 1
+#if DO_PAR_TESTS
       TEST(nodeRegistry_regr, test_parallel_2)
       {
         EXCEPTWATCH;
@@ -341,7 +333,7 @@
               return;
 
             bool useGhosting = true;
-            NodeRegistry nodeRegistry(eMesh, useGhosting);
+            NodeRegistry nodeRegistry(eMesh, 0, useGhosting);
             nodeRegistry.initialize();
 
             if (p_size == 3)
@@ -377,8 +369,8 @@
                       element_ghost_p = eMesh.get_bulk_data()->get_entity(stk::topology::ELEMENT_RANK, elem_num_local_proc_0);
                     }
 
-                  dw() << "P["<<p_rank<<"] elem_num_local = " << elem_num_local << DWENDL;
-                  dw() << "P["<<p_rank<<"] elem_num_ghost = " << elem_num_ghost << DWENDL;
+                  std::cout << "P["<<p_rank<<"] elem_num_local = " << elem_num_local << std::endl;
+                  std::cout << "P["<<p_rank<<"] elem_num_ghost = " << elem_num_ghost << std::endl;
 
                   stk::mesh::Entity element_local = element_local_p;
                   stk::mesh::Entity element_ghost = element_ghost_p;
@@ -410,8 +402,8 @@
                   std::cout << "P["<<p_rank<<"] nodeRegistry size  = " << nodeRegistry.total_size() << std::endl;
                   std::cout << "P["<<p_rank<<"] nodeRegistry lsize = " << nodeRegistry.local_size() << std::endl;
 
-                  dw() << "P["<<p_rank<<"] nodeRegistry size       = " << nodeRegistry.total_size() << DWENDL;
-                  dw() << "P["<<p_rank<<"] nodeRegistry lsize      = " << nodeRegistry.local_size() << DWENDL;
+                  std::cout << "P["<<p_rank<<"] nodeRegistry size       = " << nodeRegistry.total_size() << std::endl;
+                  std::cout << "P["<<p_rank<<"] nodeRegistry lsize      = " << nodeRegistry.local_size() << std::endl;
 
                   // could do local create of elements here
                   nodeRegistry.beginLocalMeshMods();

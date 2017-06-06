@@ -16,6 +16,8 @@
 #include <percept/mesh/mod/smoother/JacobianUtil.hpp>
 #include <percept/math/DenseMatrix.hpp>
 #include <percept/math/Math.hpp>
+#include <percept/structured/BlockStructuredGrid.hpp>
+#include "SGridJacobianUtil.hpp"
 
   namespace percept {
 
@@ -63,7 +65,7 @@
       CombineOp m_combine;
       typename MeshType::MTField *m_coord_field_current;
       typename MeshType::MTField *m_coord_field_original;
-    public:
+
       bool m_debug;
     };
 
@@ -603,68 +605,75 @@
     // std::string field_name<STKMesh>(typename STKMesh::MTField *field) {return field->name(); }
 
 
+    class SGridSmootherMetricUntangle
+    {
+    private:
+      StructuredGrid::MTField *m_coord_field_current;
+      StructuredGrid::MTField *m_coord_field_original;
+
+      StructuredGrid::MTField::Array4D m_coords_current;
+      StructuredGrid::MTField::Array4D m_coords_original;
+
+      const double m_beta_mult;
+    public:
+      SGridSmootherMetricUntangle(PerceptMesh *eMesh) : m_beta_mult(0.05) {
+        std::shared_ptr<BlockStructuredGrid> bsg = eMesh->get_block_structured_grid();
+        m_coord_field_current  = bsg->m_fields["coordinates"].get();
+        m_coord_field_original = bsg->m_fields["coordinates_NM1"].get();
+        m_coords_current  = *m_coord_field_current->m_block_fields[0];
+        m_coords_original = *m_coord_field_original->m_block_fields[0];
+      }
+
+      double metric(typename StructuredGrid::MTElement element, bool& valid) const
+      {
+        valid = true;
+
+        double A_ = 0.0, W_ = 0.0; // current and reference detJ
+        double nodal_A[8], nodal_W[8];
+        SGridJacobianUtil(A_, nodal_A, m_coords_current, element);
+        SGridJacobianUtil(W_, nodal_W, m_coords_original, element);
+        double val_untangle=0.0;
+
+        for (int i=0; i < 8; i++)
+          {
+            double detAi = nodal_A[i];
+            double detWi = nodal_W[i];
+            
+            if (detAi <= 0.) valid = false;
+            
+            double vv = m_beta_mult*detWi - detAi;
+            vv = std::max(vv, 0.0);
+            val_untangle += vv*vv;
+          }
+        return val_untangle;
+      }
+    };
+
     template<typename MeshType>
     class SmootherMetricUntangleImpl : public SmootherMetricImpl<MeshType>
     {
     protected:
       double m_beta_mult;
-      JacobianUtilImpl<MeshType> jacA, jacW;
+
+      // HACK bcarnes to have these arrays for structured
+      StructuredGrid::MTField::Array4D m_coords_current;
+      StructuredGrid::MTField::Array4D m_coords_original;
+
     public:
-      //using MeshType = STKMesh;
       using Base = SmootherMetricImpl<MeshType>;
 
-      SmootherMetricUntangleImpl(PerceptMesh *eMesh) : Base(eMesh) {
-        //int spatialDim= eMesh->get_spatial_dim();
-        m_beta_mult = 0.05;
-      }
+      SmootherMetricUntangleImpl(PerceptMesh *eMesh);
+
       virtual bool has_gradient() { return true; }
 
       virtual double length_scaling_power() { return 3.0; }
 
-      virtual double metric(typename MeshType::MTElement element, bool& valid)
-      {
-        valid = true;
-
-        double A_ = 0.0, W_ = 0.0; // current and reference detJ
-        jacA(A_, *Base::m_eMesh, element, Base::m_coord_field_current, Base::m_topology_data);
-        jacW(W_, *Base::m_eMesh, element, Base::m_coord_field_original, Base::m_topology_data);
-        double val=0.0, val_untangle=0.0;
-
-        for (int i=0; i < jacA.m_num_nodes; i++)
-          {
-            double detAi = jacA.m_detJ[i];
-            double detWi = jacW.m_detJ[i];
-            if (detWi <= 0.0)
-              {
-                std::cout << "detWi<= 0, i = " << i << " detWi= " << detWi << " detAi= " << detAi << " m_coord_field_original= " << Base::m_coord_field_original
-                          << " name= " << Base::m_coord_field_original->name() << " m_topology_data= " << Base::m_topology_data << std::endl;
-#if 0
-                Base::m_eMesh->print_entity(element);
-                Base::m_eMesh->print_entity(element, Base::m_coord_field_original);
-                if (Base::m_topology_data)
-                  {
-                    shards::CellTopology topology(Base::m_topology_data);
-                    std::cout << "topology = " << topology.getName() << std::endl;
-                  }
-#endif
-              }
-            VERIFY_OP_ON(detWi, >, 0.0, "bad reference mesh");
-            if (detAi <= 0.)
-              {
-                valid = false;
-              }
-            //fval = Math::my_max_hi(-temp_var,0.0,beta*0.001);
-            double vv = m_beta_mult*detWi - detAi;
-            vv = std::max(vv, 0.0);
-            val_untangle += vv*vv;
-          }
-        val = val_untangle;
-        return val;
-      }
+      virtual double metric(typename MeshType::MTElement element, bool& valid);
 
       /// computes metric and its gradient - see Mesquite::TShapeB1, TQualityMetric, TargetMetricUtil
       virtual double grad_metric(typename MeshType::MTElement element, bool& valid, double grad[8][4])
       {
+        JacobianUtilImpl<MeshType> jacA, jacW;
         double A_ = 0.0, W_ = 0.0; // current and reference detJ
         jacA(A_, *Base::m_eMesh, element, Base::m_coord_field_current, Base::m_topology_data);
         jacW(W_, *Base::m_eMesh, element, Base::m_coord_field_original, Base::m_topology_data);
@@ -878,7 +887,6 @@
     protected:
       DenseMatrix<3,3> Ident;
       DenseMatrix<3,3> WI, T, WIT, TAT;
-      JacobianUtilImpl<MeshType> jacA, jacW;
       const int spatialDim;
       bool m_use_ref_mesh;
     public:
@@ -893,6 +901,8 @@
       virtual double metric(typename MeshType::MTElement element, bool& valid)
       {
         valid = true;
+
+        JacobianUtilImpl<MeshType> jacA, jacW;
 
         double A_ = 0.0, W_ = 0.0; // current and reference detJ
         jacA(A_, *Base::m_eMesh, element, Base::m_coord_field_current, Base::m_topology_data);
@@ -989,6 +999,7 @@
       virtual double grad_metric(typename MeshType::MTElement element, bool& valid, double grad[8][4])
       {
         double A_ = 0.0, W_ = 0.0; // current and reference detJ
+        JacobianUtilImpl<MeshType> jacA, jacW;
         jacA(A_, *Base::m_eMesh, element, Base::m_coord_field_current, Base::m_topology_data);
         jacW(W_, *Base::m_eMesh, element, Base::m_coord_field_original, Base::m_topology_data);
         //jacW(W_, *m_eMesh, element, m_coord_field_original, m_topology_data);
@@ -1121,7 +1132,6 @@
     protected:
       DenseMatrix<3,3> Ident;
       DenseMatrix<3,3> WI, T, WIT, TAT;
-      JacobianUtil jacA, jacW;
       const int spatialDim;
       bool m_use_ref_mesh;
     public:
@@ -1136,6 +1146,7 @@
       {
         valid = true;
 
+        JacobianUtil jacA, jacW;
         double A_ = 0.0, W_ = 0.0; // current and reference detJ
         jacA(A_, *m_eMesh, element, m_coord_field_current, m_topology_data);
         jacW(W_, *m_eMesh, element, m_coord_field_original, m_topology_data);
@@ -1209,6 +1220,7 @@
       /// computes metric and its gradient - see Mesquite::TShapeB1, TQualityMetric, TargetMetricUtil
       virtual double grad_metric(stk::mesh::Entity element, bool& valid, double grad[8][4])
       {
+        JacobianUtil jacA, jacW;
         double A_ = 0.0, W_ = 0.0; // current and reference detJ
         jacA(A_, *m_eMesh, element, m_coord_field_current, m_topology_data);
         jacW(W_, *m_eMesh, element, m_coord_field_original, m_topology_data);
@@ -1589,7 +1601,6 @@
     protected:
       DenseMatrix<3,3> Ident;
       DenseMatrix<3,3> WI, T, WIT, TAT;
-      JacobianUtil jacA, jacW;
       const int spatialDim;
       bool m_use_ref_mesh;
     public:
@@ -1604,6 +1615,7 @@
       {
         valid = true;
 
+        JacobianUtil jacA, jacW;
         double A_ = 0.0, W_ = 0.0; // current and reference detJ
         jacA(A_, *m_eMesh, element, m_coord_field_current, m_topology_data);
         jacW(W_, *m_eMesh, element, m_coord_field_original, m_topology_data);

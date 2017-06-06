@@ -17,11 +17,10 @@
 #include <adapt/Refiner.hpp>
 #include <adapt/RefinerUtil.hpp>
 #include <adapt/AdaptedMeshVerifier.hpp>
+#include <adapt/FixSideSetsSelector.hpp>
 
 #include <percept/MeshUtil.hpp>
 #include <percept/RunEnvironment.hpp>
-
-#define NEW_VERSION true
 
 #define DEBUG_UNREF 0
 #define DEBUG_UNREF_1 0
@@ -61,6 +60,92 @@
     bool use_idServer = false;
 
     void Refiner::
+    update_node_registry()
+    {
+      SubDimCellToDataMap::iterator iter;
+      SubDimCellToDataMap& map = m_nodeRegistry->getMap();
+      SubDimCellToDataMap map_new;
+
+      for (unsigned irank=0; irank < m_ranks.size(); irank++)
+        {
+          if (m_ranks[irank] == m_eMesh.element_rank())
+            {
+              vector<NeededEntityType> needed_entity_ranks;
+              m_breakPattern[irank]->fillNeededEntities(needed_entity_ranks);
+
+              const stk::mesh::BucketVector & buckets = m_eMesh.get_bulk_data()->buckets( m_ranks[irank] );
+
+              for ( stk::mesh::BucketVector::const_iterator k = buckets.begin() ; k != buckets.end() ; ++k )
+                {
+
+                  stk::mesh::Bucket & bucket = **k ;
+                  const CellTopologyData * const cell_topo_data = m_eMesh.get_cell_topology(bucket);
+
+                  // this can happen for empty elements (created as a pool to be used for creating new refined elems)
+                  if (!cell_topo_data) continue;
+
+                  CellTopology cell_topo(cell_topo_data);
+                  unsigned elementType = cell_topo.getKey();
+                  unsigned bpElementType = m_breakPattern[irank]->getFromTypeKey();
+                  if (elementType == bpElementType)
+                    {
+                      const unsigned num_entity_in_bucket = bucket.size();
+                      for (unsigned ientity = 0; ientity < num_entity_in_bucket; ientity++)
+                        {
+                          stk::mesh::Entity element = bucket[ientity];
+                          if (m_eMesh.isGhostElement(element)) continue;
+
+                          {
+                            const percept::MyPairIterRelation elem_nodes (m_eMesh, element, stk::topology::NODE_RANK);
+
+                            for (unsigned ineed_ent=0; ineed_ent < needed_entity_ranks.size(); ineed_ent++)
+                              {
+                                unsigned numSubDimNeededEntities = 0;
+                                stk::mesh::EntityRank needed_entity_rank = needed_entity_ranks[ineed_ent].first;
+
+                                if (needed_entity_rank == m_eMesh.edge_rank())
+                                  {
+                                    numSubDimNeededEntities = cell_topo_data->edge_count;
+                                  }
+                                else if (needed_entity_rank == m_eMesh.face_rank())
+                                  {
+                                    numSubDimNeededEntities = cell_topo_data->side_count;
+                                  }
+                                else if (needed_entity_rank == stk::topology::ELEMENT_RANK)
+                                  {
+                                    numSubDimNeededEntities = 1;
+                                  }
+
+                                for (unsigned iSubDimOrd = 0; iSubDimOrd < numSubDimNeededEntities; iSubDimOrd++)
+                                  {
+                                    SubDimCell_SDCEntityType subDimEntity(m_eMesh);
+                                    m_nodeRegistry->getSubDimEntity(subDimEntity, element, needed_entity_rank, iSubDimOrd, cell_topo_data);
+
+                                    SubDimCellData* nodeId_elementOwnderId_ptr = m_nodeRegistry->getFromMapPtr(subDimEntity);
+                                    if (nodeId_elementOwnderId_ptr)
+                                      {
+
+                                        nodeId_elementOwnderId_ptr->get<SDC_DATA_OWNING_ELEMENT_KEY>() = m_eMesh.entity_key(element);
+                                        nodeId_elementOwnderId_ptr->get<SDC_DATA_OWNING_SUBDIM_ORDINAL>() = static_cast<unsigned char>(iSubDimOrd + 1);
+                                        nodeId_elementOwnderId_ptr->get<SDC_DATA_OWNING_SUBDIM_RANK>() = static_cast<unsigned char>(needed_entity_rank);
+
+                                        map_new[subDimEntity] = *nodeId_elementOwnderId_ptr;
+
+                                      }
+                                  }
+                              }
+                          }
+                        }
+                    }
+                }
+            }
+        }
+      //std::cout << m_eMesh.rank() << " old size= " << map.size() << " new= " << map_new.size() << std::endl;
+      map = map_new;
+    }
+
+
+    void Refiner::
     replaceNodeRegistryOwnership(ElementUnrefineCollection& elements_to_delete, stk::mesh::EntityRank rank)
     {
       // assumes clear_element_owner_data has been invoked
@@ -92,9 +177,11 @@
                         for (unsigned ientity = 0; ientity < num_entity_in_bucket; ientity++)
                           {
                             stk::mesh::Entity element = bucket[ientity];
+                            // if found an element that is not deleted, make it own the subDimEntity
                             if (elements_to_delete.find(element) == elements_to_delete.end())
                               {
-                                refineMethodApply(&NodeRegistry::replaceElementOwnership, element, needed_entity_ranks,cell_topo_data);
+                                if (!m_eMesh.isGhostElement(element))
+                                  refineMethodApply(&NodeRegistry::replaceElementOwnership, element, needed_entity_ranks,cell_topo_data);
                               }
                           }
                       }
@@ -155,40 +242,31 @@
     {
       if (getIgnoreSideSets()) return;
 
-      for(SetOfEntities::iterator parent_it = parents_to_be_remeshed.begin();
-          parent_it != parents_to_be_remeshed.end(); ++parent_it)
+      SetOfEntities neighbors;
+      SetOfEntities::iterator p_begin = parents_to_be_remeshed.begin(), p_end = parents_to_be_remeshed.end();
+
+      for(SetOfEntities::iterator parent_it = p_begin;
+          parent_it != p_end; ++parent_it)
         {
           stk::mesh::Entity parent = *parent_it;
 
-          if (newVersion)
+          if (1)
             {
-              typedef std::set<stk::mesh::Entity> ESet;
-              static ESet neighbors;
               neighbors.clear();
               m_eMesh.get_node_neighbors(parent, neighbors, m_eMesh.side_rank());
-              for (ESet::iterator neigh_it = neighbors.begin(); neigh_it != neighbors.end(); ++neigh_it)
+              SetOfEntities::iterator n_begin = neighbors.begin();
+              SetOfEntities::iterator n_end = neighbors.end();
+              for (SetOfEntities::iterator neigh_it = n_begin; neigh_it != n_end; ++neigh_it)
                 {
                   stk::mesh::Entity side = *neigh_it;
                   if (avoid_sides && avoid_sides->find(side) != avoid_sides->end())
                     continue;
                   int permIndex = -1, permPolarity = 0, iside = -1;
                   bool sc = m_eMesh.should_connect(side, parent, &permIndex, &permPolarity, &iside);
+                  //VERIFY_OP_ON(sc, ==, true, "bad sc");
                   if (sc && m_eMesh.numChildren(side) == 0)
                     {
                       parent_side_elements.insert(side);
-                    }
-                }
-            }
-          else
-            {
-              percept::MyPairIterRelation side_relations (m_eMesh, parent, m_eMesh.side_rank());
-              for (unsigned jside = 0; jside < side_relations.size(); jside++)
-                {
-                  stk::mesh::Entity side_element = side_relations[jside].entity();
-                  //if (m_eMesh.owned(side_element) &&
-                  if (0 == m_eMesh.numChildren(side_element))
-                    {
-                      parent_side_elements.insert(side_element);
                     }
                 }
             }
@@ -231,18 +309,11 @@
     }
 
     // for the given set of parent elements, remesh the interior after the children have been removed and any deleted nodes have been removed from the NodeRegistry
-    void Refiner::remesh(SetOfEntities& parent_elements)
+    void Refiner::remesh(stk::mesh::Entity parent_element)
     {
       DTIMER(remesh);
 
       bool debug = false;
-      //
-      // FIXME refactor to a generic function operating on a collection of elements; incorporate with the doBreak() calls above
-      //
-      // remesh
-#if DEBUG_UNREF
-      //std::cout << "tmp remesh:: parent_elements.size() [elements to be remeshed] = " << parent_elements.size() << std::endl;
-#endif
 
       // FIXME for performance
       //static NewSubEntityNodesType s_new_sub_entity_nodes(percept::EntityRankEnd);
@@ -257,18 +328,16 @@
           unsigned num_new_elem_during_remesh = 0;
           vector<NeededEntityType> needed_entity_ranks;
           m_breakPattern[irank]->fillNeededEntities(needed_entity_ranks);
-          stk::mesh::Selector fromPartsSelector = stk::mesh::selectUnion( m_breakPattern[irank]->getFromParts() );
+          stk::mesh::Selector& fromPartsSelector = m_fromPartsSelector[irank];
 
           vector<stk::mesh::Entity> new_elements, ft_new_elements;
 
           // count num new elements needed on this proc (served by UniformRefinerPattern)
           unsigned num_elem_not_ghost = 0u;
 
-          for (ElementUnrefineCollection::iterator p_iter = parent_elements.begin();
-               p_iter != parent_elements.end(); ++p_iter)
+          if (1)
             {
-              stk::mesh::Entity parent = *p_iter;
-              stk::mesh::Entity element = parent;
+              stk::mesh::Entity element = parent_element;
               const CellTopologyData * const cell_topo_data = m_eMesh.get_cell_topology(element);
               CellTopology cell_topo(cell_topo_data);
               unsigned elementType = cell_topo.getKey();
@@ -316,12 +385,6 @@
                   throw std::logic_error("entity pool deplenished");
                 }
             }
-          else
-            {
-              //DTIMER2(remesh_createEntities,remesh);
-              m_eMesh.createEntities( m_ranks[irank], num_elem_needed, new_elements);
-              m_eMesh.createEntities( FAMILY_TREE_RANK, num_elem_needed, ft_new_elements);
-            }
 
           vector<stk::mesh::Entity>::iterator element_pool_it = new_elements.begin();
           vector<stk::mesh::Entity>::iterator ft_element_pool_it = ft_new_elements.begin();
@@ -331,10 +394,9 @@
           //createElementsAndNodesAndConnectLocal(m_ranks[irank], m_breakPattern[irank], elementColors, needed_entity_ranks, new_elements);
 
           unsigned actual_needed=0, actual_ft_needed=0;
-          for (ElementUnrefineCollection::iterator p_iter = parent_elements.begin();
-               p_iter != parent_elements.end(); ++p_iter)
+          if (1)
             {
-              stk::mesh::Entity parent_p = *p_iter;
+              stk::mesh::Entity parent_p = parent_element;
               const CellTopologyData * const cell_topo_data = m_eMesh.get_cell_topology(parent_p);
               CellTopology cell_topo(cell_topo_data);
               unsigned elementType = cell_topo.getKey();
@@ -494,28 +556,13 @@
 
       // Note: we rely on the remeshing returning no children if the element isn't marked for refinement
       //SetOfEntities element_set_of_one(&element, (&element)+1, *m_eMesh.get_bulk_data());
-      SetOfEntities element_set_of_one(*m_eMesh.get_bulk_data());
-      element_set_of_one.insert(element);
 
       if (s_depth > 20)
         {
           std::cout << "remeshing element= " << m_eMesh.identifier(element) << " s_depth= " << s_depth << " " << m_eMesh.print_entity_compact(element) << std::endl;
-          //const percept::MyPairIterRelation elem_nodes (m_eMesh, element,  stk::topology::NODE_RANK);
-          //for (unsigned ii= 0;
-          //checkMarks();
-          if (0)
-          {
-            stk::mesh::EntityId st[] = {87, 476, 893, 1057};
-            std::vector<stk::mesh::EntityId> subDim(st,st+4);
-            std::vector<PerceptMesh::SubDimInfoType> results, nresults;
-            int inm = m_eMesh.in_mesh(subDim, results, true);
-            std::vector<stk::mesh::EntityId> ninm = m_eMesh.nodes_in_mesh(subDim, nresults, true);
-            std::cout << "remeshing in_mesh= " << inm << " nodes_in_mesh= " << ninm.size() << " \n" << ninm << "\n look for: " << subDim << std::endl;
-            if (inm) std::cout << "results= " << results << std::endl;
-          }
         }
 
-      remesh(element_set_of_one);
+      remesh(element);
 
       if (m_eMesh.hasFamilyTree(element))
         {
@@ -563,6 +610,12 @@
     {
       DTIMER(remeshElements);
 
+      m_fromPartsSelector.resize(m_ranks.size());
+      for (unsigned irank=0; irank < m_ranks.size(); irank++)
+        {
+          m_fromPartsSelector[irank] = stk::mesh::selectUnion( m_breakPattern[irank]->getFromParts() );
+        }
+
       if (DO_MEMORY && m_eMesh.get_do_print_memory()) {
         std::string hwm = m_eMesh.print_memory_high_water_mark();
         if (!m_eMesh.get_rank()) std::cout << "MEM: " << hwm << " unrefiner: remeshElements= " << std::endl;
@@ -581,12 +634,23 @@
           }
       }
 
+      if (m_nodeRegistry->s_use_new_ownership_check)
+        {
+          SetOfEntities emptySet(*m_eMesh.get_bulk_data());
+          if (rank == m_eMesh.element_rank())
+            {
+              update_node_registry();
+            }
+        }
+      else
       {
         DTIMER2(clear, remeshElements);
         m_nodeRegistry->clear_element_owner_data_phase_2(false, false, elemsToBeDeleted);
+
         SetOfEntities emptySet(*m_eMesh.get_bulk_data());
         if (rank == m_eMesh.element_rank())
           {
+            VERIFY_OP_ON(elemsToBeDeleted, ==, 0, "bad");
             if (elemsToBeDeleted)
               replaceNodeRegistryOwnership(*elemsToBeDeleted, rank);
             else
@@ -697,12 +761,10 @@
     filterUnrefSetPass2(ElementUnrefineCollection& elements_to_unref,   SetOfEntities& elements_to_be_remeshed)
     {
 
-      TIMING(
-             stk::diag::Timer timerUnrefine_("TE_UnRef", rootTimer());
-             stk::diag::Timer timerFilter_("filterUnrefSetPass2", timerUnrefine_);
-             stk::diag::TimeBlock tbTimerFilter_(timerFilter_);
-             //stk::diag::TimeBlock timerUnrefineBlock_(timerUnrefine_);
-             );
+#if DO_TIMING
+      stk::diag::Timer timerFilter_("filterUnrefSetPass2", rootTimer());
+      stk::diag::TimeBlock tbTimerFilter_(timerFilter_);
+#endif
 
       int print_filter_info = DEBUG_UNREF_1;
       if (print_filter_info)  std::cout << "\n\nP["<< m_eMesh.get_rank() << "] filterUnrefSetPass2: initial elements_to_unref size = " << elements_to_unref.size() << std::endl;
@@ -922,6 +984,9 @@
       if (!m_do_new_elements)
         return;
 
+      bool checkDB = false;
+      if (checkDB) m_nodeRegistry->checkDB("RefinerUnrefine: generate_temporary_elements 0.0.0");
+
       size_t sz = 0;
       std::vector<stk::mesh::Entity> entities;
       for (SetOfEntities::iterator it=entities_to_delete.begin(); it != entities_to_delete.end(); ++it)
@@ -950,7 +1015,9 @@
           return;
         }
 
+      if (checkDB) m_nodeRegistry->checkDB("RefinerUnrefine: generate_temporary_elements 0.0");
       m_eMesh.getEntitiesUsingIdServer(rank, sz, new_elements);
+      if (checkDB) m_nodeRegistry->checkDB("RefinerUnrefine: generate_temporary_elements 0.1: rank= "+toString(rank));
       size_t ielem = 0;
       VERIFY_OP_ON(new_elements.size(), ==, sz, "bad size");
       for (size_t jel = 0; jel < entities.size(); ++jel)
@@ -995,6 +1062,8 @@
           m_eMesh.get_bulk_data()->change_entity_parts( newElement, add, rem );
           ++ielem;
         }
+      if (checkDB) m_nodeRegistry->checkDB("RefinerUnrefine: generate_temporary_elements 0.0");
+
     }
 
     void Refiner::
@@ -1042,31 +1111,83 @@
         }
     }
 
+    bool Refiner::include_side_bucket(stk::mesh::Bucket& side_bucket, stk::mesh::Selector *excludeSelector)
+    {
+      if (!bucket_acceptable(side_bucket, side_bucket.entity_rank() ))
+        {
+          return false;
+        }
+
+      if (excludeSelector && (*excludeSelector)(side_bucket))
+        {
+          return false;
+        }
+#if  defined(STK_PERCEPT_HAS_GEOMETRY)
+      if (m_eMesh.is_in_geometry_parts(m_geomFile, side_bucket))
+        {
+          return false;
+        }
+#endif
+      return true;
+    }
+
     void Refiner::
     get_deleted_sides(SetOfEntities& sides_to_delete, ElementUnrefineCollection& elements_to_unref, SetOfEntities& elements_to_be_remeshed)
     {
+#if 1
       SetOfEntities side_set(*m_eMesh.get_bulk_data());
-      build_side_set(side_set);
+      //build_side_set(side_set);
       sides_to_delete.clear();
+      SetOfEntities neighbors;
 
-      for (SetOfEntities::iterator it_side=side_set.begin(); it_side != side_set.end(); ++it_side)
+      stk::mesh::Selector excludeSelector, *excludeSelectorPtr = 0;
+      if (m_excludeParts.size())
         {
-          stk::mesh::Entity side = *it_side;
+          excludeSelector = stk::mesh::selectUnion(m_excludeParts);
+          excludeSelectorPtr = &excludeSelector;
+        }
 
+
+      stk::mesh::EntityRank side_rank_iter_begin = m_eMesh.side_rank();
+      stk::mesh::EntityRank side_rank_iter_end = m_eMesh.side_rank();
+      if (m_eMesh.get_spatial_dim() == 3)
+        {
+          side_rank_iter_begin = m_eMesh.edge_rank();
+        }
+
+      for (stk::mesh::EntityRank side_rank_iter = side_rank_iter_begin; side_rank_iter <= side_rank_iter_end; side_rank_iter++)
+        {
+          for (auto element : elements_to_unref)
+            {
+              neighbors.clear();
+              m_eMesh.get_node_neighbors(element, neighbors, side_rank_iter);
+              for (auto side : neighbors)
+                {
+                  if (include_side_bucket(m_eMesh.bucket(side), excludeSelectorPtr))
+                    {
+                      side_set.insert(side);
+                    }
+                }
+            }
+        }
+
+
+      for (auto side : side_set)
+        {
           if (m_eMesh.aura(side))
             continue;
 
           bool keep = false;
-          bool newVersion = NEW_VERSION;
-          if (newVersion)
+          if (1)
             {
-              typedef std::set<stk::mesh::Entity> ESet;
-              static ESet neighbors;
               neighbors.clear();
               m_eMesh.get_node_neighbors(side, neighbors, m_eMesh.element_rank());
-              for (ESet::iterator neigh_it = neighbors.begin(); neigh_it != neighbors.end(); ++neigh_it)
+              SetOfEntities::iterator n_begin = neighbors.begin();
+              SetOfEntities::iterator n_end = neighbors.end();
+              for (SetOfEntities::iterator neigh_it = n_begin; neigh_it != n_end; ++neigh_it)
                 {
                   stk::mesh::Entity element = *neigh_it;
+                  // FIXME PERFORMANCE
                   bool notUnref = (elements_to_unref.find(element) == elements_to_unref.end());
                   if (notUnref)
                     {
@@ -1080,30 +1201,45 @@
                     }
                 }
             }
-          else
+          if (!keep)
             {
-              const percept::MyPairIterRelation side_elems (m_eMesh, side, m_eMesh.element_rank());
-              VERIFY_OP_ON(side_elems.size(), !=, 0, "bad side_elems size");
+              sides_to_delete.insert(side);
+            }
+        }
+#else
+      SetOfEntities side_set(*m_eMesh.get_bulk_data());
+      build_side_set(side_set);
+      sides_to_delete.clear();
+      SetOfEntities neighbors;
 
-              for (unsigned ii=0; ii < side_elems.size(); ++ii)
+      for (SetOfEntities::iterator it_side=side_set.begin(); it_side != side_set.end(); ++it_side)
+        {
+          stk::mesh::Entity side = *it_side;
+
+          if (m_eMesh.aura(side))
+            continue;
+
+          bool keep = false;
+          if (1)
+            {
+              neighbors.clear();
+              m_eMesh.get_node_neighbors(side, neighbors, m_eMesh.element_rank());
+              SetOfEntities::iterator n_begin = neighbors.begin();
+              SetOfEntities::iterator n_end = neighbors.end();
+              for (SetOfEntities::iterator neigh_it = n_begin; neigh_it != n_end; ++neigh_it)
                 {
-                  stk::mesh::Entity element = side_elems[ii].entity();
-                  if (elements_to_unref.find(element) == elements_to_unref.end())
+                  stk::mesh::Entity element = *neigh_it;
+                  // FIXME PERFORMANCE
+                  bool notUnref = (elements_to_unref.find(element) == elements_to_unref.end());
+                  if (notUnref)
                     {
-                      keep = true;
-                      break;
-                    }
-                  else
-                    {
-                      stk::mesh::Entity parent = stk::mesh::Entity();
-                      if (m_eMesh.hasFamilyTree(element))
-                        parent = m_eMesh.getParent(element, true);
-                      VERIFY_OP_ON(m_eMesh.is_valid(parent), ==, true, "bad parent");
-                      // FIXME - maybe should check all neighboring elements?
                       int permIndex = -1, permPolarity = 0, iside = -1;
-                      bool sc = m_eMesh.should_connect(side, parent, &permIndex, &permPolarity, &iside);
+                      bool sc = m_eMesh.should_connect(side, element, &permIndex, &permPolarity, &iside);
                       if (sc)
-                        keep = true;
+                        {
+                          keep = true;
+                          break;
+                        }
                     }
                 }
             }
@@ -1112,6 +1248,7 @@
               sides_to_delete.insert(*it_side);
             }
         }
+#endif
     }
 
     // verify parent and child are on same proc, including the FAMILY_TREE entities
@@ -1154,6 +1291,7 @@
       SetOfEntities side_set(*m_eMesh.get_bulk_data());
       bool gfound = true;
       build_side_set(side_set);
+      std::ostringstream str;
       for (SetOfEntities::iterator it_side=side_set.begin(); it_side != side_set.end(); ++it_side)
         {
           stk::mesh::Entity side = *it_side;
@@ -1167,41 +1305,46 @@
           if (m_eMesh.get_spatial_dim() == 3 && m_eMesh.entity_rank(side) == m_eMesh.edge_rank())
             continue;
 
-          percept::MyPairIterRelation side_elements (m_eMesh, side, m_eMesh.element_rank());
+          //percept::MyPairIterRelation side_elements (m_eMesh, side, m_eMesh.element_rank());
+          const stk::mesh::Entity *side_elements = m_eMesh.get_bulk_data()->begin_elements(side);
+          unsigned side_elements_size = m_eMesh.get_bulk_data()->num_elements(side);
+          const stk::mesh::ConnectivityOrdinal *side_element_ords = m_eMesh.get_bulk_data()->begin_element_ordinals(side);
 
           bool found = false;
-          std::ostringstream str;
-          VERIFY_OP_ON(side_elements.size(), >, 0, "no connected elements to this side: msg= "+msg);
+          //VERIFY_OP_ON(side_elements_size, >, 0, "no connected elements to this side: msg= "+msg);
           int jj = -1;
-          for (unsigned ii = 0; ii < side_elements.size(); ++ii)
+          for (unsigned ii = 0; ii < side_elements_size; ++ii)
             {
-              stk::mesh::Entity elem = side_elements[ii].entity();
+              stk::mesh::Entity elem = side_elements[ii];
               bool sameOwner = m_eMesh.owner_rank(elem) == m_eMesh.owner_rank(side);
-              bool isPos = m_eMesh.is_positive_perm(elem, side, side_elements[ii].relation_ordinal());
-              if (ldb)
+              if (sameOwner)
                 {
-                  str << "P[" << m_eMesh.get_rank() << "] CS TMP srk elem= " << m_eMesh.id(elem) << " ii= " << ii << " side_elements.size= " << side_elements.size()
-                      << " sameOwner= " << sameOwner << " isPos= " << isPos
-                      << std::endl;
-                  m_eMesh.print(str,side,true,true);
-                  m_eMesh.print(str,elem,true,true);
-                }
+                  bool isPos = m_eMesh.is_positive_perm(elem, side, side_element_ords[ii]);
+                  if (ldb)
+                    {
+                      str << "P[" << m_eMesh.get_rank() << "] CS TMP srk elem= " << m_eMesh.id(elem) << " ii= " << ii << " side_elements.size= " << side_elements_size
+                          << " sameOwner= " << sameOwner << " isPos= " << isPos
+                          << std::endl;
+                      m_eMesh.print(str,side,true,true);
+                      m_eMesh.print(str,elem,true,true);
+                    }
 
-              if (sameOwner && isPos)
-                {
-                  jj = ii;
-                  found = true;
-                  break;
+                  if (sameOwner && isPos)
+                    {
+                      jj = ii;
+                      found = true;
+                      break;
+                    }
                 }
             }
           //if (doThrow && (!found || jj != 0))
           if (doThrow && !found)
             {
               std::cerr << m_eMesh.rank() << " CS1 side= " << m_eMesh.id(side) << " msg: " << msg << " jj= " << jj
-                        << " side_elements.size= "<< side_elements.size()
+                        << " side_elements.size= "<< side_elements_size
                         << "\n" << str.str() << std::endl;
               m_eMesh.print(std::cerr, side, true, true);
-              VERIFY_MSG(m_eMesh.rank()+" couldn't find an element/side on same proc, msg= " +msg +" side_elements.size= "+toString(side_elements.size())+" side= " +toString(m_eMesh.id(side)));
+              VERIFY_MSG(m_eMesh.rank()+" couldn't find an element/side on same proc, msg= " +msg +" side_elements.size= "+toString(side_elements_size)+" side= " +toString(m_eMesh.id(side)));
             }
           //if (!found || jj != 0) gfound = false;
           if (!found) gfound = false;
@@ -1215,37 +1358,74 @@
     void Refiner::
     require_sides_on_same_proc_as_pos_perm_element()
     {
+      stk::diag::Timer& timerRoot_ = rootTimer();
+      stk::diag::Timer timerReqSides_("ReqSidesLoc", timerRoot_);
+      stk::diag::TimeBlock timerReqSidesBlock_(timerReqSides_);
+
       const stk::mesh::EntityRank FAMILY_TREE_RANK = static_cast<stk::mesh::EntityRank>(stk::topology::ELEMENT_RANK + 1u);
       SetOfEntities side_set(*m_eMesh.get_bulk_data());
-      build_side_set(side_set);
+      bool only_roots_of_tree = true;
+
+      {
+        stk::diag::Timer timerReqSidesBSS_("ReqSidesLocBSS", timerReqSides_);
+        stk::diag::TimeBlock timerReqSidesBSSBlock_(timerReqSidesBSS_);
+        build_side_set(side_set, only_roots_of_tree);
+      }
+
+      SetOfEntities allD(*m_eMesh.get_bulk_data());
 
       stk::mesh::EntityProcVec change;
-      for (SetOfEntities::iterator it_side=side_set.begin(); it_side != side_set.end(); ++it_side)
-        {
-          stk::mesh::Entity child_side = *it_side;
-          stk::mesh::Entity side = m_eMesh.rootOfTree(child_side);
 
+      {
+        stk::diag::Timer timerReqSidesBCh_("ReqSidesLocBCh", timerReqSides_);
+        stk::diag::TimeBlock timerReqSidesBChBlock_(timerReqSidesBCh_);
+
+      for (auto child_side : side_set)
+        {
+          stk::mesh::Entity side = child_side;
           if (!m_eMesh.owned(side))
             continue;
 
           stk::topology side_topo = m_eMesh.topology(side);
 
-          percept::MyPairIterRelation side_elements (m_eMesh, side, m_eMesh.element_rank());
+          stk::mesh::Entity const* side_elements = m_eMesh.get_bulk_data()->begin_elements( side);
+          stk::mesh::ConnectivityOrdinal const* side_element_ordinals = m_eMesh.get_bulk_data()->begin_element_ordinals(side);
+          unsigned side_elements_size = m_eMesh.get_bulk_data()->num_elements(side);
 
           bool found = false;
           int element_proc = -1;
-          //VERIFY_OP_ON(side_elements.size(), >, 0, m_eMesh.rank()+" side has no attached elements, check= "+toString(check)+ " side= " + toString(m_eMesh.id(side)));
 
           bool is3Dedge = (m_eMesh.get_spatial_dim() == 3 && m_eMesh.entity_rank(side) == m_eMesh.edge_rank());
 
-          for (unsigned ii=0; ii < side_elements.size(); ++ii)
+          for (unsigned ii=0; ii < side_elements_size; ++ii)
             {
-              stk::mesh::Entity element = side_elements[ii].entity();
+              stk::mesh::Entity element = side_elements[ii];
 
-              stk::mesh::ConnectivityOrdinal side_ord = side_elements[ii].relation_ordinal();
-              //unsigned nsides = m_eMesh.topology(element).num_sides();
-              stk::mesh::Permutation perm = m_eMesh.find_permutation(element, side, side_ord);
-              // FIXMEif (side_topo.is_positive_polarity(perm) || (is3Dedge && m_eMesh.owner_rank(element) == m_eMesh.get_rank()))
+              stk::mesh::ConnectivityOrdinal side_ord = side_element_ordinals[ii];
+              stk::mesh::Permutation perm = stk::mesh::INVALID_PERMUTATION;
+
+#if 1
+              if (m_eMesh.owner_rank(element) == m_eMesh.owner_rank(side))
+                {
+                  perm = m_eMesh.find_permutation(element, side, side_ord);
+                  if (side_topo.is_positive_polarity(perm))
+                    {
+                      element_proc = m_eMesh.owner_rank(element);
+                      found = true;
+                      break;
+                    }
+                }
+              else
+                {
+                  perm = m_eMesh.find_permutation(element, side, side_ord);
+                  if (side_topo.is_positive_polarity(perm))
+                    {
+                      element_proc = m_eMesh.owner_rank(element);
+                    }
+                }
+
+#else
+              perm = m_eMesh.find_permutation(element, side, side_ord);
               if (side_topo.is_positive_polarity(perm))
                 {
                   element_proc = m_eMesh.owner_rank(element);
@@ -1256,6 +1436,7 @@
                       break;
                     }
                 }
+#endif
             }
           if (!found && is3Dedge)
             {
@@ -1268,42 +1449,40 @@
 
           if (element_proc != m_eMesh.get_rank())
             {
-              SetOfEntities allD(*m_eMesh.get_bulk_data());
-
               bool only_leaves = false;
+              allD.clear();
               m_eMesh.allDescendants(side, allD, only_leaves);
               allD.insert(side);
 
-              for (SetOfEntities::iterator iside = allD.begin(); iside != allD.end(); ++iside)
+              for (auto aside : allD)
                 {
-                  stk::mesh::Entity aside = *iside;
-
                   VERIFY_OP_ON(m_eMesh.owned(aside), ==, true, "root and child not on same proc");
                   change.push_back(stk::mesh::EntityProc(aside, element_proc));
 
                   // add FT's
-                  percept::MyPairIterRelation entity_ft (m_eMesh, aside, FAMILY_TREE_RANK);
-                  for (unsigned ii = 0; ii < entity_ft.size(); ++ii)
+                  stk::mesh::Entity const *entity_ft = m_eMesh.get_bulk_data()->begin(aside, FAMILY_TREE_RANK);
+                  unsigned entity_ft_size = m_eMesh.get_bulk_data()->num_connectivity(aside, FAMILY_TREE_RANK);
+                  for (unsigned ii = 0; ii < entity_ft_size; ++ii)
                     {
-                      change.push_back(stk::mesh::EntityProc(entity_ft[ii].entity(), element_proc));
+                      change.push_back(stk::mesh::EntityProc(entity_ft[ii], element_proc));
                     }
                 }
             }
         }
+      }
 
       if (1)
         {
-          if (0)
-            {
-              size_t csize = change.size();
-              stk::all_reduce( m_eMesh.get_bulk_data()->parallel() , stk::ReduceSum<1>( &csize ) );
-              if (csize && m_eMesh.get_rank() == 0)
-                {
-                  std::cerr << "Refiner::require_sides_on_same_proc_as_pos_perm_element found " << csize << " sides needing to be moved." << std::endl;
-                }
-              //VERIFY_OP_ON(csize, ==, 0, "csize");
-            }
-          m_eMesh.get_bulk_data()->change_entity_owner(change);
+          stk::diag::Timer timerReqSidesCEO_("ReqSidesLocCEO", timerReqSides_);
+          stk::diag::TimeBlock timerReqSidesCEOBlock_(timerReqSidesCEO_);
+
+
+          size_t csz = change.size();
+          stk::all_reduce( m_eMesh.get_bulk_data()->parallel() , stk::ReduceSum<1>( &csz ) );
+          // if (m_eMesh.get_rank() == 0)
+          //   std::cerr << "csz = " << csz << std::endl;
+          if (csz)
+            m_eMesh.get_bulk_data()->change_entity_owner(change);
         }
     }
 
@@ -1311,28 +1490,27 @@
     Refiner::
     unrefinePass2(ElementUnrefineCollection& elements_to_unref)
     {
-      TIMING(
-             //stk::diag::setEnabledTimerMetricsMask(stk::diag::METRICS_CPU_TIME | stk::diag::METRICS_WALL_TIME);
-             stk::diag::Timer timerUnrefine_("TE_UnRef", rootTimer());
-             stk::diag::TimeBlock timerUnrefineBlock_(timerUnrefine_);
-             );
+#if DO_TIMING
+      stk::diag::Timer timerUnrefine_("unrefinePass2", rootTimer());
+      stk::diag::TimeBlock timerUnrefineBlock_(timerUnrefine_);
+#endif
 
       REF_LTRACE_0();
 
       if (DEBUG_UNREF_1) std::cout << "\n\n\n unrefinePass2:: start \n\nVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV "<< std::endl;
 
       bool checkDB = false;
-      if (checkDB) m_nodeRegistry->checkDB("unrefinePass2 start");
+      if (checkDB) m_nodeRegistry->checkDB("RefinerUnrefine: unrefinePass2 start");
 
       if (1)
       {
         TIMER2(unref_require_sides,Unrefine_);
         check_sides_on_same_proc_as_owned_element("unrefinePass2", true);
-        check_parent_ownership();
+        //check_parent_ownership();
         //require_sides_on_same_proc_as_pos_perm_element();
       }
 
-      m_eMesh.get_bulk_data()->modification_begin();
+      mod_begin(&timerUnrefine_);
 
       m_eMesh.initializeIdServer();
 
@@ -1349,6 +1527,9 @@
       SetOfEntities sides_to_be_removed(*m_eMesh.get_bulk_data());
 
       filterUnrefSetPass2(elements_to_unref, elements_to_be_remeshed);
+
+      FixSideSetsSelectorUnrefine fss_unref(m_eMesh);
+      fss_unref.add_elements(elements_to_unref);
 
       // get kept nodes
       {
@@ -1370,7 +1551,7 @@
 
       if (DEBUG_UNREF_1) std::cout << "deleted_nodes.size= " << deleted_nodes.size() << std::endl;
 
-      if (checkDB) m_nodeRegistry->checkDB("unrefinePass2 1.0");
+      if (checkDB) m_nodeRegistry->checkDB("RefinerUnrefine: unrefinePass2 1.0");
 
       // remove deleted nodes and their associated sub-dim entities from NodeRegistry's db
       //   save kept_nodes_orig on NodeRegistry
@@ -1381,19 +1562,19 @@
         m_nodeRegistry->cleanDeletedNodes(deleted_nodes, kept_nodes_orig, to_save);
       }
 
-      if (checkDB) m_nodeRegistry->checkDB("unrefinePass2 1.1");
+      if (checkDB) m_nodeRegistry->checkDB("RefinerUnrefine: unrefinePass2 1.1");
       print_set(m_eMesh, elements_to_unref, "elements_to_unref");
 
       // find sides to remove
       if (1)
       {
-        TIMER2(cleanDeletedNodes,Unrefine_);
+        TIMER2(get_deleted_sides,Unrefine_);
         get_deleted_sides(sides_to_be_removed, elements_to_unref, elements_to_be_remeshed);
         //std::cout << "sides_to_be_removed.size= " << sides_to_be_removed.size() << std::endl;
         print_set(m_eMesh, sides_to_be_removed, "sides_to_be_removed");
       }
 
-      if (checkDB) m_nodeRegistry->checkDB("unrefinePass2 1.2");
+      if (checkDB) m_nodeRegistry->checkDB("RefinerUnrefine: unrefinePass2 1.2");
 
       // remove children
       std::vector<stk::mesh::Entity> new_elements, new_sides;
@@ -1402,18 +1583,17 @@
       SetOfEntities new_element_set(*m_eMesh.get_bulk_data());
       SetOfEntities new_side_set(*m_eMesh.get_bulk_data());
 
+      if (checkDB) m_nodeRegistry->checkDB("RefinerUnrefine: unrefinePass2 1.3.0");
       {
         TIMER2(removeChildren,Unrefine_);
         generate_temporary_elements(elements_to_unref, m_eMesh.element_rank(), new_elements);
+        if (checkDB) m_nodeRegistry->checkDB("RefinerUnrefine: unrefinePass2 1.3.1");
         new_element_set.insert(new_elements.begin(), new_elements.end());
+        if (checkDB) m_nodeRegistry->checkDB("RefinerUnrefine: unrefinePass2 1.3.2");
         delete_entities(elements_to_unref, m_eMesh.element_rank());
       }
-      //if (checkDB) m_nodeRegistry->checkDB("unrefinePass2 1.3");
+      if (checkDB) m_nodeRegistry->checkDB("RefinerUnrefine: unrefinePass2 1.3");
 
-      bool newV = m_eMesh.getProperty("RefinerUnrefine_new") == "true";
-      newV = NEW_VERSION;
-
-      if (newV)
       {
         TIMER2(deleteSides,Unrefine_);
         generate_temporary_elements(sides_to_be_removed, m_eMesh.side_rank(), new_sides);
@@ -1421,7 +1601,7 @@
         delete_entities(sides_to_be_removed, m_eMesh.side_rank());
       }
 
-      //if (checkDB) m_nodeRegistry->checkDB("unrefinePass2 1.4");
+      if (checkDB) m_nodeRegistry->checkDB("RefinerUnrefine: unrefinePass2 1.4");
 
       // reconnect and remove any dangling side elements
       bool allow_not_found = false;
@@ -1429,20 +1609,22 @@
       // FIXME
       {
         TIMER2(getSideParentsToBeRemeshed,Unrefine_);
-        getSideParentsToBeRemeshed(elements_to_be_remeshed, parent_side_elements, newV, &new_side_set);
+        getSideParentsToBeRemeshed(elements_to_be_remeshed, parent_side_elements, true, &new_side_set);
         print_set(m_eMesh, elements_to_be_remeshed, "elements_to_be_remeshed");
         print_set(m_eMesh, parent_side_elements, "parent_side_elements");
       }
+
+      if (checkDB) m_nodeRegistry->checkDB("RefinerUnrefine: unrefinePass2 3.1");
 
       // remesh the holes left by removing child elems (quad/hex hanging node doesn't need this)
       if (m_needsRemesh)
         {
           remeshElements(elements_to_be_remeshed, m_eMesh.element_rank(), 0);
 
-          //if (checkDB) m_nodeRegistry->checkDB("unrefinePass2 1.5");
+          if (checkDB) m_nodeRegistry->checkDB("RefinerUnrefine: unrefinePass2 1.5");
           remeshElements(parent_side_elements, m_eMesh.side_rank(), 0);
 
-          //if (checkDB) m_nodeRegistry->checkDB("unrefinePass2 1.6");
+          if (checkDB) m_nodeRegistry->checkDB("RefinerUnrefine: unrefinePass2 1.6");
         }
 
       if (0) std::cout << "P[" << m_eMesh.get_rank() << "] tmp m_needsRemesh= " << m_needsRemesh << " elements_to_be_remeshed.size= " << elements_to_be_remeshed.size()
@@ -1464,6 +1646,8 @@
         set_active_part();
       }
 
+      if (checkDB) m_nodeRegistry->checkDB("RefinerUnrefine: unrefinePass2 3.0");
+
       if (m_do_new_elements)
         {
           for (SetOfEntities::iterator iter = new_element_set.begin(); iter != new_element_set.end(); ++iter)
@@ -1481,51 +1665,67 @@
           m_eMesh.initializeIdServer();
         }
 
-      //if (checkDB) m_nodeRegistry->checkDB("unrefinePass2 2");
+      if (checkDB) m_nodeRegistry->checkDB("RefinerUnrefine: unrefinePass2 2");
 
-      if (1)
+      bool reduced_mod_end = true;
+      if (m_eMesh.getProperty("percept_reduced_mod_end") == "false")
+        reduced_mod_end = false;
+
       {
-        TIMER2(unref_bulk_mod_end,Unrefine_);
-        stk::mesh::fixup_ghosted_to_shared_nodes(*m_eMesh.get_bulk_data());
-        m_eMesh.get_bulk_data()->modification_end();
-        m_eMesh.get_bulk_data()->modification_begin();
+        //m_eMesh.get_bulk_data()->m_autoAuraOption = stk::mesh::BulkData::NO_AUTO_AURA;
+        mod_end(&timerUnrefine_,"Unref1");
+        //m_eMesh.get_bulk_data()->m_autoAuraOption = stk::mesh::BulkData::AUTO_AURA;
+        mod_begin(&timerUnrefine_);
       }
 
-      if (checkDB) m_nodeRegistry->checkDB("unrefinePass2 3");
+      m_nodeRegistry->cleanInvalidNodes();
+      if (checkDB) m_nodeRegistry->checkDB("RefinerUnrefine: unrefinePass2 3");
 
       if (1)
       {
         m_eMesh.setProperty("FixSideSets::fix_side_sets_2", "unrefinePass2 second");
 
-        TIMER2(unref_fix_side_sets_2_2,Unrefine_);
-        fix_side_sets_2(allow_not_found);
+        TIMER2(FSS_unref,Unrefine_);
+        //fix_side_sets_2(allow_not_found, 0, 0, 0, "Unref1");
+        fix_side_sets_2(allow_not_found, 0, 0, &fss_unref, "Unref1");
       }
-      if (checkDB) m_nodeRegistry->checkDB("unrefinePass2 4");
+      if (checkDB) m_nodeRegistry->checkDB("RefinerUnrefine: unrefinePass2 4");
 
       {
-        TIMER2(unref_bulk_mod_end,Unrefine_);
-        stk::mesh::fixup_ghosted_to_shared_nodes(*m_eMesh.get_bulk_data());
-        m_eMesh.get_bulk_data()->modification_end();
+
+        TIMER2(ResetFT,Unrefine_);
+        reset_family_tree_to_node_relations();
       }
 
-      if (checkDB) m_nodeRegistry->checkDB("unrefinePass2 5");
+      if (!reduced_mod_end)
+      {
+        mod_end(&timerUnrefine_,"Unref2");
+        mod_begin(&timerUnrefine_);
+      }
 
+      if (checkDB) m_nodeRegistry->checkDB("RefinerUnrefine: unrefinePass2 5");
+
+      if (m_nodeRegistry->s_use_new_ownership_check)
+        {
+          update_node_registry();
+        }
+      else
       {
         TIMER2(clear_element_owner_data_phase_2,Unrefine_);
-        m_nodeRegistry->clear_element_owner_data_phase_2();
+        m_nodeRegistry->clear_element_owner_data_phase_2(true, false);
       }
 
-      if (checkDB) m_nodeRegistry->checkDB("unrefinePass2 6");
+      if (checkDB) m_nodeRegistry->checkDB("RefinerUnrefine: unrefinePass2 6");
       {
         TIMER2(unref_set_active_part_2,Unrefine_);
-        m_eMesh.get_bulk_data()->modification_begin();
         set_active_part();
-        stk::mesh::fixup_ghosted_to_shared_nodes(*m_eMesh.get_bulk_data());
-        m_eMesh.get_bulk_data()->modification_end();
       }
+
+      mod_end(&timerUnrefine_,"Unref3");
+
       REF_LTRACE_0();
 
-      if (checkDB) m_nodeRegistry->checkDB("unrefinePass2 before prolong");
+      if (checkDB) m_nodeRegistry->checkDB("RefinerUnrefine: unrefinePass2 before prolong");
 
       if (1)
       {
@@ -1547,12 +1747,15 @@
               PerceptMesh eMeshNR;
               eMeshNR.set_ioss_read_options("large");
               eMeshNR.open_read_only(file1);
-              NodeRegistry nr1(eMeshNR);
+              NodeRegistry nr1(eMeshNR, 0);
               RefinerUtil::rebuild_node_registry(eMeshNR, nr1, true, &m_eMesh, m_nodeRegistry, true);
             }
         }
 
       if (DEBUG_UNREF_1) std::cout << "\n\n ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n\n\n unrefinePass2:: end "<< std::endl;
+
+      // if (m_eMesh.get_rank() == 0)
+      //   std::cout << "Unref: in_modifiable_state= " << m_eMesh.get_bulk_data()->in_modifiable_state() << " in_synchronized_state= " << m_eMesh.get_bulk_data()->in_synchronized_state() << std::endl;
 
     }
 

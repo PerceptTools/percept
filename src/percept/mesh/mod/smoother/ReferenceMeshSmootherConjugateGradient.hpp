@@ -13,12 +13,31 @@
 
 #include <percept/mesh/mod/smoother/ReferenceMeshSmootherBase.hpp>
 
+#include <percept/PerceptUtils.hpp>
+
 #define DEBUG_RMSCG_PRINT 0
 #define RMSCG_PRINT(a) do { if (DEBUG_RMSCG_PRINT && !m_eMesh->get_rank()) std::cout << "P[" << m_eMesh->get_rank() <<"] " << a << std::endl; } while(0)
 #define RMSCG_PRINT_1(a) do { if (!m_eMesh->get_rank()) std::cout << "P[" << m_eMesh->get_rank() <<"] " << a << std::endl; } while(0)
 #define RMSCG_PRINT_2(a) do {  std::cout << "P[" << m_eMesh->get_rank() <<"] " << a << std::endl; } while(0)
 
-  namespace percept {
+namespace percept {
+
+// selects all 6 faces of the cube
+struct CubeBoundarySelector : public StructuredGrid::MTSelector {
+	PerceptMesh *m_eMesh;
+	CubeBoundarySelector(PerceptMesh *eMesh) : m_eMesh(eMesh){}
+
+	bool operator()(StructuredCellIndex& index)
+	{
+		unsigned iblock = index[3];
+		std::shared_ptr<StructuredBlock> sgrid = m_eMesh->get_block_structured_grid()->m_sblocks[iblock];
+		unsigned sizes[3] = {sgrid->m_sizes.node_size[0], sgrid->m_sizes.node_size[1], sgrid->m_sizes.node_size[2]};
+
+		return (index[0] == 0 || index[0] == sizes[0]-1 ||
+				index[1] == 0 || index[1] == sizes[1]-1 ||
+				index[2] == 0 || index[2] == sizes[2]-1 );
+	}
+};
 
     /// A Jacobian based optimization smoother, e.g. 1/A - 1/W, W/A - I, etc. (A = local current Jacobian, W is for original mesh)
     /// Conjugate-gradient version, element-based metrics
@@ -77,10 +96,7 @@
                                              typename MeshType::MTMeshGeometry *meshGeometry=0,
                                              int inner_iterations = 100,
                                              double grad_norm =1.e-8,
-                                             int parallel_iterations = 20)
-        :  Base(eMesh, boundary_selector, meshGeometry, inner_iterations, grad_norm, parallel_iterations)
-        ,m_max_edge_length_factor(1.0)
-      {}
+                                             int parallel_iterations = 20);
 
       typedef long double Double;
 
@@ -120,7 +136,7 @@
 
     //using ReferenceMeshSmootherConjugateGradient =  ReferenceMeshSmootherConjugateGradientImpl<STKMesh>;
 
-  }
+  }//percept
 //#include <percept/mesh/mod/smoother/ReferenceMeshSmootherConjugateGradientDef.hpp>
 //#include <percept/mesh/mod/smoother/ReferenceMeshSmootherConjugateGradientSpec.hpp>
 

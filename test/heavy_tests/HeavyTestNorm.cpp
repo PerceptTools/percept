@@ -77,7 +77,7 @@ void TEST_norm_string_function_turbo_timings(TurboOption turboOpt, const size_t 
   stk::mesh::BulkData& bulkData = *eMesh.get_bulk_data();
 
   /// the coordinates field is always created by the PerceptMesh read operation, here we just get the field
-  stk::mesh::FieldBase *coords_field = metaData.get_field<stk::mesh::FieldBase>(stk::topology::NODE_RANK, "coordinates");
+  stk::mesh::FieldBase *coords_field = metaData.get_field(stk::topology::NODE_RANK, "coordinates");
 
   /// create a field function from the existing coordinates field
   FieldFunction ff_coords("ff_coords", coords_field, &bulkData,

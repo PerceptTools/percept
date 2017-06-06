@@ -80,12 +80,12 @@ bool GeometryKernelGregoryPatch::read_file
             field = m_geometryMesh->m_gregory_control_points_field_shell;
           if(percept::PerceptMesh::field_is_defined_on_part(field, part))
             {
-              geometry_entities.push_back(static_cast<GeometryHandle>(part.mesh_meta_data_ordinal()));
+              geometry_entities.push_back(GeometryHandle(static_cast<int>(part.mesh_meta_data_ordinal()), SURFACE));
             }
         }
       else if (part.name() == "edgeseams")
         {
-          geometry_entities.push_back(static_cast<GeometryHandle>(part.mesh_meta_data_ordinal()));
+          geometry_entities.push_back(GeometryHandle(static_cast<int>(part.mesh_meta_data_ordinal()), CURVE));
         }
     }
 
@@ -94,7 +94,7 @@ bool GeometryKernelGregoryPatch::read_file
 
 std::string GeometryKernelGregoryPatch::get_attribute(GeometryHandle geom) const
 {
-  unsigned ordinal = static_cast<unsigned>(geom);
+  unsigned ordinal = static_cast<unsigned>(geom.m_id);
   stk::mesh::Part * part = &m_nodeMesh.get_fem_meta_data()->get_part(ordinal);
   VERIFY_OP_ON(part, !=, 0, "bad part");
   return part->name();
@@ -110,7 +110,7 @@ void GeometryKernelGregoryPatch::snap_to
  void *hint
  )
 {
-  unsigned ordinal = static_cast<unsigned>(geom);
+  unsigned ordinal = static_cast<unsigned>(geom.m_id);
   stk::mesh::Part * part_ptr = &m_geometryMesh->get_fem_meta_data()->get_part(ordinal);
   VERIFY_OP_ON(part_ptr, !=, 0, "bad part");
 
@@ -430,26 +430,6 @@ void GeometryKernelGregoryPatch::normal_at(KernelPoint& point, GeometryHandle ge
     {
       percept::Math::copy_3d(&normal[0], &linearNormal[0]);
     }
-}
-
-bool GeometryKernelGregoryPatch::is_curve
-(
- GeometryHandle geom
- ) const
-{
-  std::string name = get_attribute(geom);
-  if (name == "edgeseams")
-    return true;
-  else
-    return false;
-}
-
-bool GeometryKernelGregoryPatch::is_surface
-(
- GeometryHandle geom
- ) const
-{
-  return !is_curve(geom);
 }
 
 void GeometryKernelGregoryPatch::

@@ -91,23 +91,56 @@ getPart(stk::mesh::MetaData *meta_data, std::string part_name, bool partial_stri
 
 bool GeometryFactory::read_file(const std::string& filename, stk::mesh::MetaData *meta_data)
 {
-    std::vector<GeometryHandle> geometry_entities;
-    if (!geomKernel->read_file(filename, geometry_entities))
-        return false;
-    for (size_t i=0; i<geometry_entities.size(); i++)
+  std::vector<GeometryHandle> geometry_entities;
+  if (!geomKernel->read_file(filename, geometry_entities))
+    return false;
+  for (size_t i=0; i<geometry_entities.size(); i++)
     {
-        std::string str = geomKernel->get_attribute(geometry_entities[i]);
-        bool partial_string_match_ok = true;
-	stk::mesh::Part* part = getPart(meta_data, str, partial_string_match_ok);
+      std::string str = geomKernel->get_attribute(geometry_entities[i]);
+      bool partial_string_match_ok = true;
 
+      if( (str.substr(0,1))=="#"){
+
+        std::string character = "";
+        std::string newstr1 = "";
+        int pos = 1;
+        while ( character != " "){ //parse out first partname
+          character = str.substr(pos,1);
+          if (character == " ")
+            break;
+          newstr1 = newstr1 + character;
+          pos++;
+        }
+        pos++;
+
+        std::string newstr2 = str.substr(pos, str.length()-pos);
+        stk::mesh::Part* part = getPart(meta_data, newstr1, partial_string_match_ok);
         if (part)
-        {
+          {
             GeometryEvaluator* eval = new GeometryEvaluator(part);
             eval->mGeometry = geometry_entities[i];
             geomDatabase->add_evaluator(eval);
-        }
+          }
+        stk::mesh::Part* part2 = getPart(meta_data, newstr2, partial_string_match_ok);
+        if (part2)
+          {
+            GeometryEvaluator* eval = new GeometryEvaluator(part2);
+            eval->mGeometry = geometry_entities[i];
+            geomDatabase->add_evaluator(eval);
+          }
+
+      }
+      else{
+        stk::mesh::Part* part = getPart(meta_data, str, partial_string_match_ok);
+        if (part)
+          {
+            GeometryEvaluator* eval = new GeometryEvaluator(part);
+            eval->mGeometry = geometry_entities[i];
+            geomDatabase->add_evaluator(eval);
+          }
+      }
     }
-    return true;
+  return true;
 }
 
 } // namespace percept

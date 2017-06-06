@@ -26,9 +26,12 @@
 
   namespace percept {
 
+    class Refiner;
+    typedef uint64_t RefinementInfoCount ;
+
     struct RefinementInfoByType
     {
-      RefinementInfoByType() : 
+      RefinementInfoByType() :
         m_numOrigElems(0),
         m_numNewElems(0),
         m_numOrigNodes(0),
@@ -38,8 +41,6 @@
         m_numNewElemsLast(0),
         m_rank(0)
       {}
-
-      typedef uint64_t RefinementInfoCount ;
 
       RefinementInfoCount m_numOrigElems;
       RefinementInfoCount m_numNewElems;
@@ -51,9 +52,47 @@
       RefinementInfoCount m_numNewElemsLast;
       unsigned m_rank;
 
-      static void estimateNew(std::vector< RefinementInfoByType >& refinementInfoByType, int iRefinePass);
-      static void printTable(std::ostream& os, std::vector< RefinementInfoByType >& refinementInfoByType, int iRefinePass, bool printAll = false);
-      static void countCurrentNodes(percept::PerceptMesh& eMesh, std::vector< RefinementInfoByType >& refinementInfoByType);
+    };
+
+    struct RefinementInfo
+    {
+      Refiner *m_refiner;
+      std::vector<RefinementInfoByType> m_refinementInfoByType;
+
+      RefinementInfo(Refiner *ref);
+
+      // following is for full stats
+      RefinementInfoCount m_totalNumElementsBeforeRefine;
+      RefinementInfoCount m_totalNumSidesBeforeRefine;
+      RefinementInfoCount m_totalNumElementsAfterRefine;
+      RefinementInfoCount m_totalNumSidesAfterRefine;
+      RefinementInfoCount m_numMarkedSides;
+      RefinementInfoCount m_numMarkedElements;
+
+      RefinementInfoCount m_numberOfMarkedSubDimEntities[4]; // edge=1, face=2, elem=3 (by topo rank)
+      RefinementInfoCount m_numberOfSubDimEntities[4];
+
+      RefinementInfoCount m_totalNumEntitiesBeforeFilter[4];
+      RefinementInfoCount m_totalNumEntitiesAfterFilter[4];
+
+      RefinementInfoCount m_totalNumEntitiesBeforeEstimate[4];
+      RefinementInfoCount m_totalNumEntitiesAfterEstimate[4];
+
+      bool m_full_stats;
+
+      void estimateNew(int iRefinePass);
+      void printTable(std::ostream& os, int iRefinePass, bool printAll = false, const std::string& extra_title="");
+      void countCurrentNodes(percept::PerceptMesh& eMesh);
+
+      void full_stats_before_mark();
+      void full_stats_after_mark();
+      void full_stats_before_refine();
+      void full_stats_after_refine();
+      void full_stats_before_filter(stk::mesh::EntityRank rank, RefinementInfoCount count);
+      void full_stats_after_filter(stk::mesh::EntityRank rank, RefinementInfoCount count);
+      void full_stats_before_estimate(stk::mesh::EntityRank rank, RefinementInfoCount count);
+      void full_stats_after_estimate(stk::mesh::EntityRank rank, RefinementInfoCount count);
+      void countRefinedEntities(stk::mesh::EntityRank rank, RefinementInfoCount& num_elem, RefinementInfoCount * num_elem_marked);
 
     };
 

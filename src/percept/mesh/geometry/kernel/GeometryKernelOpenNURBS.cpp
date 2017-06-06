@@ -47,12 +47,26 @@ bool GeometryKernelOpenNURBS::debug_dump_file(const std::string& file_name)
   std::cout << "Number of objects in file= " << onModel.m_object_table.Count() << std::endl;
   for (int i=0; i<onModel.m_object_table.Count(); i++)
   {
+    GeomEvalType get = INVALID;
+    std::string type_name = "unknowns";
+
+    if (debug_is_curve(i)) {
+      get = CURVE;
+      type_name = "curve";
+    }
+    else if (debug_is_surface(i)) {
+      get = SURFACE;
+      type_name = "surface";
+    }
+    GeometryHandle gh(i,get);
+
     auto obj = onModel.m_object_table[i].m_object;
-    std::string object_name = obj ? typeid(*obj).name() : "null"; 
+    std::string object_name = obj ? typeid(*obj).name() : "null";
+
     std::cout << ">> geom object[" << i << "] = "
               << object_name
-              << " name = " << (obj ?  get_attribute(i) : " no name ")
-              << " type= " << ( (is_curve(i) ? "curve" : (is_surface(i) ? "surface" : "unknowns")))
+              << " name = " << (obj ?  get_attribute(gh) : " no name ")
+              << " type= " << type_name 
               << std::endl;
   }
   return rc;
@@ -84,13 +98,13 @@ bool GeometryKernelOpenNURBS::read_file(const std::string& file_name, std::vecto
 
   for (int i=0; i<onModel.m_object_table.Count(); i++)
   {
-    if ( is_curve(i) )
-      geometry_entities.push_back(i);
+    if ( debug_is_curve(i) )
+      geometry_entities.push_back(GeometryHandle(i,CURVE));
   }
   for (int i=0; i<onModel.m_object_table.Count(); i++)
   {
-    if ( is_surface(i) )
-      geometry_entities.push_back(i);
+    if ( debug_is_surface(i) )
+      geometry_entities.push_back(GeometryHandle(i,SURFACE));
   }
 
   return rc;
@@ -101,7 +115,7 @@ std::string GeometryKernelOpenNURBS::get_attribute(GeometryHandle geom) const
   ON_wString key = "geometry";
   ON_wString geometry_name;
 
-  geometry_name = onModel.m_object_table[geom].m_attributes.m_name;
+  geometry_name = onModel.m_object_table[geom.m_id].m_attributes.m_name;
 
   std::string geom_name;
   geom_name.assign(geometry_name.Array(),
@@ -112,8 +126,8 @@ std::string GeometryKernelOpenNURBS::get_attribute(GeometryHandle geom) const
 
 void GeometryKernelOpenNURBS::snap_to(KernelPoint& point, GeometryHandle geom, double *converged_tolerance, double *uvw_computed, double *uvw_hint, void *extra_hint)
 {
-  const ON_Surface* surface = dynamic_cast<const ON_Surface*>(onModel.m_object_table[geom].m_object);
-  const ON_Curve* curve = dynamic_cast<const ON_Curve*>(onModel.m_object_table[geom].m_object);
+  const ON_Surface* surface = dynamic_cast<const ON_Surface*>(onModel.m_object_table[geom.m_id].m_object);
+  const ON_Curve* curve = dynamic_cast<const ON_Curve*>(onModel.m_object_table[geom.m_id].m_object);
 
   if (surface)
   {
@@ -146,8 +160,8 @@ void GeometryKernelOpenNURBS::snap_to(KernelPoint& point, GeometryHandle geom, d
 
 void GeometryKernelOpenNURBS::normal_at(KernelPoint& point, GeometryHandle geom, std::vector<double>& normal, void *hint)
 {
-  const ON_Surface* surface = dynamic_cast<const ON_Surface*>(onModel.m_object_table[geom].m_object);
-  const ON_Curve* curve = dynamic_cast<const ON_Curve*>(onModel.m_object_table[geom].m_object);
+  const ON_Surface* surface = dynamic_cast<const ON_Surface*>(onModel.m_object_table[geom.m_id].m_object);
+  const ON_Curve* curve = dynamic_cast<const ON_Curve*>(onModel.m_object_table[geom.m_id].m_object);
   if (surface)
   {
     ON_3dPoint p(point);
@@ -177,13 +191,14 @@ void GeometryKernelOpenNURBS::normal_at(KernelPoint& point, GeometryHandle geom,
   }
 }
 
-bool GeometryKernelOpenNURBS::is_curve(GeometryHandle geom) const
+bool GeometryKernelOpenNURBS::debug_is_curve(int geom) const
 {
+
   const ON_Curve* curve = dynamic_cast<const ON_Curve*>(onModel.m_object_table[geom].m_object);
   return curve ? true : false;
 }
 
-bool GeometryKernelOpenNURBS::is_surface(GeometryHandle geom) const
+bool GeometryKernelOpenNURBS::debug_is_surface(int geom) const
 {
   const ON_Surface* surface = dynamic_cast<const ON_Surface*>(onModel.m_object_table[geom].m_object);
   return surface ? true : false;

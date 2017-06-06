@@ -303,36 +303,36 @@
             throw std::runtime_error(std::string("SerializeNodeRegistry::readGlobalPartsFile couldn't open file ")+fileName);
           }
 
-        YAML::Parser parser(file);
+        //YAML::Parser parser(file);
         YAML::Node doc;
 
         try {
-          while(parser.GetNextDocument(doc)) {
+          //while(parser.GetNextDocument(doc)) {
+          if (1) {
+            doc = YAML::Load(file);
             //std::cout << "\n readGlobalPartsFile doc.Type() = " << doc.Type() << " doc.Tag()= " << doc.Tag() << " doc.size= " << doc.size() << std::endl;
             if (doc.Type() == YAML::NodeType::Map)
               {
-                for(YAML::Iterator iter=doc.begin();iter!=doc.end();++iter)
+                for(YAML::const_iterator iter=doc.begin();iter!=doc.end();++iter)
                   {
-                    const YAML::Node& key = iter.first();
-                    PartName part_name;
-                    key >> part_name;
+                    const YAML::Node& key = iter->first;
+                    PartName part_name = key.as<PartName>();
 
-                    const YAML::Node& valSeq = iter.second();
+                    const YAML::Node& valSeq = iter->second;
                     UInt rank_input;
                     TopologyName topo_name;
-                    YAML::Iterator itv=valSeq.begin();
-                    *itv >> rank_input;
+                    YAML::const_iterator itv=valSeq.begin();
+                    rank_input = itv->as<UInt>();
                     ++itv;
-                    *itv >> topo_name;
+                    topo_name = itv->as<TopologyName>();
                     ++itv;
                     stk::mesh::EntityRank rank = static_cast<stk::mesh::EntityRank>(rank_input);
                     const YAML::Node& subsetSeq = *itv;
-                    YAML::Iterator iss;
+                    YAML::const_iterator iss;
                     PartSubsets subsets;
                     for (iss = subsetSeq.begin(); iss != subsetSeq.end(); ++iss)
                       {
-                        PartName subset_name;
-                        *iss >> subset_name;
+                        PartName subset_name = iss->as<PartName>();
                         subsets.push_back(subset_name);
                       }
                     PartMapData pmd(rank, topo_name, subsets);
@@ -483,23 +483,24 @@
             throw std::runtime_error(std::string("SerializeNodeRegistry::readNodeMap couldn't open file ")+fileName);
           }
 
-        YAML::Parser parser(file);
+        //YAML::Parser parser(file);
         YAML::Node doc;
 
         try {
-          while(parser.GetNextDocument(doc)) {
+          //while(parser.GetNextDocument(doc)) {
+          if (1) {
+            doc = YAML::Load(file);
             std::cout << "tmp srk readNodeMap= " << fileName
                       << " doc.Type() = " << doc.Type() << " doc.Tag()= " << doc.Tag() << " doc.size= " << doc.size() << std::endl;
             if (doc.Type() == YAML::NodeType::Map)
               {
-                for(YAML::Iterator iter=doc.begin();iter!=doc.end();++iter)
+                for(YAML::const_iterator iter=doc.begin();iter!=doc.end();++iter)
                   {
-                    const YAML::Node& key = iter.first();
-                    stk::mesh::EntityId id;
-                    key >> id;
+                    const YAML::Node& key = iter->first;
+                    stk::mesh::EntityId id = key.as<stk::mesh::EntityId>();
                     NodeMapValue procs;
-                    const YAML::Node& val = iter.second();
-                    val >> procs;
+                    const YAML::Node& val = iter->second;
+                    procs = val.as<NodeMapValue>();
                     //std::cout << "readNodeMap id= " << id << " procs= " << procs << std::endl;
                     if (is_local && procs.size() != 1)
                       throw std::logic_error(std::string("SerializeNodeRegistry::readNodeMap procs.size is != 1, = ")+toString(procs.size()));
@@ -597,9 +598,9 @@
                 continue;
               }
 
-            shards::CellTopology topo = m_eMesh.get_fem_meta_data()->get_cell_topology(part);
+            stk::topology topo = m_eMesh.get_fem_meta_data()->get_topology(part);
             TopologyName topo_name = "null";
-            if (topo.getCellTopologyData()) topo_name = topo.getName();
+            if (topo != stk::topology::INVALID_TOPOLOGY) topo_name = topo.name();
             //std::cout << "part, topo= " << part.name() << " " << topo_name << std::endl;
             const stk::mesh::PartVector& part_subsets = part.subsets();
             PartSubsets subsets(part_subsets.size());
@@ -1156,7 +1157,7 @@
                 else
                   {
                     stk::mesh::PartVector parts(1, &eMesh.get_fem_meta_data()->universal_part());
-                    node = eMesh.get_bulk_data()->declare_entity(stk::topology::NODE_RANK, static_cast<stk::mesh::EntityId>(key_nodeId), parts);
+                    node = eMesh.get_bulk_data()->declare_node(static_cast<stk::mesh::EntityId>(key_nodeId), parts);
                   }
               }
             key.insert( node );
@@ -1177,7 +1178,7 @@
             else
               {
                 stk::mesh::PartVector parts(1, &eMesh.get_fem_meta_data()->universal_part());
-                entity = eMesh.get_bulk_data()->declare_entity(stk::topology::NODE_RANK, static_cast<stk::mesh::EntityId>(value_nodeId),
+                entity = eMesh.get_bulk_data()->declare_node(static_cast<stk::mesh::EntityId>(value_nodeId),
                                                                parts);
               }
           }
@@ -1247,17 +1248,19 @@
             throw std::runtime_error(std::string("SerializeNodeRegistry::getCurrentGlobalMaxId couldn't open file ")+fileName);
           }
 
-        YAML::Parser parser(file);
+        //YAML::Parser parser(file);
         YAML::Node doc;
         stk::mesh::EntityId id_max_local;
         try {
-          while(parser.GetNextDocument(doc)) {
+          //while(parser.GetNextDocument(doc)) {
+          if (1) {
+            doc = YAML::Load(file);
             if (m_debug) std::cout << "\n read doc.Type() = " << doc.Type() << " doc.Tag()= " << doc.Tag() << " doc.size= " << doc.size() << std::endl;
             if (doc.Type() == YAML::NodeType::Map)
               {
                 for (unsigned irank=0; irank < m_id_max.size(); irank++)
                   {
-                    doc[m_entity_rank_names[irank]] >> id_max_local;
+                    id_max_local = doc[m_entity_rank_names[irank]].as<stk::mesh::EntityId>();
                     if (merge)
                       {
                         id_max[irank] = std::max(id_max_local, id_max[irank]);
@@ -1591,7 +1594,7 @@
         PerceptMesh& eMesh = nodeRegistry.getMesh();
         eMesh.get_bulk_data()->modification_begin();
 
-        YAML::Parser parser(file_in);
+        //YAML::Parser parser(file_in);
         YAML::Node doc;
         if (DEBUG_YAML)
           std::cout
@@ -1606,11 +1609,13 @@
         //std::cout << msg << " tmp serialize_read map size: " << map.size() << std::endl;
 
         try {
-          while(parser.GetNextDocument(doc)) {
+          //while(parser.GetNextDocument(doc)) {
+          if (1) {
+            doc = YAML::Load(file_in);
             if (DEBUG_YAML) std::cout << "s_r doc.Type() = " << doc.Type() << " doc.Tag()= " << doc.Tag() << " doc.size= " << doc.size() << std::endl;
             if (doc.Type() == YAML::NodeType::Map)
               {
-                for(YAML::Iterator it=doc.begin();it!=doc.end();++it) {
+                for(YAML::const_iterator it=doc.begin();it!=doc.end();++it) {
                   typedef stk::mesh::EntityId SDCEntityType_ID;
                   //typedef stk::mesh::Entity SDCEntityType;
                   SDCEntityType_ID key_quantum;
@@ -1637,9 +1642,9 @@
 
                   //if (DEBUG_YAML) std::cout << "it.first().Type() = " << it.first().Type() << " it.first().Tag()= " << it.first().Tag() << std::endl;
                   //if (DEBUG_YAML) std::cout << "it.second().Type() = " << it.second().Type() << " it.second().Tag()= " << it.second().Tag() << std::endl;
-                  const YAML::Node& keySeq = it.first();
-                  for(YAML::Iterator itk=keySeq.begin();itk!=keySeq.end();++itk) {
-                    *itk >> key_quantum;
+                  const YAML::Node& keySeq = it->first;
+                  for(YAML::const_iterator itk=keySeq.begin();itk!=keySeq.end();++itk) {
+                    key_quantum = itk->as<SDCEntityType_ID>();
                     if (DEBUG_YAML) std::cout << "s_r key_quantum= " << key_quantum << std::endl;
                     SDCEntityType node = eMesh.get_bulk_data()->get_entity(stk::topology::NODE_RANK, key_quantum);
                     //key.insert(const_cast<stk::mesh::Entity>(&element) );
@@ -1650,7 +1655,7 @@
                         else
                           {
                             stk::mesh::PartVector parts(1, &eMesh.get_fem_meta_data()->universal_part());
-                            node = eMesh.get_bulk_data()->declare_entity(stk::topology::NODE_RANK, static_cast<stk::mesh::EntityId>(key_quantum), parts);
+                            node = eMesh.get_bulk_data()->declare_node(static_cast<stk::mesh::EntityId>(key_quantum), parts);
                           }
                       }
 
@@ -1659,19 +1664,18 @@
                   }
 
                   int iseq=0;
-                  const YAML::Node& valSeq = it.second();
+                  const YAML::Node& valSeq = it->second;
                   stk::mesh::EntityRank rank = stk::topology::INVALID_RANK;
                   size_t id;
-                  for(YAML::Iterator itv=valSeq.begin();itv!=valSeq.end();++itv,++iseq) {
+                  for(YAML::const_iterator itv=valSeq.begin();itv!=valSeq.end();++itv,++iseq) {
                     if (iseq == 0)
                       {
-                        UInt rank_input;
-                        *itv >> rank_input;
+                        UInt rank_input = itv->as<UInt>();
                         rank = static_cast<stk::mesh::EntityRank>(rank_input);
                       }
                     else if (iseq == 1)
                       {
-                        *itv >> id;
+                        id = itv->as<size_t>();
                         stk::mesh::EntityKey entityKey(rank,id);
                         if (DEBUG_YAML) std::cout << "s_r value_tuple_1= " << rank << " " << id << std::endl;
                         value_entity_key = stk::mesh::EntityKey(rank,id);
@@ -1681,7 +1685,7 @@
                       }
                     else
                       {
-                        *itv >> value_tuple_0_quantum;
+                        value_tuple_0_quantum = itv->as<stk::mesh::EntityId>();
 
                         //stk::mesh::EntityId owning_elementId = stk::mesh::entity_id(data.get<SDC_DATA_OWNING_ELEMENT_KEY>());
                         nodeIds_onSE.m_entity_id_vector.push_back(value_tuple_0_quantum);
@@ -1693,7 +1697,7 @@
                             else
                               {
                                 stk::mesh::PartVector parts(1, &eMesh.get_fem_meta_data()->universal_part());
-                                entity = eMesh.get_bulk_data()->declare_entity(stk::topology::NODE_RANK, static_cast<stk::mesh::EntityId>(value_tuple_0_quantum),
+                                entity = eMesh.get_bulk_data()->declare_node(static_cast<stk::mesh::EntityId>(value_tuple_0_quantum),
                                                                               parts);
                               }
                           }

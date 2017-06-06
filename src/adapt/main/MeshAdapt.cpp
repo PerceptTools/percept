@@ -13,22 +13,37 @@
 #include <adapt/FixSideSets.hpp>
 
 #include <stk_util/registry/ProductRegistry.hpp>
-#if defined( STK_BUILT_IN_SIERRA)
+
+#if defined(STK_BUILT_IN_SIERRA)
 #include <AuditLog.h>
 #endif
 
 #if defined( STK_PERCEPT_HAS_GEOMETRY )
 #include <percept/mesh/geometry/kernel/GeometryKernelGregoryPatch.hpp>
 #include <percept/mesh/geometry/kernel/GeometryKernelOpenNURBS.hpp>
+
+#ifdef HAVE_CUBIT
+#include "PGeom.hpp"
+#include "PGeomAssoc.hpp"
+#ifdef HAVE_ACIS
+#include "PGeomACIS.hpp"
+#endif
+
+#include <percept/mesh/geometry/kernel/GeometryKernelPGEOM.hpp>
+#endif
+
 #include <percept/mesh/geometry/kernel/MeshGeometry.hpp>
 #include <percept/mesh/geometry/kernel/GeometryFactory.hpp>
+
 #endif
 
 
 namespace percept {
 
-  MeshAdapt::MeshAdapt()
+  MeshAdapt::MeshAdapt() 
   {
+
+
 
 #if !MESH_ADAPT_CPP11_MVI
 #define CPP11MVITYPE(x)
@@ -44,6 +59,8 @@ namespace percept {
 #undef CPP11MVI_3
 #undef CPP11MVIEQ
 #undef CPP11MV1_ARRAY_INIT
+
+
 
 #endif
 
@@ -572,6 +589,11 @@ namespace percept {
                                   "   e.g. \"large,auto-decomp:yes\"\n"
                                   " Note: set options for read and/or write (ioss_write_options)");
     clp.setOption("ioss_write_options"       , &ioss_write_options       , "see ioss_read_options");
+    clp.setOption("generated_mesh"           , &generated_mesh           ,
+                  "use internal fixture to generate an NxMxP hexahedral mesh and write it out to --output_mesh, --input_mesh should contain the following\n"
+                  "  syntax: NxMxP|bbox:xmin,xmax,ymin,ymax,zmin,zmax|sideset:xXyYzZ (bbox and sideset are optional; sideset args are where to put sidesets\n"
+                  "     e.g: '--generated_mesh=1 --input_mesh=\"10x10x10|bbox:-1,-1,-1,2,2,1|sideset:xXyZ\"' would generate a 10x10x10 mesh with sidesets on minX,maxX,minY and maxZ sides"
+                  );
 
     // debugging/advanced
     clp.setOption("debug"                    , &debug                    , " turn on debug printing");
@@ -648,6 +670,9 @@ namespace percept {
 #if defined( STK_HAS_MPI )
         stk::parallel_machine_finalize();
 #endif
+#if defined(WITH_KOKKOS)
+        Kokkos::finalize();
+#endif
         std::exit(vb);
       }
 
@@ -661,6 +686,9 @@ namespace percept {
       catch (...) {}
 #if defined( STK_HAS_MPI )
       stk::parallel_machine_finalize();
+#endif
+#if defined(WITH_KOKKOS)
+      Kokkos::finalize();
 #endif
       std::exit(0);
     }
@@ -726,20 +754,46 @@ namespace percept {
         if (p_rank == 0) std::cout << "mesh_adapt: input_geometry type  file= " << input_geometry << std::endl;
         if (input_geometry.find(".3dm") != std::string::npos )
           {
-            input_geometry_type = OPENNURBS;
-            if (p_rank == 0) std::cout << "mesh_adapt: input_geometry type is OpenNURBS for file= " << input_geometry << std::endl;
+            std::string m2gFile = input_geometry.substr(0,input_geometry.length()-3) + "m2g";
+
+            struct stat s;
+            if (0 == stat(m2gFile.c_str(), &s))
+            {
+#ifdef HAVE_CUBIT
+              input_geometry_type = PGEOM_OPENNURBS;
+              if (p_rank == 0) std::cout << "mesh_adapt: input_geometry type is OpenNURBS (PGeom) for file= " << input_geometry << std::endl;
+#else
+              throw std::runtime_error("CUBIT not supported on this platform");
+#endif              
+            }
+            else
+            {
+              input_geometry_type = OPENNURBS;
+              if (p_rank == 0) std::cout << "mesh_adapt: input_geometry type is OpenNURBS for file= " << input_geometry << std::endl;
+            }
           }
         else if (input_geometry.find(".e") != std::string::npos || input_geometry.find(".g") != std::string::npos || input_geometry.find(".exo") != std::string::npos)
           {
             input_geometry_type = MESH_BASED_GREGORY_PATCH;
             if (p_rank == 0) std::cout << "mesh_adapt: input_geometry type is mesh-based (Gregory patch) for file= " << input_geometry << std::endl;
           }
+        else if(input_geometry.find(".sat") != std::string::npos)
+        {
+#ifdef HAVE_ACIS
+          input_geometry_type = PGEOM_ACIS;
+          if (p_rank == 0) std::cout << "mesh_adapt: input_geometry type is ACIS for file= " << input_geometry << std::endl;
+#else
+          throw std::runtime_error("ACIS is not available in this platform.");
+#endif
+        }
         else
           {
             VERIFY_MSG("invalid file extension on --input_geometry file\n   "
                        "-- valid extensions are .3dm (OpenNURBS) or .e,.g,.exo for GregoryPatch Exodus files - file= " + input_geometry);
           }
       }
+
+
     return 0;
   }
 
@@ -1450,6 +1504,7 @@ namespace percept {
             eMeshP->close();
             pre_open();
             eMeshP->open(input_mesh);
+
             if (smooth_geometry == 1) eMeshP->add_coordinate_state_fields();
 #if !defined(NO_GEOM_SUPPORT)
             if (respect_spacing == 1) {
@@ -1507,7 +1562,10 @@ namespace percept {
     pre_open();
     {
       double t0 = stk::wall_time();
-      eMeshP->open(input_mesh);
+      if (generated_mesh)
+        eMeshP->new_mesh(GMeshSpec(input_mesh));
+      else
+        eMeshP->open(input_mesh);
       double t1 = stk::wall_time();
       mMeshInputTime = t1 - t0;
     }
@@ -1537,11 +1595,11 @@ namespace percept {
 
     Util::setRank(eMeshP->get_rank());
 
-    if (doRefineMesh)
-      {
-        m_block_names = process_block_names();
-        create_refine_pattern();
-      }
+    if (doRefineMesh && ((input_geometry_type != PGEOM_ACIS) && (input_geometry_type != PGEOM_OPENNURBS)) )
+    {
+      m_block_names = process_block_names();
+      create_refine_pattern();
+    }
 
     int scalarDimension = 0; // a scalar
 
@@ -1559,10 +1617,11 @@ namespace percept {
     // Mesh-based geometry Fitting - setup parts
     mesh_based_geometry_setup();
 
-    if (input_geometry.length())
-      {
-        eMeshP->register_and_set_smoothing_fields();
-      }
+    if (input_geometry.length()) {
+      eMeshP->register_and_set_smoothing_fields(); 
+
+      setup_m2g_parts(input_geometry);
+    }
 
     do_precheck_memory_usage();
 
@@ -1585,7 +1644,7 @@ namespace percept {
       }
 
     if (DO_MEMORY) {
-      std::string hwm = eMeshP->print_memory_high_water_mark();
+      std::string hwm = eMeshP->print_memory_both();
       if (!eMeshP->get_rank()) std::cout << "MEM: " << hwm << " initial memory after opening input mesh."  << std::endl;
     }
 
@@ -1659,27 +1718,22 @@ namespace percept {
         t0 =  stk::wall_time();
         cpu0 = stk::cpu_time();
 
-        //UniformRefiner refiner(*eMeshP, *pattern, proc_rank_field_ptr);
         create_refiner();
 
 #if defined(STK_PERCEPT_LITE) && STK_PERCEPT_LITE == 0
         ProgressMeter pm(*refiner);
 #endif
-        //pm.setActive(true);
 
-        //std::cout << "P[" << p_rank << ", " << p_size << "] input_geometry = " << input_geometry << std::endl;
+        if (input_geometry != "") {
+          refiner->setGeometryFile(input_geometry);
+          refiner->setSmoothGeometry(smooth_geometry == 1);
+          
+          initialize_m2g_geometry(input_geometry);
+        }
 
-        if (input_geometry != "")
-          {
-            refiner->setGeometryFile(input_geometry);
-            refiner->setSmoothGeometry(smooth_geometry == 1);
-            //refiner->setRemoveGeometryBlocks(remove_geometry_blocks == 1);
-          }
-        //FIXME refiner->setRemoveOldElements(remove_original_elements);
         refiner->setFixAllBlockBoundaries(fix_all_block_boundaries);
         refiner->setQueryPassOnly(query_only == 1);
         refiner->setDoProgressMeter(progress_meter == 1 && 0 == p_rank);
-        //refiner->setIgnoreSideSets(true);
 #if defined(STK_BUILT_IN_SIERRA)
         if (rbar_blocks.length())
           {
@@ -1715,6 +1769,7 @@ namespace percept {
 
             pre_refiner_tasks(iBreak);
 
+
             refiner->doBreak();
 
             if (!eMeshP->get_rank())
@@ -1723,7 +1778,7 @@ namespace percept {
                 int ib = iBreak;
                 if (!query_only) ib = 0;
                 bool printAllTopologies = false;
-                RefinementInfoByType::printTable(std::cout, refiner->getRefinementInfoByType(), ib , printAllTopologies);
+                refiner->getRefinementInfo().printTable(std::cout, ib , printAllTopologies);
                 std::cout << std::endl;
               }
             if (print_memory_usage)
@@ -1744,11 +1799,11 @@ namespace percept {
                         if (!p_rank)
                           std::cout << "P[" << p_rank << "] tmp srk mem after mesh read= " << MegaByte(tot_mem) << std::endl;
                         bool use_new = false;
-                        MemoryMultipliers::process_estimate(tot_mem, *eMeshP, refiner->getRefinementInfoByType(), memory_multipliers_file, input_mesh, use_new);
+                        MemoryMultipliers::process_estimate(tot_mem, *eMeshP, refiner->getRefinementInfo(), memory_multipliers_file, input_mesh, use_new);
                       }
 
-                    RefinementInfoByType::estimateNew(refiner->getRefinementInfoByType(), iBreak);
-                    MemoryMultipliers::process_estimate(0, *eMeshP, refiner->getRefinementInfoByType(), memory_multipliers_file, input_mesh);
+                    refiner->getRefinementInfo().estimateNew(iBreak);
+                    MemoryMultipliers::process_estimate(0, *eMeshP, refiner->getRefinementInfo(), memory_multipliers_file, input_mesh);
                   }
                 else
                   {
@@ -1756,7 +1811,7 @@ namespace percept {
                                                          std::string("after refine pass: ")+toString(iBreak));
                     if (!p_rank)
                       std::cout << "P[" << p_rank << "] tmp srk tot_mem= " << MegaByte(tot_mem) << std::endl;
-                    MemoryMultipliers::process_estimate(tot_mem, *eMeshP, refiner->getRefinementInfoByType(), memory_multipliers_file, input_mesh);
+                    MemoryMultipliers::process_estimate(tot_mem, *eMeshP, refiner->getRefinementInfo(), memory_multipliers_file, input_mesh);
                   }
               }
             if (save_intermediate_meshes < 0)
@@ -1770,7 +1825,30 @@ namespace percept {
                 eMeshP->save_as("refined_mesh_"+toString(iBreak+1)+".e");
               }
 
+            if (DO_MEMORY) {
+              std::string hwm = eMeshP->print_memory_both();
+              if (!eMeshP->get_rank()) std::cout << "MEM: " << hwm << " memory after refining mesh for pass # " << iBreak  << std::endl;
+            }
+
+
           } // iBreak
+
+
+        if (delete_parents)
+          {
+            if (DO_MEMORY) {
+              std::string hwm = eMeshP->print_memory_both();
+              if (!eMeshP->get_rank()) std::cout << "MEM: " << hwm << " memory before deleteParentElements" << std::endl;
+            }
+
+            refiner->deleteParentElements();
+
+            if (DO_MEMORY) {
+              std::string hwm = eMeshP->print_memory_both();
+              if (!eMeshP->get_rank()) std::cout << "MEM: " << hwm << " memory after deleteParentElements"  << std::endl;
+            }
+          }
+
 
         if (number_refines == 0 && (smooth_geometry == 1 || snap_geometry == 1))
           {
@@ -1865,7 +1943,7 @@ namespace percept {
       }
 #endif
     if (DO_MEMORY) {
-      std::string hwm = eMeshP->print_memory_high_water_mark();
+      std::string hwm = eMeshP->print_memory_both();
       if (!eMeshP->get_rank()) std::cout << "MEM: " << hwm << " final memory after refining mesh."  << std::endl;
     }
 
@@ -1931,13 +2009,9 @@ namespace percept {
 #endif
   }
 
-#if !defined(STK_BUILT_IN_SIERRA)
   void MeshAdapt::log_usage( bool status )
   {
-  }
-#else
-  void MeshAdapt::log_usage( bool status )
-  {
+#if defined(STK_BUILT_IN_SIERRA)
     const bool disable_audit = !sierra::Env::get_param("noaudit").empty() || std::getenv("SIERRA_USAGE_METRICS_OFF") != NULL;
 
     size_t hwm_max = 0, hwm_min = 0, hwm_avg = 0;
@@ -1988,13 +2062,16 @@ namespace percept {
         OutputAuditLog(&data);
       }
     }
+#endif    
   }
-#endif
 
   int MeshAdapt::adapt_main_full_options(int argc, char **argv)
   {
 #if defined( STK_HAS_MPI )
     stk::ParallelMachine comm(stk::parallel_machine_init(&argc, &argv));
+#endif
+#if defined(WITH_KOKKOS)
+    Kokkos::initialize(argc, argv);
 #endif
     EXCEPTWATCH;
 
@@ -2246,6 +2323,11 @@ namespace percept {
 
                 if (do_normal_pass)
                   {
+                    if (progress_meter && eMeshP->get_rank() == 0)
+                      {
+                        std::cout << "Stage: Open mesh..." << " cpu: " << eMeshP->cpu_time() << " [sec]" << std::endl;
+                      }
+
                     int res1 = do_run_pre_commit();
 
 #if STK_ADAPT_HAVE_YAML_CPP
@@ -2266,10 +2348,22 @@ namespace percept {
 #if defined( STK_HAS_MPI )
                         stk::parallel_machine_finalize();
 #endif
+#if defined(WITH_KOKKOS)
+                        Kokkos::finalize();
+#endif
                         return 0;
                       }
 
+                    if (progress_meter && eMeshP->get_rank() == 0)
+                      {
+                        std::cout << "Stage: Commit mesh..." << " cpu: " << eMeshP->cpu_time() << " [sec]" << std::endl;
+                      }
                     eMeshP->commit();
+
+                    if (progress_meter && eMeshP->get_rank() == 0)
+                      {
+                        std::cout << "Stage: Commit mesh...done" << " cpu: " << eMeshP->cpu_time() << " [sec]" << std::endl;
+                      }
 
                     if (streaming_size) eMeshP->setStreamingSize(m_M);
                     do_run_post_commit();
@@ -2300,6 +2394,9 @@ namespace percept {
 
 #if defined( STK_HAS_MPI )
     stk::parallel_machine_finalize();
+#endif
+#if defined(WITH_KOKKOS)
+    Kokkos::finalize();
 #endif
     return result;
   }
@@ -2344,9 +2441,14 @@ namespace percept {
           debug = 1;
       }
 
+    if (progress_meter && eMeshP->get_rank() == 0)
+      {
+        std::cout << "Stage: Open mesh..." << " cpu: " << eMeshP->cpu_time() << " [sec]" << std::endl;
+      }
+
     int res1 = do_run_pre_commit();
 
-    // trap for RunAdaptRun
+    // trap for RunAdaptRun, etc.
     if (res1 < 0)
       {
         log_usage();
@@ -2356,10 +2458,22 @@ namespace percept {
 #if defined( STK_HAS_MPI )
         stk::parallel_machine_finalize();
 #endif
+#if defined(WITH_KOKKOS)
+        Kokkos::finalize();
+#endif
         return 0;
       }
 
+    if (progress_meter && eMeshP->get_rank() == 0)
+      {
+        std::cout << "Stage: Commit mesh..." << " cpu: " << eMeshP->cpu_time() << " [sec]" << std::endl;
+      }
+
     eMeshP->commit();
+    if (progress_meter && eMeshP->get_rank() == 0)
+      {
+        std::cout << "Stage: Commit mesh...done" << " cpu: " << eMeshP->cpu_time() << " [sec]" << std::endl;
+      }
 
     do_run_post_commit();
 
@@ -2371,6 +2485,9 @@ namespace percept {
 
 #if defined( STK_HAS_MPI )
     stk::parallel_machine_finalize();
+#endif
+#if defined(WITH_KOKKOS)
+    Kokkos::finalize();
 #endif
     return result;
   }
@@ -2458,9 +2575,9 @@ namespace percept {
         SidePartMap side_part_map;
         std::string geomFile = geometry_file;
         bool avoidFixSideSetChecks = false;
-        FixSideSets fss(*eMeshP, excludeParts, side_part_map, geomFile, avoidFixSideSetChecks);
+        FixSideSets fss(0, *eMeshP, excludeParts, side_part_map, geomFile, avoidFixSideSetChecks);
         eMeshP->get_bulk_data()->modification_begin();
-        fss.fix_side_sets_2(false, 0, 0);
+        fss.fix_side_sets_2(false, 0, 0, "MeshAdapt");
         stk::mesh::fixup_ghosted_to_shared_nodes(*eMeshP->get_bulk_data());
         eMeshP->get_bulk_data()->modification_end();
         eMeshP->save_as("junk.e");
@@ -2486,6 +2603,221 @@ namespace percept {
 #endif
   }
 
+void MeshAdapt::setup_m2g_parts(std::string input_geometry)
+{
+  if ( (input_geometry_type != PGEOM_ACIS) && (input_geometry_type != PGEOM_OPENNURBS) )	  return;
+
+#ifdef HAVE_CUBIT        
+#ifdef HAVE_ACIS
+  //Madison Brewer: what I don't like about this is that we're not really utilizing the geometry interface layer/kernel to its full extent.
+  //It essentially just gets called for snapping and disappears after that.
+  //BIG QUESTION: Do we want to try and refactor percept to truly interact with its geometry through these kernels? How much refactoring would this incur?
+
+  m_PGA = new PGeomACIS;
+  m_PGeomPntr = m_PGA;
+#else
+  m_PGeomPntr = new PGeom;
+#endif
+
+  if (input_geometry_type == PGEOM_ACIS) {
+    m_PGeomPntr->initialize(ACIS_GEOMETRY_ENGINE);
+    m_PGeomPntr->import_acis_file(input_geometry.c_str());
+  }
+  else if (input_geometry_type == PGEOM_OPENNURBS) {
+    m_PGeomPntr->initialize(OPENNURBS_GEOMETRY_ENGINE);
+    m_PGeomPntr->import_open_nurbs_file(input_geometry.c_str());
+  }
+
+  stk::mesh::MetaData * md = eMeshP->get_fem_meta_data();
+
+  std::vector<int> surfIDs;
+  m_PGeomPntr->get_surfaces(surfIDs);
+  std::vector<std::string> quadNames(surfIDs.size());
+  std::vector<std::string> triNames(surfIDs.size());
+
+  //make parts that we'll store new mesh entities on
+  for(unsigned i = 0; i < surfIDs.size(); i++) { 
+    std::string name = "geom_surface_quad_";
+    name = name + std::to_string(surfIDs[i]);
+    stk::mesh::Part& part = md->declare_part_with_topology(name,
+                                                           stk::topology::SHELL_QUAD_4);
+    if (dump_geometry_file) stk::io::put_io_part_attribute(part);
+    quadNames[i] = name;
+  } 
+
+  for(unsigned i = 0; i<surfIDs.size();i++){
+    std::string name = "geom_surface_tri_";
+    name = name + std::to_string(surfIDs[i]);
+    stk::mesh::Part& part = md->declare_part_with_topology(name,
+                                                           stk::topology::SHELL_TRI_3);
+    if (dump_geometry_file) stk::io::put_io_part_attribute(part);
+    triNames[i] = name;
+  }
+
+  std::vector<int> curveIDs;
+  m_PGeomPntr->get_curves(curveIDs);
+  std::vector<std::string> curveNames(curveIDs.size());
+  for (unsigned i = 0; i < curveIDs.size(); i++) { 
+    std::string name = "geom_curve_";
+    name = name + std::to_string(curveIDs[i]);
+    stk::mesh::Part& part = md->declare_part_with_topology(name,
+                                                           stk::topology::BEAM_2);
+    if (dump_geometry_file) stk::io::put_io_part_attribute(part);
+    curveNames[i] = name;
+  }
+
+  //setup refinement: bcarnes: why is this here?
+  m_block_names = process_block_names();
+  create_refine_pattern();
+#endif
+}
+  
+void MeshAdapt::initialize_m2g_geometry(std::string input_geometry)
+{
+  if( (input_geometry_type != PGEOM_ACIS) && (input_geometry_type != PGEOM_OPENNURBS) ) return;
+#ifdef HAVE_CUBIT  
+
+  std::string m2gFile = input_geometry.substr(0,input_geometry.length()-3) + "m2g";
+
+  int THIS_PROC_NUM = stk::parallel_machine_rank( MPI_COMM_WORLD);
+
+  stk::mesh::MetaData* md = eMeshP->get_fem_meta_data();
+  stk::mesh::BulkData* bd = eMeshP->get_bulk_data();
+
+  std::vector<int> curveIDs;
+  m_PGeomPntr->get_curves(curveIDs);
+
+  std::vector<int> surfIDs;
+  m_PGeomPntr->get_surfaces(surfIDs);
+
+  eMeshP->initializeIdServer();
+
+  PGeomAssoc<stk::mesh::BulkData, stk::mesh::Entity, stk::mesh::Entity,
+    stk::mesh::Entity, stk::mesh::Entity> geom_assoc(m_PGeomPntr);
+  geom_assoc.set_node_callback(get_node_from_id);
+  geom_assoc.set_edge_callback(get_beam_from_ids);
+  geom_assoc.set_face_callback(get_shell_from_ids);
+  geom_assoc.set_elem_callback(get_hex_from_id);
+  geom_assoc.set_validate_nodes_callback(validate_node_ownership);
+  geom_assoc.set_validate_element_callback(validate_element_ownership);
+  geom_assoc.set_mesh(bd);
+  geom_assoc.set_fill_curve_and_surface_maps_during_import(false);
+  const bool geometry_exists = true;
+  geom_assoc.import_assoc_file(m2gFile.c_str(), geometry_exists);
+
+  bd->modification_begin();
+
+  for (unsigned i = 0; i < curveIDs.size(); i++) { //create beams and put them into corresponding curve parts
+
+    std::vector<stk::mesh::Part *> add_parts_beams(1, static_cast<stk::mesh::Part*>(0));
+
+    add_parts_beams[0] = md->get_part("geom_curve_" + std::to_string(curveIDs[i]));
+
+    std::vector<std::vector<int>> edge_node_ids;
+    geom_assoc.get_curve_edge_nodes(curveIDs[i], edge_node_ids);
+
+    for (unsigned ii = 0; ii < edge_node_ids.size(); ii++) {
+
+      bool toDeclare = true;
+
+      std::vector<stk::mesh::EntityId> beamNodeIDs;
+      std::vector<int> procsSharedTo;
+      std::vector<stk::mesh::EntityKey> keysToCheck;
+      int lowestRank = std::numeric_limits<int>::max();
+
+      for (unsigned j = 0; j < edge_node_ids[ii].size(); j++)
+        beamNodeIDs.push_back((stk::mesh::EntityId) edge_node_ids[ii][j]);
+
+      for (unsigned j = 0; j < edge_node_ids[ii].size(); j++) {
+
+        stk::mesh::Entity cur_node = bd->get_entity(stk::topology::NODE_RANK, beamNodeIDs[j]);
+
+        stk::mesh::EntityKey key = bd->entity_key(cur_node);
+        keysToCheck.push_back(key);
+      }
+
+      bd->shared_procs_intersection(keysToCheck, procsSharedTo);
+      procsSharedTo.push_back(THIS_PROC_NUM); //find all processes that own or have this node shared to it
+      for (size_t iii = 0; iii < procsSharedTo.size(); iii++) {
+        if (procsSharedTo[iii] < lowestRank)
+          lowestRank = procsSharedTo[iii]; //lowest ranking process is responsible for creation of this entity
+        //		QUESTION: does this create a significant load imbalance for creation?
+      }
+
+      if (lowestRank != THIS_PROC_NUM)
+        toDeclare = false;
+
+      if (toDeclare) {
+
+        stk::mesh::EntityId id2 = eMeshP->getNextId(stk::topology::ELEMENT_RANK);
+        stk::mesh::declare_element(*eMeshP->get_bulk_data(),
+                                   add_parts_beams, id2, beamNodeIDs);
+      }
+    }
+  }
+
+  std::vector<std::pair<std::vector<int>, int>> uncreatedEnts;
+  for (unsigned i = 0; i < surfIDs.size(); i++) {
+    std::vector<stk::mesh::Part *> add_parts_shells(1,static_cast<stk::mesh::Part*>(0));
+
+    std::vector<std::vector<int>> face_node_ids;
+    geom_assoc.get_surface_edge_nodes(surfIDs[i], face_node_ids);
+
+    for (unsigned ii = 0; ii < face_node_ids.size(); ii++) {
+
+      std::vector<stk::mesh::EntityId> shellNodeIDs;
+      for (unsigned j = 0; j < face_node_ids[ii].size(); j++)
+        shellNodeIDs.push_back((stk::mesh::EntityId) face_node_ids[ii][j]);
+
+      if (shellNodeIDs.size() == 3)
+        add_parts_shells[0] = md->get_part("geom_surface_tri_"
+                                           + std::to_string(surfIDs[i])); //store these parts in a partvector for FASTER access
+      else {
+        add_parts_shells[0] = md->get_part("geom_surface_quad_"
+                                           + std::to_string(surfIDs[i]));
+      }
+
+      bool toDeclare = true;
+
+      int lowestRank = std::numeric_limits<int>::max();
+      std::vector<stk::mesh::EntityKey> keysToCheck;
+      std::vector<int> procsSharedTo;
+
+      stk::mesh::Entity cur_node;
+      for (unsigned j = 0; j < face_node_ids[ii].size(); j++) {
+
+        cur_node = bd->get_entity(stk::topology::NODE_RANK, shellNodeIDs[j]);
+
+        stk::mesh::EntityKey key = bd->entity_key(cur_node);
+        keysToCheck.push_back(key);
+      }
+
+      bd->shared_procs_intersection(keysToCheck, procsSharedTo);
+      procsSharedTo.push_back(THIS_PROC_NUM);//find all processes that either own or have these nodes shared to them
+      for (size_t iii = 0; iii < procsSharedTo.size(); iii++) {
+        if (procsSharedTo[iii] < lowestRank)
+          lowestRank = procsSharedTo[iii]; //lowest ranking process is responsible for creation
+        //		QUESTION: does this create a significant load imbalance for creation?
+      }
+
+      if (lowestRank != THIS_PROC_NUM) {
+        toDeclare = false;
+      }
+
+      if (toDeclare) {
+        stk::mesh::EntityId id2 = eMeshP->getNextId(stk::topology::ELEMENT_RANK);
+
+        stk::mesh::declare_element(*bd, add_parts_shells,
+                                   id2, shellNodeIDs);
+      }
+    }
+  }
+  bd->modification_end();
+
+  geom_assoc.fill_curve_and_surface_maps();
+  delete m_PGeomPntr; //bad things happen if you don't explicitly reallocate the memory here
+#endif
+}
 
   int MeshAdapt::main(int argc, char **argv) {
 
@@ -2493,6 +2825,5 @@ namespace percept {
     res = adapt_main(argc, argv);
     return res;
   }
-
 }
 

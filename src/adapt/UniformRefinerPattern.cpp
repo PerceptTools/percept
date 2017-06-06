@@ -264,7 +264,7 @@
           else
             {
               //std::cout << "family_tree_id = " << family_tree_id << std::endl;
-              family_tree = eMesh.get_bulk_data()->declare_entity(FAMILY_TREE_RANK, family_tree_id, add);
+              family_tree = eMesh.get_bulk_data()->declare_constraint(family_tree_id, add);
             }
 
           // make the parent be the first relation; children are at the end
@@ -311,7 +311,7 @@
 
       // error check
 #ifndef NDEBUG
-      if (1)
+      if (0)
         {
           percept::MyPairIterRelation family_tree_relations (eMesh, family_tree, eMesh.entity_rank(parent_elem));
           for (unsigned i = 1; i < family_tree_relations.size(); i++)
@@ -352,7 +352,7 @@
        *  to all nodes of the parent elements thus providing necessary links that the closure code can follow to
        *  gather parent/child relations and send to sharing procs.
        */
-      bool workaround_shared_node_issue = true;
+      bool workaround_shared_node_issue = false;
       if (workaround_shared_node_issue)
         {
           bool checkInShared = true;
@@ -723,312 +723,331 @@
         }
     }
 
-    void UniformRefinerPatternBase::setNeededParts(percept::PerceptMesh& eMesh, BlockNamesType block_names_ranks, bool sameTopology, bool skipConvertedParts)
+    void UniformRefinerPatternBase::addRefineNewNodesPart(percept::PerceptMesh& eMesh)
     {
-      EXCEPTWATCH;
+    	stk::mesh::Part* new_nodes_part = eMesh.get_non_const_part("refine_new_nodes_part");
+    	if (!new_nodes_part)
+    	{
+    		stk::mesh::Part& part = eMesh.get_fem_meta_data()->declare_part_with_topology("refine_new_nodes_part", stk::topology::NODE);
+    		stk::mesh::MetaData & meta = stk::mesh::MetaData::get(part);
+    		meta.declare_attribute_no_delete(part, &percept::auto_part);
+    	}
+    }
 
-      if (DEBUG_SET_NEEDED_PARTS)
-        std::cout << "\n\n ============= setNeededParts start \n\n " << PerceptMesh::demangle(typeid(*this).name()) << std::endl;
+    void UniformRefinerPatternBase::addActiveParentParts(percept::PerceptMesh& eMesh)
+    {
+    	stk::mesh::EntityRank part_ranks[] = {eMesh.element_rank(), eMesh.side_rank()};
+    	for (unsigned irank=0; irank < 2; irank++)
+    	{
+    		std::string active_part_name = "refine_active_elements_part_"+toString(part_ranks[irank]);
+    		std::string inactive_part_name = "refine_inactive_elements_part_"+toString(part_ranks[irank]);
+    		stk::mesh::Part* active_elements_part = eMesh.get_non_const_part(active_part_name);
+    		if (!active_elements_part)
+    		{
+    			stk::mesh::Part& part = eMesh.get_fem_meta_data()->declare_part(active_part_name, part_ranks[irank]);
+    			stk::mesh::MetaData & meta = stk::mesh::MetaData::get(part);
+    			meta.declare_attribute_no_delete(part, &percept::auto_part);
+    		}
+    		stk::mesh::Part* inactive_elements_part = eMesh.get_non_const_part(inactive_part_name);
+    		if (!inactive_elements_part)
+    		{
+    			stk::mesh::Part& part = eMesh.get_fem_meta_data()->declare_part(inactive_part_name, part_ranks[irank]);
+    			stk::mesh::MetaData & meta = stk::mesh::MetaData::get(part);
+    			meta.declare_attribute_no_delete(part, &percept::auto_part);
+    		}
+    	}
+    }
 
-      m_sameTopology = sameTopology;
-
-      // a part to hold new nodes
-      if (1)
-        {
-          stk::mesh::Part* new_nodes_part = eMesh.get_non_const_part("refine_new_nodes_part");
-          if (!new_nodes_part)
-            {
-              stk::mesh::Part& part = eMesh.get_fem_meta_data()->declare_part_with_topology("refine_new_nodes_part", stk::topology::NODE);
-              stk::mesh::MetaData & meta = stk::mesh::MetaData::get(part);
-              meta.declare_attribute_no_delete(part, &percept::auto_part);
-            }
-        }
-
-      // a part to hold active elements (i.e. leaf elements), and parent (non-active) elements
-      if (1)
-        {
-          stk::mesh::EntityRank part_ranks[] = {eMesh.element_rank(), eMesh.side_rank()};
-          for (unsigned irank=0; irank < 2; irank++)
-            {
-              std::string active_part_name = "refine_active_elements_part_"+toString(part_ranks[irank]);
-              std::string inactive_part_name = "refine_inactive_elements_part_"+toString(part_ranks[irank]);
-              stk::mesh::Part* active_elements_part = eMesh.get_non_const_part(active_part_name);
-              if (!active_elements_part)
-                {
-                  stk::mesh::Part& part = eMesh.get_fem_meta_data()->declare_part(active_part_name, part_ranks[irank]);
-                  stk::mesh::MetaData & meta = stk::mesh::MetaData::get(part);
-                  meta.declare_attribute_no_delete(part, &percept::auto_part);
-                }
-              stk::mesh::Part* inactive_elements_part = eMesh.get_non_const_part(inactive_part_name);
-              if (!inactive_elements_part)
-                {
-                  stk::mesh::Part& part = eMesh.get_fem_meta_data()->declare_part(inactive_part_name, part_ranks[irank]);
-                  stk::mesh::MetaData & meta = stk::mesh::MetaData::get(part);
-                  meta.declare_attribute_no_delete(part, &percept::auto_part);
-                }
-            }
-        }
-
-      if (block_names_ranks.size() == 0)
-        {
-          block_names_ranks.resize(percept::EntityRankEnd);
-        }
-
-      m_fromParts.resize(0);
-      m_toParts.resize(0);
-
-      if (DEBUG_SET_NEEDED_PARTS)
-        {
-          stk::mesh::PartVector all_parts = eMesh.get_fem_meta_data()->get_parts();
-          std::cout << "\n\n====>\ntmp 0 setNeededParts: for FromTopo= " << getFromTopoPartName() << " ToTopo= " << getToTopoPartName();
-          for (stk::mesh::PartVector::iterator i_part = all_parts.begin(); i_part != all_parts.end(); ++i_part)
-            {
-              stk::mesh::Part *  part = *i_part ;
-              //if ( stk::mesh::is_auto_declared_part(*part) )
-              //  continue;
-              std::cout << " part= " <<  part->name() << std::endl;
-            }
-          std::cout << std::endl;
-        }
-
-      stk::mesh::EntityRank irank = m_primaryEntityRank;
-      {
-        std::vector<std::string>& block_names_include = block_names_ranks[irank];
+    bool UniformRefinerPatternBase::foundIncludeOnlyBlock(percept::PerceptMesh& eMesh, std::vector<std::string>& block_names_include)
+    {
+    	bool found_include_only_block = false;
 
         stk::mesh::PartVector all_parts = eMesh.get_fem_meta_data()->get_parts();
-        bool found_include_only_block = false;
-        for (unsigned ib = 0; ib < block_names_include.size(); ib++)
-          {
-            bool foundPart = false;
-            for (stk::mesh::PartVector::iterator i_part = all_parts.begin(); i_part != all_parts.end(); ++i_part)
-              {
-                stk::mesh::Part * part = *i_part ;
 
+        for (unsigned ib = 0; ib < block_names_include.size(); ib++)
+    	{
+    		bool foundPart = false;
+    		for (stk::mesh::PartVector::iterator i_part = all_parts.begin(); i_part != all_parts.end(); ++i_part)
+    		{
+    			stk::mesh::Part * part = *i_part ;
+
+    			std::string bname = block_names_include[ib];
+    			if ('+' == bname[0])
+    				found_include_only_block = true;
+    			bname = bname.substr(1, bname.length()-1);
+    			//std::cout << "bname= " << bname << " part= " << part->name() << std::endl;
+    			if (eMesh.checkForPartNameWithAliases(*part, bname))
+    			{
+    				foundPart = true;
+    				break;
+    			}
+    		}
+    		if (!foundPart)
+    		{
+    			std::string msg = "UniformRefinerPattern::setNeededParts unknown block name: " + block_names_include[ib];
+    			throw std::runtime_error(msg.c_str());
+    		}
+    	}
+
+		return found_include_only_block;
+    }
+
+    void UniformRefinerPatternBase::addOldPart(percept::PerceptMesh& eMesh)
+    {
+      stk::mesh::PartVector all_parts = eMesh.get_fem_meta_data()->get_parts();
+      std::string oldPartName = UniformRefinerPatternBase::getOldElementsPartName() + toString(m_primaryEntityRank);
+      bool foundOldPart = false;
+      for (stk::mesh::PartVector::iterator i_part = all_parts.begin(); i_part != all_parts.end(); ++i_part)
+        {
+          stk::mesh::Part *  part = *i_part ;
+          if (oldPartName == part->name())
+            {
+              foundOldPart = true;
+              break;
+            }
+        }
+
+      if (!foundOldPart)
+        {
+          if (DEBUG_SET_NEEDED_PARTS) std::cout << "tmp setNeededParts:: declare_part for oldPartName = "
+                                                << oldPartName << " rank= " << m_primaryEntityRank << std::endl;
+          stk::mesh::Part& part = eMesh.get_fem_meta_data()->declare_part(oldPartName, m_primaryEntityRank);
+          stk::mesh::MetaData & meta = stk::mesh::MetaData::get(part);
+          meta.declare_attribute_no_delete(part, &percept::auto_part);
+        }
+    }
+
+    bool UniformRefinerPatternBase::shouldDoThisPart(percept::PerceptMesh& eMesh, BlockNamesType block_names_ranks,
+    		bool found_include_only_block, std::vector<std::string>& block_names_include, stk::mesh::Part *  part)
+    {
+    	bool doThisPart = (block_names_ranks[eMesh.element_rank()].size() == 0);
+
+    	if (!doThisPart)
+      {
+        // we found one block with a "+", so this means include only the actual specified list of blocks, except for those excluded with "-"
+        if (found_include_only_block)
+          {
+            doThisPart = false;
+            for (unsigned ib = 0; ib < block_names_include.size(); ib++)
+              {
                 std::string bname = block_names_include[ib];
                 if ('+' == bname[0])
-                  found_include_only_block = true;
-                bname = bname.substr(1, bname.length()-1);
-                if (part->name() == bname)
                   {
-                    foundPart = true;
-                    break;
+                    bname = bname.substr(1, bname.length()-1);
+                    if (eMesh.checkForPartNameWithAliases(*part, bname))
+                      {
+                        doThisPart = true;
+                        break;
+                      }
                   }
-              }
-            if (!foundPart)
-              {
-                std::string msg = "UniformRefinerPattern::setNeededParts unknown block name: " + block_names_include[ib];
-                throw std::runtime_error(msg.c_str());
               }
           }
-
-        for (stk::mesh::PartVector::iterator i_part = all_parts.begin(); i_part != all_parts.end(); ++i_part)
+        else
+          // do them all, except for excludes
           {
-            stk::mesh::Part *  part = *i_part ;
+            doThisPart = true;
+          }
 
-            if ( stk::mesh::is_auto_declared_part(*part) )
-              continue;
-            bool is_auto_part = part->attribute<AutoPart>() != 0;
-            if (is_auto_part)
-              continue;
-
-            bool doPrint = false;
-
-            bool doThisPart = (block_names_ranks[eMesh.element_rank()].size() == 0);
-
-            if (!doThisPart)
+        // check for excludes
+        if (doThisPart)
+          {
+            if (block_names_ranks[m_primaryEntityRank].size() == 0)
+              doThisPart = false;
+            else
               {
-                // we found one block with a "+", so this means include only the actual specified list of blocks, except for those excluded with "-"
-                if (found_include_only_block)
+                for (unsigned ib = 0; ib < block_names_include.size(); ib++)
                   {
-                    doThisPart = false;
-                    for (unsigned ib = 0; ib < block_names_include.size(); ib++)
+                    std::string bname = block_names_include[ib];
+                    if ('-' == bname[0])
                       {
-                        std::string bname = block_names_include[ib];
-                        if ('+' == bname[0])
+                        bname = bname.substr(1, bname.length()-1);
+                        if (eMesh.checkForPartNameWithAliases(*part, bname))
                           {
-                            bname = bname.substr(1, bname.length()-1);
-                            if (part->name() == bname)
-                              {
-                                doThisPart = true;
-                                break;
-                              }
+                            doThisPart = false;
+                            break;
                           }
-                      }
-                  }
-                else
-                  // do them all, except for excludes
-                  {
-                    doThisPart = true;
-                  }
-                if (doPrint) std::cout << "here 1 doThisPart = " << doThisPart
-                                       << " found_include_only_block= " << found_include_only_block
-                                       << " block_names_include.size()= " << block_names_include.size()
-                                       << std::endl;
-
-                // check for excludes
-                if (doThisPart)
-                  {
-                    if (block_names_ranks[irank].size() == 0)
-                      doThisPart = false;
-                    else
-                      {
-                        for (unsigned ib = 0; ib < block_names_include.size(); ib++)
-                          {
-                            std::string bname = block_names_include[ib];
-                            if ('-' == bname[0])
-                              {
-                                bname = bname.substr(1, bname.length()-1);
-                                if (part->name() == bname)
-                                  {
-                                    doThisPart = false;
-                                    break;
-                                  }
-                              }
-                          }
-                      }
-                  }
-              }
-            bool isOldElementsPart = ( (part->name()).find(UniformRefinerPatternBase::m_oldElementsPartName) != std::string::npos);
-            doThisPart = doThisPart && ( part->primary_entity_rank() == m_primaryEntityRank );
-            doThisPart = doThisPart && !isOldElementsPart;
-
-            bool isConvertedPart = ( (part->name()).find(getAppendConvertString()) != std::string::npos);
-            if (0 && skipConvertedParts)
-              doThisPart = doThisPart && !isConvertedPart;
-            if (DEBUG_SET_NEEDED_PARTS)
-              {
-                std::cout << "isOldElementsPart= " << isOldElementsPart
-                          << " m_primaryEntityRank= " << m_primaryEntityRank
-                          << " part->primary_entity_rank() = " << part->primary_entity_rank()
-                          << " isConvertedPart= " << isConvertedPart
-                          << std::endl;
-              }
-
-            if (!isOldElementsPart)
-              {
-                unsigned my_cellTopoKey = getFromTypeKey();
-                const CellTopologyData * part_cell_topo_data = eMesh.get_cell_topology(*part);
-                if (part_cell_topo_data)
-                  {
-                    shards::CellTopology topo(part_cell_topo_data);
-                    doThisPart = doThisPart && (topo.getKey() == my_cellTopoKey);
-                  }
-                else
-                  {
-                    if (part->subsets().size() != 0)
-                      {
-                        doThisPart = false;
-                      }
-                  }
-                if ((DEBUG_SET_NEEDED_PARTS) && doThisPart)
-                  std::cout << "tmp srk 1 SNP setNeededParts:: "
-                    //<< eMesh.demangle(typeid(*this).name())
-                            << "  part name= " << part->name()
-                            << "  doThisPart= " << doThisPart
-                    // << "  part->primary_entity_rank() = " <<  part->primary_entity_rank()
-                    // << "  my_cellTopoKey= " << my_cellTopoKey
-                    // << "  topo.getKey() = " << topo.getKey()
-                    // << "  topo.getName() = " << topo.getName()
-                            << std::endl;
-              }
-
-            if (doThisPart)
-              {
-                stk::mesh::EntityRank switch_part_primary_entity_rank  =  part->primary_entity_rank() ;
-
-                if (switch_part_primary_entity_rank == eMesh.edge_rank() ||
-                    switch_part_primary_entity_rank == stk::topology::ELEMENT_RANK ||
-                    switch_part_primary_entity_rank == eMesh.face_rank())
-                  {
-                    stk::mesh::Part *  block_to=0;
-                    if (sameTopology)
-                      {
-                        block_to = part;
-                      }
-                    else
-                      {
-                        std::string toTopoPartName = getToTopoPartName();
-                        if (REMOVE_UNDERSCORE_FROM_TOPO_NAME) Util::replace(toTopoPartName,"_","");
-                        std::string newPartName = part->name() + getConvertSeparatorString() + toTopoPartName + getConvertSeparatorString() + getAppendConvertString();
-                        //std::string newPartName = part->name() + getAppendConvertString();
-                        block_to = &eMesh.get_fem_meta_data()->declare_part(newPartName, part->primary_entity_rank());
-                        if (DEBUG_SET_NEEDED_PARTS) std::cout << "tmp setNeededParts:: declare_part name= " << newPartName
-                                                              << " with topo= " << getToTopoPartName() << std::endl;
-                        //stk::mesh::set_cell_topology< ToTopology  >( *block_to );
-                        stk::mesh::set_cell_topology(*block_to, shards::CellTopology(getToTopology()));
-
-                        if (block_to->attribute<Ioss::GroupingEntity>() == 0) {
-                          stk::io::put_io_part_attribute(*block_to);
-                        }
-
-                        if (1)
-                          {
-                            stk::mesh::PartVector *pv  = const_cast<stk::mesh::PartVector *>(part->attribute<stk::mesh::PartVector>());
-                            if (pv == 0)
-                              {
-                                pv = new stk::mesh::PartVector;
-                                eMesh.get_fem_meta_data()->declare_attribute_with_delete(*part, pv);
-                              }
-                            pv->push_back(block_to);
-                            if (DEBUG_SET_NEEDED_PARTS)
-                              {
-                                for (unsigned ii=0; ii < pv->size(); ii++)
-                                  {
-                                    std::cout << "tmp srk part.attr = " << part->name() << " block_to= " << (*pv)[ii]->name() << std::endl;
-                                  }
-                              }
-                          }
-
-                      }
-
-                    if (!((part->name()).find(UniformRefinerPatternBase::getOldElementsPartName()) != std::string::npos))
-                      {
-                        if (DEBUG_SET_NEEDED_PARTS) std::cout << "tmp setNeededParts:: fromPart = " << part->name() << " toPart = " << block_to->name() << std::endl;
-                        m_fromParts.push_back(part);
-                        m_toParts.push_back(block_to);
                       }
                   }
               }
           }
       }
-      fixSubsets(eMesh, sameTopology);
+    bool isOldElementsPart = ( (part->name()).find(UniformRefinerPatternBase::m_oldElementsPartName) != std::string::npos);
+    doThisPart = doThisPart && ( part->primary_entity_rank() == m_primaryEntityRank );
+    doThisPart = doThisPart && !isOldElementsPart;
 
+    bool isConvertedPart = ( (part->name()).find(getAppendConvertString()) != std::string::npos);
+    if (DEBUG_SET_NEEDED_PARTS)
       {
-        stk::mesh::PartVector all_parts = eMesh.get_fem_meta_data()->get_parts();
-        std::string oldPartName = UniformRefinerPatternBase::getOldElementsPartName() + toString(m_primaryEntityRank);
-        bool foundOldPart = false;
-        for (stk::mesh::PartVector::iterator i_part = all_parts.begin(); i_part != all_parts.end(); ++i_part)
-          {
-            stk::mesh::Part *  part = *i_part ;
-            if (oldPartName == part->name())
-              {
-                foundOldPart = true;
-                break;
-              }
-          }
-
-        if (!foundOldPart)
-          {
-            if (DEBUG_SET_NEEDED_PARTS) std::cout << "tmp setNeededParts:: declare_part for oldPartName = "
-                                                  << oldPartName << " rank= " << m_primaryEntityRank << std::endl;
-            stk::mesh::Part& part = eMesh.get_fem_meta_data()->declare_part(oldPartName, m_primaryEntityRank);
-            stk::mesh::MetaData & meta = stk::mesh::MetaData::get(part);
-            meta.declare_attribute_no_delete(part, &percept::auto_part);
-          }
+        std::cout << "isOldElementsPart= " << isOldElementsPart
+                  << " m_primaryEntityRank= " << m_primaryEntityRank
+                  << " part->primary_entity_rank() = " << part->primary_entity_rank()
+                  << " isConvertedPart= " << isConvertedPart
+                  << std::endl;
       }
 
-      if (DEBUG_SET_NEEDED_PARTS)
-        {
-          std::cout << "tmp srk SNP m_toParts.size() = " << m_toParts.size() << " m_fromParts.size()= " << m_fromParts.size() << std::endl;
-          for (unsigned i=0; i < m_toParts.size(); i++)
-            {
-              std::cout << "tmp srk SNP m_toParts[" << i << "]= " << m_toParts[i]->name() << std::endl;
-            }
-          for (unsigned i=0; i < m_fromParts.size(); i++)
-            {
-              std::cout << "tmp srk SNP m_fromParts[" << i << "]= " << m_fromParts[i]->name() << std::endl;
-            }
-        }
+    if (!isOldElementsPart)
+      {
+        unsigned my_cellTopoKey = getFromTypeKey();
+        const CellTopologyData * part_cell_topo_data = eMesh.get_cell_topology(*part);
+        if (part_cell_topo_data)
+          {
+            shards::CellTopology topo(part_cell_topo_data);
+            doThisPart = doThisPart && (topo.getKey() == my_cellTopoKey);
+          }
+        else
+          {
+            if (part->subsets().size() != 0)
+              {
+                doThisPart = false;
+              }
+          }
+        if ((DEBUG_SET_NEEDED_PARTS) && doThisPart)
+          std::cout << "tmp srk 1 SNP setNeededParts:: "
+            //<< eMesh.demangle(typeid(*this).name())
+                    << "  part name= " << part->name()
+                    << "  doThisPart= " << doThisPart
+            // << "  part->primary_entity_rank() = " <<  part->primary_entity_rank()
+            // << "  my_cellTopoKey= " << my_cellTopoKey
+            // << "  topo.getKey() = " << topo.getKey()
+            // << "  topo.getName() = " << topo.getName()
+                    << std::endl;
+      }
+
+    return doThisPart;
+    }
+
+    void UniformRefinerPatternBase::setNeededParts_debug1(percept::PerceptMesh& eMesh)
+    {
+        if (DEBUG_SET_NEEDED_PARTS)
+          {
+            stk::mesh::PartVector all_parts = eMesh.get_fem_meta_data()->get_parts();
+            std::cout << "\n\n====>\ntmp 0 setNeededParts: for FromTopo= " << getFromTopoPartName() << " ToTopo= " << getToTopoPartName();
+            for (stk::mesh::PartVector::iterator i_part = all_parts.begin(); i_part != all_parts.end(); ++i_part)
+              {
+                stk::mesh::Part *  part = *i_part ;
+                //if ( stk::mesh::is_auto_declared_part(*part) )
+                //  continue;
+                std::cout << " part= " <<  part->name() << std::endl;
+              }
+            std::cout << std::endl;
+          }
+    }
+
+    void UniformRefinerPatternBase::setNeededParts_debug2()
+    {
+    	if (DEBUG_SET_NEEDED_PARTS)
+    	{
+    		std::cout << "tmp srk SNP m_toParts.size() = " << m_toParts.size() << " m_fromParts.size()= " << m_fromParts.size() << std::endl;
+    		for (unsigned i=0; i < m_toParts.size(); i++)
+    		{
+    			std::cout << "tmp srk SNP m_toParts[" << i << "]= " << m_toParts[i]->name() << std::endl;
+    		}
+    		for (unsigned i=0; i < m_fromParts.size(); i++)
+    		{
+    			std::cout << "tmp srk SNP m_fromParts[" << i << "]= " << m_fromParts[i]->name() << std::endl;
+    		}
+    	}
+    }
+
+    void UniformRefinerPatternBase::setNeededParts(percept::PerceptMesh& eMesh, BlockNamesType block_names_ranks, bool sameTopology, bool skipConvertedParts)
+    {
+    	EXCEPTWATCH;
+
+    	if (DEBUG_SET_NEEDED_PARTS)
+    		std::cout << "\n\n ============= setNeededParts start \n\n " << PerceptMesh::demangle(typeid(*this).name()) << std::endl;
+
+    	addRefineNewNodesPart(eMesh);
+
+    	addActiveParentParts(eMesh);
+
+    	if (block_names_ranks.size() == 0)
+    	{
+    		block_names_ranks.resize(percept::EntityRankEnd);
+    	}
+
+    	m_fromParts.resize(0);
+    	m_toParts.resize(0);
+
+    	setNeededParts_debug1(eMesh);
+
+    	std::vector<std::string>& block_names_include = block_names_ranks[m_primaryEntityRank];
+
+    	stk::mesh::PartVector all_parts = eMesh.get_fem_meta_data()->get_parts();
+
+    	bool found_include_only_block = foundIncludeOnlyBlock(eMesh, block_names_include);
+
+    	for (stk::mesh::PartVector::iterator i_part = all_parts.begin(); i_part != all_parts.end(); ++i_part)
+    	{
+    		stk::mesh::Part *  part = *i_part ;
+
+    		if ( stk::mesh::is_auto_declared_part(*part) )
+    			continue;
+    		bool is_auto_part = part->attribute<AutoPart>() != 0;
+    		if (is_auto_part)
+    			continue;
+
+    		bool doThisPart = shouldDoThisPart(eMesh, block_names_ranks,
+    				found_include_only_block, block_names_include, part);
+
+    		if (!doThisPart) continue;
+
+    		stk::mesh::EntityRank switch_part_primary_entity_rank  =  part->primary_entity_rank() ;
+
+    		if (switch_part_primary_entity_rank == eMesh.edge_rank() ||
+    				switch_part_primary_entity_rank == stk::topology::ELEMENT_RANK ||
+					switch_part_primary_entity_rank == eMesh.face_rank())
+    		{
+    			stk::mesh::Part *  block_to=0;
+    			if (sameTopology)
+    			{
+    				block_to = part;
+    			}
+    			else
+    			{
+    				std::string toTopoPartName = getToTopoPartName();
+    				if (REMOVE_UNDERSCORE_FROM_TOPO_NAME) Util::replace(toTopoPartName,"_","");
+    				std::string newPartName = part->name() + getConvertSeparatorString() + toTopoPartName + getConvertSeparatorString() + getAppendConvertString();
+    				//std::string newPartName = part->name() + getAppendConvertString();
+    				block_to = &eMesh.get_fem_meta_data()->declare_part(newPartName, part->primary_entity_rank());
+    				if (DEBUG_SET_NEEDED_PARTS) std::cout << "tmp setNeededParts:: declare_part name= " << newPartName
+    						<< " with topo= " << getToTopoPartName() << std::endl;
+    				//stk::mesh::set_cell_topology< ToTopology  >( *block_to );
+    				stk::mesh::set_cell_topology(*block_to, shards::CellTopology(getToTopology()));
+
+    				if (block_to->attribute<Ioss::GroupingEntity>() == 0) {
+    					stk::io::put_io_part_attribute(*block_to);
+    				}
+
+    				stk::mesh::PartVector *pv  = const_cast<stk::mesh::PartVector *>(part->attribute<stk::mesh::PartVector>());
+    				if (pv == 0)
+    				{
+    					pv = new stk::mesh::PartVector;
+    					eMesh.get_fem_meta_data()->declare_attribute_with_delete(*part, pv);
+    				}
+    				pv->push_back(block_to);
+    				if (DEBUG_SET_NEEDED_PARTS)
+    				{
+    					for (unsigned ii=0; ii < pv->size(); ii++)
+    					{
+    						std::cout << "tmp srk part.attr = " << part->name() << " block_to= " << (*pv)[ii]->name() << std::endl;
+    					}
+    				}
+    			}
+
+    			if (!((part->name()).find(UniformRefinerPatternBase::getOldElementsPartName()) != std::string::npos))
+    			{
+    				if (DEBUG_SET_NEEDED_PARTS) std::cout << "tmp setNeededParts:: fromPart = " << part->name() << " toPart = " << block_to->name() << std::endl;
+    				m_fromParts.push_back(part);
+    				m_toParts.push_back(block_to);
+    			}
+    		}
+    	}
+
+    	fixSubsets(eMesh, sameTopology);
+
+    	addOldPart(eMesh);
+
+    	setNeededParts_debug2();
     }
 
 #define DEBUG_fixSubSets 0
@@ -1259,6 +1278,8 @@
 
       bool use_declare_element_side = UniformRefinerPatternBase::USE_DECLARE_ELEMENT_SIDE &&  getPrimaryEntityRank() == eMesh.side_rank();
 
+      std::vector<stk::mesh::Entity> nodes(ToTopology_node_count);
+
       for (unsigned ielem=0; ielem < elems.size(); ielem++)
         {
 
@@ -1267,7 +1288,6 @@
             {
               newElement = *element_pool;
             }
-          stk::mesh::Entity nodes[ToTopology_node_count];
 
           for (int inode=0; inode < ToTopology_node_count; inode++)
             {
@@ -1283,7 +1303,7 @@
               //eMesh.get_bulk_data()->declare_relation(newElement, node, inode);
             }
 
-          create_side_element(eMesh, use_declare_element_side, nodes, static_cast<unsigned>(ToTopology_node_count), newElement);
+          create_side_element(eMesh, use_declare_element_side, nodes.data(), static_cast<unsigned>(ToTopology_node_count), newElement);
 
           // FIXME
           if (m_primaryEntityRank == stk::topology::ELEMENT_RANK &&  proc_rank_field)
@@ -1633,6 +1653,9 @@
 
       bool use_declare_element_side = UniformRefinerPatternBase::USE_DECLARE_ELEMENT_SIDE &&  getPrimaryEntityRank() == eMesh.side_rank();
 
+      std::vector<stk::mesh::Entity> nodes(ToTopology_node_count);
+
+
       for (unsigned iChild = 0; iChild < num_child; iChild++)
         {
           int iChildRefTopo = iChild + iChildStart;
@@ -1641,8 +1664,6 @@
             {
               newElement = *element_pool;
             }
-
-          stk::mesh::Entity nodes[ToTopology_node_count];
 
           for (int inode=0; inode < ToTopology_node_count; inode++)
             {
@@ -1666,7 +1687,7 @@
               nodes[inode] = node;
             }
 
-          create_side_element(eMesh, use_declare_element_side, nodes, static_cast<unsigned>(ToTopology_node_count), newElement);
+          create_side_element(eMesh, use_declare_element_side, nodes.data(), static_cast<unsigned>(ToTopology_node_count), newElement);
 
           if (m_primaryEntityRank == stk::topology::ELEMENT_RANK &&  proc_rank_field)
             {
@@ -2376,14 +2397,6 @@
 
     size_t UniformRefinerPatternBase::estimateNumberOfNewElements(percept::PerceptMesh& eMesh, stk::mesh::EntityRank rank, NodeRegistry& nodeRegistry, size_t num_elem_not_ghost)
     {
-
-#if 0
-      unsigned num_elem_needed = num_elem_not_ghost * this->getNumNewElemPerElem();
-      return num_elem_needed;
-
-#else
-
-#  if 1
       EXCEPTWATCH;
 
       vector<NeededEntityType> needed_entity_ranks;
@@ -2468,66 +2481,9 @@
             }
         }
 
+      VERIFY_OP_ON(this->getNumNewElemPerElem(), >, 0, "bad getNumNewElemPerElem");
       unsigned num_elem_needed = num_elem_marked * this->getNumNewElemPerElem();
       return num_elem_needed;
-#  else
-      SubDimCellToDataMap::iterator iter;
-      SetOfEntities nodes_or_elements(*eMesh.get_bulk_data());
-      //std::cout << "nodes.size= " << nodes.size() << " rank= " << rank << std::endl;
-      for (iter = nodeRegistry.getMap().begin(); iter != nodeRegistry.getMap().end(); ++iter)
-        {
-          const SubDimCell_SDCEntityType& subDimEntity = (*iter).first;
-          SubDimCellData& nodeId_elementOwnderId = (*iter).second;
-          NodeIdsOnSubDimEntityType& nodeIds_onSE = nodeId_elementOwnderId.get<SDC_DATA_GLOBAL_NODE_IDS>();
-
-          if (nodeIds_onSE.size() != 0)
-            {
-              for (unsigned ii=0; ii < subDimEntity.size(); ++ii)
-                {
-                  nodes_or_elements.insert(subDimEntity[ii]);
-                }
-            }
-        }
-
-      //std::cout << "nodes_or_elements.size= " << nodes_or_elements.size() << " rank= " << rank << std::endl;
-
-      size_t num_elem_marked = 0;
-      const stk::mesh::BucketVector & buckets = eMesh.get_bulk_data()->buckets( rank );
-      for ( stk::mesh::BucketVector::const_iterator k = buckets.begin() ; k != buckets.end() ; ++k )
-        {
-          stk::mesh::Bucket & bucket = **k ;
-          const unsigned num_elements_in_bucket = bucket.size();
-          const CellTopologyData * const cell_topo_data = eMesh.get_cell_topology(bucket);
-          if (cell_topo_data == 0)
-            {
-              // eMesh.get_cell_topology(bucket);
-              continue;
-            }
-          for (unsigned iElement = 0; iElement < num_elements_in_bucket; iElement++)
-            {
-              stk::mesh::Entity element = bucket[iElement];
-              //const percept::MyPairIterRelation elem_nodes (m_eMesh, element, stk::topology::NODE_RANK);
-              if (nodes_or_elements.find(element) != nodes_or_elements.end())
-                {
-                  ++num_elem_marked;
-                }
-              unsigned nnodes = eMesh.get_bulk_data()->num_nodes(element);
-              stk::mesh::Entity const *elem_nodes = eMesh.get_bulk_data()->begin_nodes(element);
-              for (unsigned ii=0; ii < nnodes; ++ii)
-                {
-                  if (nodes_or_elements.find(elem_nodes[ii]) != nodes_or_elements.end())
-                    {
-                      ++num_elem_marked;
-                    }
-                }
-            }
-        }
-      //std::cout << "num_elem_marked= " << num_elem_marked << std::endl;
-      unsigned num_elem_needed = num_elem_marked * this->getNumNewElemPerElem();
-      return num_elem_needed;
-#  endif
-#endif
-
     }
 
     void UniformRefinerPatternBase::mergeOrAddParts(UniformRefinerPatternBase *bp_from, UniformRefinerPatternBase *bp_to, bool merge)
@@ -2594,17 +2550,17 @@
       stk::topology topo = stk::mesh::get_topology( shards::CellTopology (getToTopology()));
 
       stk::mesh::Permutation perm = static_cast<stk::mesh::Permutation>(0);
-      stk::mesh::Entity new_nodes[nodes_size];
+      std::vector<stk::mesh::Entity> new_nodes(nodes_size);
 
       if (use_declare_element_side)
         {
           stk::mesh::Entity element_found = stk::mesh::Entity();
           unsigned side_ord_found = 0;
-          perm = eMesh.find_side_element_permutation_and_appropriate_element(nodes, nodes_size, topo, new_nodes, element_found, side_ord_found);
+          perm = eMesh.find_side_element_permutation_and_appropriate_element(nodes, nodes_size, topo, new_nodes.data(), element_found, side_ord_found);
           if (perm == stk::mesh::INVALID_PERMUTATION)
             {
               std::cout << eMesh.rank() << " perm= " << perm << std::endl;
-              perm = eMesh.find_side_element_permutation_and_appropriate_element(nodes, nodes_size, topo, new_nodes, element_found, side_ord_found, true);
+              perm = eMesh.find_side_element_permutation_and_appropriate_element(nodes, nodes_size, topo, new_nodes.data(), element_found, side_ord_found, true);
             }
           VERIFY_OP_ON(perm, !=, stk::mesh::INVALID_PERMUTATION, "bad permutation");
 
@@ -2612,7 +2568,7 @@
 
           if (1)
             {
-              newElement = eMesh.get_bulk_data()->declare_element_side(element_found, side_ord_found);
+              newElement = eMesh.get_bulk_data()->declare_element_side(element_found, side_ord_found, stk::mesh::ConstPartVector{});
               VERIFY_OP_ON(eMesh.is_valid(newElement), ==, true, "bad newElement");
             }
         }

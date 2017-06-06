@@ -24,6 +24,9 @@
 #include <percept/MeshUtil.hpp>
 #include <adapt/AdaptedMeshVerifier.hpp>
 
+#include <stk_util/environment/memory_util.hpp>
+#include <stk_util/util/human_bytes.hpp>
+
 #define DEBUG_GSPR 0
 //#define LTRACE (m_eMesh.get_rank() == 0)
 #define LTRACE 0
@@ -37,49 +40,42 @@ namespace percept {
   bool s_onlyLeafToLeaf = S_ONLYLEAFTOLEAF_DEFAULT;
   bool s_allow_duplicates = false;
 
-    bool FixSideSets::is_perm_bad(stk::mesh::Entity element, stk::mesh::Entity side, unsigned side_ord, stk::mesh::Permutation& perm)
-    {
-      perm = m_eMesh.find_permutation(element, side, side_ord);
-      stk::topology side_topo = m_eMesh.topology(side);
 
-      if (perm != 0 && perm != side_topo.num_positive_permutations())
-        {
-          return true;
-        }
-      return false;
-    }
-
-    bool FixSideSets::is_positive_perm(stk::mesh::Entity element, stk::mesh::Entity side, unsigned side_ord)
-    {
-      stk::mesh::Permutation perm = m_eMesh.find_permutation(element, side, side_ord);
-      stk::topology side_topo = m_eMesh.topology(side);
-
-      if (perm < side_topo.num_positive_permutations())
-        {
-          return true;
-        }
-      return false;
-    }
-
-    bool FixSideSets::has_default_perm(stk::mesh::Entity side)
-    {
-      percept::MyPairIterRelation side_elements (m_eMesh, side, m_eMesh.element_rank());
-      for (unsigned ii=0; ii < side_elements.size(); ++ii)
-        {
-          stk::mesh::Entity element = side_elements[ii].entity();
-          unsigned side_ord = side_elements[ii].relation_ordinal();
-          stk::mesh::Permutation perm = m_eMesh.find_permutation(element, side, side_ord);
-          if (perm == 0)
-            return true;
-        }
-      return false;
-    }
+    struct LocalTimer {
+      const std::string& m_name;
+      Refiner *m_refiner;
+      stk::diag::Timer *m_timer;
+      LocalTimer(const std::string& name, Refiner *ref) : m_name(name), m_refiner(ref), m_timer(0)
+      {
+#if 1
+        if (m_refiner)
+          {
+            m_timer = new stk::diag::Timer(m_name, m_refiner->rootTimer());
+            m_timer->start();
+          }
+#endif
+      }
+      ~LocalTimer() {
+        if (m_timer)
+          {
+#if 1
+            m_timer->stop();
+            delete m_timer;
+#endif
+          }
+      }
+    };
 
     void FixSideSets::fix_permutation(SetOfEntities& side_set)
     {
-      for (SetOfEntities::iterator it_side=side_set.begin(); it_side != side_set.end(); ++it_side)
+      LocalTimer timer_bss("FSS0_fix_perm", m_refiner);
+
+      std::vector<stk::mesh::Entity> side_nodes;
+      std::vector<stk::mesh::ConnectivityOrdinal> nords;
+
+      for (auto side : side_set)
         {
-          stk::mesh::Entity side = *it_side;
+          //stk::mesh::Entity side = *it_side;
           stk::mesh::EntityId cid = 0; //637; //15608; //3650;
           bool ldb = m_eMesh.id(side) == cid && m_eMesh.entity_rank(side) == m_eMesh.side_rank();
 
@@ -107,14 +103,14 @@ namespace percept {
             {
               stk::mesh::Entity elem = side_elements[ii].entity();
               bool sameOwner = m_eMesh.owner_rank(elem) == m_eMesh.owner_rank(side);
-              bool isPos = m_eMesh.is_positive_perm(elem, side, side_elements[ii].relation_ordinal());
               stk::mesh::Permutation perm = m_eMesh.find_permutation(elem, side, side_elements[ii].relation_ordinal());
               if (perm < side_topo.num_positive_permutations())
                 hasPosPerm = true;
               if (ldb)
                 {
+                  bool isPos = m_eMesh.is_positive_perm(elem, side, side_elements[ii].relation_ordinal());
                   str << "P[" << m_eMesh.get_rank() << "] FP TMP srk elem= " << m_eMesh.id(elem) << " side_elements.size= " << side_elements.size()
-                      << " sameOwner= " << sameOwner << " isPos= " << isPos 
+                      << " sameOwner= " << sameOwner << " isPos= " << isPos
                       << std::endl;
                   m_eMesh.print(str,side,true,true);
                   m_eMesh.print(str,elem,true,true);
@@ -174,8 +170,8 @@ namespace percept {
             }
 
           bool ldeb = ldb;
-          std::vector<stk::mesh::Entity> side_nodes(m_eMesh.get_bulk_data()->begin_nodes(side), m_eMesh.get_bulk_data()->end_nodes(side));
-          std::vector<stk::mesh::ConnectivityOrdinal> nords( m_eMesh.get_bulk_data()->begin_node_ordinals(side),  m_eMesh.get_bulk_data()->end_node_ordinals(side));
+          side_nodes.assign(m_eMesh.get_bulk_data()->begin_nodes(side), m_eMesh.get_bulk_data()->end_nodes(side));
+          nords.assign( m_eMesh.get_bulk_data()->begin_node_ordinals(side),  m_eMesh.get_bulk_data()->end_node_ordinals(side));
           VERIFY_OP_ON(side_nodes.size(), ==, side_topo.num_nodes(), "bad side_nodes size");
 
           for (unsigned jj=0; jj < side_topo.num_nodes(); ++jj)
@@ -192,27 +188,33 @@ namespace percept {
               if (ldeb) str << " node1= " << m_eMesh.get_bulk_data()->entity_key(expected_nodes[ir]) << std::endl;
               m_eMesh.get_bulk_data()->declare_relation(side, expected_nodes[ir], ir);
             }
-          stk::mesh::Permutation perm = stk::mesh::INVALID_PERMUTATION;
-          bool is_bad_new = m_eMesh.is_perm_bad(element, side, side_ord, perm);
-          if (ldb) std::cout << str.str() << std::endl;
-
-          VERIFY_OP_ON(is_bad_new, ==, false, "bad node connections after renumber");
+          if (ldb)
+            {
+              stk::mesh::Permutation perm = stk::mesh::INVALID_PERMUTATION;
+              bool is_bad_new = m_eMesh.is_perm_bad(element, side, side_ord, perm);
+              VERIFY_OP_ON(is_bad_new, ==, false, "bad node connections after renumber");
+              std::cout << str.str() << std::endl;
+            }
         }
     }
 
     bool FixSideSets::connect(stk::mesh::Entity side, bool& valid_side_part_map, SetOfEntities* avoid_elems, bool onlyPosPerm)
     {
-      percept::MyPairIterRelation side_nodes (m_eMesh, side,m_eMesh.node_rank());
+      const stk::mesh::Entity * side_nodes = m_eMesh.get_bulk_data()->begin(side, m_eMesh.node_rank());
+      const unsigned side_nodes_size = m_eMesh.get_bulk_data()->num_nodes(side);
       bool found = false;
-      SetOfEntities elem_set(*m_eMesh.get_bulk_data());
       stk::topology side_topo = m_eMesh.topology(side);
 
-      for (unsigned isnode=0; isnode < side_nodes.size(); isnode++)
+#if 0
+      SetOfEntities elem_set;
+      for (unsigned isnode=0; isnode < side_nodes_size; isnode++)
         {
-          percept::MyPairIterRelation node_elements ( m_eMesh, side_nodes[isnode].entity(), m_eMesh.element_rank());
-          for (unsigned ienode=0; ienode < node_elements.size(); ienode++)
+          //percept::MyPairIterRelation node_elements ( m_eMesh, side_nodes[isnode], m_eMesh.element_rank());
+          const stk::mesh::Entity * node_elements = m_eMesh.get_bulk_data()->begin_elements( side_nodes[isnode] );
+          const unsigned node_elements_size = m_eMesh.get_bulk_data()->num_elements( side_nodes[isnode] );
+          for (unsigned ienode=0; ienode < node_elements_size; ienode++)
             {
-              stk::mesh::Entity element = node_elements[ienode].entity();
+              stk::mesh::Entity element = node_elements[ienode];
 
               if (avoid_elems && avoid_elems->find(element) != avoid_elems->end())
                 continue;
@@ -256,17 +258,98 @@ namespace percept {
               elem_set.insert(element);
             }
         }
+#else
+      std::vector<SetOfEntities> elem_set_nodal(side_nodes_size);
+      SetOfEntities& elem_set = elem_set_nodal[side_nodes_size - 1];
 
-      for (SetOfEntities::iterator eit = elem_set.begin(); eit != elem_set.end(); ++eit)
+      for (unsigned isnode=0; isnode < side_nodes_size; isnode++)
         {
-          stk::mesh::Entity element = *eit;
-          bool elementIsLeaf = m_eMesh.isLeafElement(element);
-          bool sideIsLeaf = m_eMesh.isLeafElement(side);
-          VERIFY_OP_ON(sideIsLeaf, ==, (m_eMesh.numChildren(side) == 0), "bad sideIsLeaf");
-          VERIFY_OP_ON(elementIsLeaf, ==, (m_eMesh.numChildren(element) == 0), "bad elementIsLeaf");
+          //percept::MyPairIterRelation node_elements ( m_eMesh, side_nodes[isnode], m_eMesh.element_rank());
+          const stk::mesh::Entity * node_elements = m_eMesh.get_bulk_data()->begin_elements( side_nodes[isnode] );
+          const unsigned node_elements_size = m_eMesh.get_bulk_data()->num_elements( side_nodes[isnode] );
+          for (unsigned ienode=0; ienode < node_elements_size; ienode++)
+            {
+              stk::mesh::Entity element = node_elements[ienode];
+
+              if (avoid_elems && avoid_elems->find(element) != avoid_elems->end())
+                continue;
+
+              if (m_eMesh.get_bulk_data()->num_connectivity(element, m_eMesh.node_rank()) == 0)
+                continue;
+
+              if (!m_eMesh.owned(element))
+                continue;
+
+              stk::topology elem_topo = m_eMesh.topology(element);
+              if (m_eMesh.get_spatial_dim() == 3 && m_eMesh.entity_rank(side) == m_eMesh.edge_rank())
+                {
+                  stk::topology elem_edge_topo = elem_topo.edge_topology();
+                  if (side_topo != elem_edge_topo)
+                    {
+                      continue;
+                    }
+                }
+              else
+                {
+                  stk::topology elem_side_topo = elem_topo.side_topology();
+                  if (side_topo != elem_side_topo)
+                    {
+                      // check for wedge or pyramid
+                      if (elem_topo.has_homogeneous_faces())
+                        continue;
+                      bool fnd = false;
+                      for (unsigned ii=0; ii < elem_topo.num_sides(); ++ii)
+                        {
+                          if (elem_topo.side_topology(ii) == side_topo)
+                            {
+                              fnd = true;
+                              break;
+                            }
+                        }
+                      if (!fnd)
+                        continue;
+                    }
+                }
+              // put all elements in first node's set
+              if (isnode == 0)
+                {
+                  elem_set_nodal[0].insert(element);
+                }
+              else
+                {
+                  // only put element in current set if it is also in the previous node's set
+                  if (elem_set_nodal[isnode-1].find(element) != elem_set_nodal[isnode-1].end())
+                    {
+                      elem_set_nodal[isnode].insert(element);
+                    }
+                }
+            }
+        }
+#endif
+
+      static std::vector<stk::mesh::Entity> elems_to_connect_to;
+      static std::vector<stk::mesh::ConnectivityOrdinal> ordinals_to_connect_to;
+      elems_to_connect_to.resize(0);
+      ordinals_to_connect_to.resize(0);
+
+      for (auto eit : elem_set)
+        {
+          stk::mesh::Entity element = eit;
+
+          if (0)
+            {
+              int permIndex = 0, permPolarity = 0, k_side=0;
+              bool sc = m_eMesh.should_connect(side, element, &permIndex, &permPolarity, &k_side);
+              VERIFY_OP_ON(sc, ==, true, "should_connect");
+            }
 
           if (s_debugCSF)
             {
+              bool elementIsLeaf = m_eMesh.isLeafElement(element);
+              bool sideIsLeaf = m_eMesh.isLeafElement(side);
+              VERIFY_OP_ON(sideIsLeaf, ==, (m_eMesh.numChildren(side) == 0), "bad sideIsLeaf");
+              VERIFY_OP_ON(elementIsLeaf, ==, (m_eMesh.numChildren(element) == 0), "bad elementIsLeaf");
+
               if (m_eMesh.should_connect(side, element))
                 {
 
@@ -277,37 +360,61 @@ namespace percept {
                             << std::endl;
                 }
             }
-          bool didConnect = false;
+          std::pair<bool,bool> didConnect(false,false);
+          stk::mesh::ConnectivityOrdinal k_element_side;
           if (s_onlyLeafToLeaf)
             {
               //if ((sideIsLeaf && elementIsLeaf) || (!sideIsLeaf && !elementIsLeaf))
+              bool elementIsLeaf = m_eMesh.isLeafElement(element);
+              bool sideIsLeaf = m_eMesh.isLeafElement(side);
               if ((sideIsLeaf && elementIsLeaf) || !sideIsLeaf)
                 {
-                  didConnect = connectSidesForced(element, side, valid_side_part_map, onlyPosPerm);
+                  didConnect = connectSidesForced(element, side, valid_side_part_map, &k_element_side, onlyPosPerm);
                 }
             }
           else
             {
               // allow any element to connect to this side
-              didConnect = connectSidesForced(element, side, valid_side_part_map, onlyPosPerm);
+              didConnect = connectSidesForced(element, side, valid_side_part_map, &k_element_side, onlyPosPerm);
             }
-          if (didConnect) found = true;
+
+          if (didConnect.first)
+            {
+              elems_to_connect_to.push_back(element);
+              ordinals_to_connect_to.push_back(k_element_side);
+              if (!didConnect.second)
+                {
+                  found = true;
+                }
+            }
         }
+
+      if (found)
+        {
+          disconnect_entity(side);
+          for (unsigned irel=0; irel < elems_to_connect_to.size(); ++irel)
+            {
+              m_eMesh.get_bulk_data()->declare_relation(elems_to_connect_to[irel], side, ordinals_to_connect_to[irel]);
+            }
+        }
+
       return found;
     }
 
 
     // if the element (element) has a side that matches  the given side (side), connect them but first delete old connections
-  bool FixSideSets::connectSidesForced(stk::mesh::Entity element, stk::mesh::Entity side, bool& valid_side_part_map, bool onlyPosPerm )
+    std::pair<bool,bool> FixSideSets::connectSidesForced(stk::mesh::Entity element, stk::mesh::Entity side, bool& valid_side_part_map,
+                                         stk::mesh::ConnectivityOrdinal *k_element_side_ret, bool onlyPosPerm )
     {
-      EXCEPTWATCH;
+      //EXCEPTWATCH;
       bool use_coordinate_compare=false;
 
       valid_side_part_map = true;
-      stk::mesh::EntityId cid = 0; //637; //3650; //0; //15608;
+      stk::mesh::EntityId cid = 0;
       s_debugCSF = m_eMesh.id(side) == cid;
       bool debug = s_debugCSF;
 
+      // TODO
       shards::CellTopology element_topo(m_eMesh.get_cell_topology(element));
       unsigned element_nsides = (unsigned)element_topo.getSideCount();
 
@@ -327,6 +434,7 @@ namespace percept {
       }
 
       // check validity of connection
+      // TODO
       if (m_side_part_map.size())
         {
           //std::cout << "m_side_part_map.size= " << m_side_part_map.size() << std::endl;
@@ -367,7 +475,7 @@ namespace percept {
                 }
             }
           valid_side_part_map = valid;
-          if (!valid) return false;
+          if (!valid) return std::pair<bool,bool>(false,false);
         }
 
       // special case for shells
@@ -379,7 +487,7 @@ namespace percept {
           isShell = true;
         }
       int spatialDim = m_eMesh.get_spatial_dim();
-      //if (spatialDim == 3 && isShell && m_eMesh.entity_rank(side) == m_eMesh.edge_rank())
+
       if (spatialDim == 3 && m_eMesh.entity_rank(side) == m_eMesh.edge_rank())
         {
           element_nsides = (unsigned) element_topo.getEdgeCount();
@@ -419,12 +527,10 @@ namespace percept {
 
       bool allowNegPolarity = true;
       if (!isShell && (!allowNegPolarity && permPolarity < 0))
-        return false;
+        return std::pair<bool,bool>(false,false);
 
       if (permIndex >= 0)
         {
-
-          percept::MyPairIterRelation rels (m_eMesh, side, m_eMesh.element_rank());
 
           // special case for shells
           if (isShell)
@@ -449,19 +555,23 @@ namespace percept {
             }
 
           int exists=0;
-          percept::MyPairIterRelation elem_sides (m_eMesh, element, m_eMesh.entity_rank(side));
-          unsigned elem_sides_size= elem_sides.size();
-          unsigned rel_id = 0;
+          //percept::MyPairIterRelation elem_sides (m_eMesh, element, m_eMesh.entity_rank(side));
+          const stk::mesh::Entity *elem_sides = m_eMesh.get_bulk_data()->begin(element, m_eMesh.entity_rank(side));
+          const unsigned elem_sides_size = m_eMesh.get_bulk_data()->num_connectivity(element, m_eMesh.entity_rank(side));
+          const stk::mesh::ConnectivityOrdinal *elem_sides_ordinals = m_eMesh.get_bulk_data()->begin_ordinals(element, m_eMesh.entity_rank(side));
+
           for (unsigned iside=0; iside < elem_sides_size; iside++)
             {
-              stk::mesh::Entity existing_side = elem_sides[iside].entity();
+              stk::mesh::Entity existing_side = elem_sides[iside];
               if (existing_side == side)
                 {
                   ++exists;
-                  rel_id = elem_sides[iside].relation_ordinal();
                 }
 
-              if (elem_sides[iside].relation_ordinal() == k_element_side ) {
+              if (elem_sides_ordinals[iside] == k_element_side ) {
+
+                // for debugging only, will be deleted after declare_element_side changes
+#if 0
                 if (s_allow_duplicates)
                   std::cout << "WARNING: ";
                 else
@@ -473,24 +583,19 @@ namespace percept {
 #endif
                 if (!s_allow_duplicates)
                   VERIFY_OP_ON(elem_sides[iside].relation_ordinal(), !=, k_element_side, "Relation already exists!");
+#endif
               }
 
             }
-          if (!exists)
-            {
-              EXCEPTWATCH;
-              m_eMesh.get_bulk_data()->declare_relation(element, side, k_element_side);
-            }
-          else
-            {
-              if (!s_allow_duplicates)
-                VERIFY_OP_ON(k_element_side, ==, rel_id, "hmmm");
-            }
-          return true;
+
+          if (k_element_side_ret)
+            *k_element_side_ret = static_cast<stk::mesh::ConnectivityOrdinal> (k_element_side);
+
+          return std::pair<bool,bool>(true, exists != 0);
         }
       else
         {
-          return false;
+          return std::pair<bool,bool>(false, false);
         }
     }
 
@@ -528,6 +633,8 @@ namespace percept {
 
     void FixSideSets::delete_unattached_sides(SetOfEntities& side_set, SetOfEntities *avoid_sides)
     {
+      LocalTimer timer_bss("FSS0_delete_unattached_sides", m_refiner);
+
       SetOfEntities sides_to_delete(*m_eMesh.get_bulk_data());
 
       for (SetOfEntities::iterator it_side=side_set.begin(); it_side != side_set.end(); ++it_side)
@@ -632,8 +739,10 @@ namespace percept {
       return false;
     }
 
-    void FixSideSets::build_side_set(SetOfEntities& side_set)
+    void FixSideSets::build_side_set(SetOfEntities& side_set, bool only_roots)
     {
+      //LocalTimer timer_bss("FSS0_build_side_set", m_refiner);
+
       side_set.clear();
 
       stk::mesh::Selector excludeSelector;
@@ -676,46 +785,46 @@ namespace percept {
                 {
                   stk::mesh::Entity side = side_bucket[i_side];
 
-                  //bool isGhostElement = m_eMesh.isGhostElement(side);
-                  //bool isGhostElement = m_eMesh.aura(side);
-                  bool isGhostElement = false;
-                  bool nconn = m_eMesh.get_bulk_data()->num_connectivity(side, m_eMesh.node_rank()) == 0;
-
-                  bool doContinue = isGhostElement || nconn;
-                  // if (avoid_sides && avoid_sides->find(side) != avoid_sides->end())
-                  //   continue;
-
-                  if (0)
+                  if (only_roots)
                     {
-                      std::cout << (doContinue?"not ":"") << " inserting side = " << side << " side-is-leaf? " << m_eMesh.isLeafElement(side)
-                                << " isGhostElement= " << isGhostElement
-                                << " nconn= " << nconn
-                                << std::endl;
-                      m_eMesh.print(side);
+                      if (m_eMesh.hasFamilyTree(side))
+                        {
+                          stk::mesh::Entity parent = m_eMesh.getParent(side, false);
+                          if (m_eMesh.is_valid(parent))
+                            continue;
+                        }
                     }
-                  if (!doContinue)
+
+                  bool has_connected_nodes = (0 != m_eMesh.get_bulk_data()->num_connectivity(side, m_eMesh.node_rank()));
+
+                  if (has_connected_nodes)
                     {
-                      side_set.insert(side);
+                      if (m_buildSideSetSelector)
+                        {
+                          if (m_buildSideSetSelector->use_batch_filter() || (*m_buildSideSetSelector)(side))
+                            {
+                              side_set.insert(side);
+                            }
+                        }
+                      else
+                        {
+                          side_set.insert(side);
+                        }
                     }
                 }
             }
-        }
-    }
-
-    void FixSideSets::disconnect_sides(SetOfEntities& side_set)
-    {
-      for (SetOfEntities::iterator ise=side_set.begin(); ise != side_set.end(); ++ise)
-        {
-          stk::mesh::Entity side = *ise;
-
-          VERIFY_OP_ON(m_eMesh.is_valid(side), ==, true, "bad side in disconnect_sides");
-
-          disconnect_entity(side);
+          if (m_buildSideSetSelector && m_buildSideSetSelector->use_batch_filter())
+            {
+              m_buildSideSetSelector->batch_filter(side_rank_iter, side_set);
+            }
         }
     }
 
     void FixSideSets::reconnect_sides(SetOfEntities& side_set, SetOfEntities *avoid_elems, bool onlyPosPerm)
     {
+      LocalTimer timer_bss("FSS0_reconn_sides", m_refiner);
+
+      size_t count = 0;
       for (SetOfEntities::iterator it_side=side_set.begin(); it_side != side_set.end(); ++it_side)
         {
           stk::mesh::Entity side = *it_side;
@@ -723,13 +832,28 @@ namespace percept {
           bool valid_side_part_map = false;
 
           VERIFY_OP_ON(m_eMesh.is_valid(side), ==, true, "bad side");
-          //if (m_eMesh.owned(side))
-          connect(side, valid_side_part_map, avoid_elems, onlyPosPerm);
+          bool didConnect = connect(side, valid_side_part_map, avoid_elems, onlyPosPerm);
+          if (didConnect)
+            ++count;
         }
+
+      if (0)
+        {
+          size_t sz = side_set.size();
+          stk::all_reduce( m_eMesh.parallel(), stk::ReduceSum<1>( &count ) );
+          stk::all_reduce( m_eMesh.parallel(), stk::ReduceSum<1>( &sz ) );
+
+          if (!m_eMesh.get_rank())
+            std::cout << m_eMesh.rank() << " count= " << count << " size= " << sz << std::endl;
+        }
+
     }
 
     void FixSideSets::check_connect(SetOfEntities& side_set, SetOfEntities *avoid_elems)
     {
+      LocalTimer timer_bss("FSS0_check_connect", m_refiner);
+
+      std::vector<stk::mesh::Entity> node_vec;
       for (SetOfEntities::iterator it_side = side_set.begin(); it_side != side_set.end(); ++it_side)
         {
           stk::mesh::Entity side = *it_side;
@@ -758,33 +882,41 @@ namespace percept {
                   std::cout << "elem parts= " << elem_parts[isp]->name() << std::endl;
                 }
 #endif
-              percept::MyPairIterRelation side_nodes (m_eMesh, side, m_eMesh.node_rank());
-              std::vector<stk::mesh::Entity> node_vec;
-              for (unsigned isnode=0; isnode < side_nodes.size(); isnode++)
+              //percept::MyPairIterRelation side_nodes (m_eMesh, side, m_eMesh.node_rank());
+              stk::mesh::Entity const *side_nodes = m_eMesh.get_bulk_data()->begin_nodes(side);
+              unsigned side_nodes_size = m_eMesh.get_bulk_data()->num_nodes(side);
+              node_vec.resize(0);
+              for (unsigned isnode=0; isnode < side_nodes_size; isnode++)
                 {
-                  node_vec.push_back(side_nodes[isnode].entity());
+                  node_vec.push_back(side_nodes[isnode]);
                 }
               m_eMesh.dump_vtk(node_vec, "fix_side_sets_2_error2.vtk");
-              std::set<stk::mesh::Entity> side_set_0;
-              side_set_0.insert(side);
-              m_eMesh.dump_vtk("fix_side_sets_2_error2_side.vtk", true, &side_set_0);
-              std::set<stk::mesh::Entity> elems;
-              m_eMesh.get_node_neighbors(side, elems);
-              std::cout << "elems.size= " << elems.size() << std::endl;
-              m_eMesh.filter_active_only(elems);
-              std::cout << "elems.size= " << elems.size() << std::endl;
-              elems.insert(side);
-              m_eMesh.dump_vtk("fix_side_sets_2_error2_all.vtk", true, &elems);
+              std::set<stk::mesh::Entity> side_set_0_debug;
+              side_set_0_debug.insert(side);
+              m_eMesh.dump_vtk("fix_side_sets_2_error2_side.vtk", true, &side_set_0_debug);
+              std::set<stk::mesh::Entity> elems_debug;
+              m_eMesh.get_node_neighbors(side, elems_debug);
+              std::cout << "elems.size= " << elems_debug.size() << std::endl;
+              m_eMesh.filter_active_only(elems_debug);
+              std::cout << "elems.size= " << elems_debug.size() << std::endl;
+              elems_debug.insert(side);
+              m_eMesh.dump_vtk("fix_side_sets_2_error2_all.vtk", true, &elems_debug);
               std::cout << PerceptMesh::demangled_stacktrace(30, true, "Refiner") << std::endl;
               VERIFY_MSG("fix_side_sets_2 error 2");
             }
         }
 
     }
-
-    void FixSideSets::end_begin()
+    void FixSideSets::end_begin(const std::string& msg)
     {
-      if (1)
+      LocalTimer timer_bss("FSS0_end_begin", m_refiner);
+
+      if (m_refiner)
+        {
+          m_refiner->mod_end(0,"FSS0"+msg);
+          m_refiner->mod_begin();
+        }
+      else
         {
           stk::mesh::fixup_ghosted_to_shared_nodes(*m_eMesh.get_bulk_data());
           m_eMesh.get_bulk_data()->modification_end();
@@ -792,13 +924,23 @@ namespace percept {
         }
     }
 
+  void FixSideSets::doProgressPrint(PerceptMesh& eMesh, const std::string& msg)
+    {
+      if (m_doProgress && eMesh.get_rank() == 0)
+        {
+          //std::cout << msg << " cpu: " << eMesh.cpu_time() << " [sec] mem= " << eMesh.print_memory_both() << std::endl;
+          size_t now=0, hwm=0;
+          stk::get_memory_usage(now, hwm);
+          std::cout << msg << " cpu: " << eMesh.cpu_time() << " [sec] mem= " << stk::human_bytes(now) << " [now_proc0] " << stk::human_bytes(hwm) << " [hwm_proc0]" << std::endl;
+        }
+    }
+
     // fast reconnector
 
     void FixSideSets::
-    fix_side_sets_2(bool allow_not_found, SetOfEntities *avoid_elems, SetOfEntities *avoid_sides)
+    fix_side_sets_2(bool allow_not_found, SetOfEntities *avoid_elems, SetOfEntities *avoid_sides, const std::string& msg)
     {
-      EXCEPTWATCH;
-
+      doProgressPrint(m_eMesh, "Stage: FixSideSets 1");
       s_allow_duplicates = false;
       if (m_eMesh.getProperty("Refiner_connect_allow_duplicate_sides") == "true")
         s_allow_duplicates = true;
@@ -806,6 +948,11 @@ namespace percept {
       s_onlyLeafToLeaf = S_ONLYLEAFTOLEAF_DEFAULT;
       if (m_eMesh.getProperty("percept_Refiner_connect_any_to_any") == "true")
         s_onlyLeafToLeaf = false;
+
+      bool reduced_mod_end = true;
+      if (m_eMesh.getProperty("percept_reduced_mod_end") == "false")
+        reduced_mod_end = false;
+      (void)reduced_mod_end;
 
       if (LTRACE) std::cout << m_eMesh.rank() << "tmp fix_side_sets_2 start... from: " << m_eMesh.getProperty("FixSideSets::fix_side_sets_2") << std::endl;
 
@@ -818,18 +965,15 @@ namespace percept {
       if (avoid_sides)
         VERIFY_OP_ON(avoid_sides->size(), ==, 0, "bad avoid_sides");
 
-      end_begin();
+      doProgressPrint(m_eMesh, "Stage: FixSideSets 2");
 
       if (LTRACE) std::cout << m_eMesh.rank() << "tmp fix_side_sets_2 1st end_begin: " << m_eMesh.getProperty("FixSideSets::fix_side_sets_2") << std::endl;
 
       build_side_set(side_set);
-      disconnect_sides(side_set);
-      end_begin();
-
-      build_side_set(side_set);
       if (LTRACE) std::cout << m_eMesh.rank() << "reconnect_sides side_set.size= " << side_set.size() << std::endl;
       reconnect_sides(side_set, avoid_elems, false);
-      end_begin();
+
+      end_begin(msg+"-Re-Side");
 
       build_side_set(side_set);
       if (LTRACE) std::cout << m_eMesh.rank() << "after reconnect_sides, allow_not_found= " << allow_not_found << " side_set.size= " << side_set.size() << std::endl;
@@ -843,7 +987,7 @@ namespace percept {
 
       if (LTRACE) std::cout << m_eMesh.rank() << "fix_permutation side_set.size= " << side_set.size() << std::endl;
 
-      end_begin();
+      doProgressPrint(m_eMesh, "Stage: FixSideSets 3");
 
       if (1)
         {

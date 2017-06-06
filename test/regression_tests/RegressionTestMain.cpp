@@ -17,6 +17,7 @@
 
 #include <percept/fixtures/Fixture.hpp>
 #include <percept/RunEnvironment.hpp>
+#include <percept/PerceptUtils.hpp>
 
 #include <percept/pyencore.h>
 
@@ -24,13 +25,19 @@
 
 #include <gtest/gtest.h>
 #include <mpi.h>
+#include <Kokkos_Core.hpp>
 
 int gl_argc=0;
 char** gl_argv=0;
 
 int main(int argc, char **argv)
 {
+
     MPI_Init(&argc, &argv);
+
+#if defined(WITH_KOKKOS)
+    Kokkos::initialize(argc, argv);
+#endif
 
     testing::InitGoogleTest(&argc, argv);
 
@@ -39,8 +46,14 @@ int main(int argc, char **argv)
 
     int returnVal = RUN_ALL_TESTS();
 
+#if defined(WITH_KOKKOS)
+    Kokkos::finalize();
+#endif
+
     MPI_Finalize();
 
+    percept::printTimersTableStructured();
+      
     return returnVal;
 }
 

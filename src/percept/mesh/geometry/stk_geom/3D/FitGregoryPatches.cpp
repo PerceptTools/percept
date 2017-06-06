@@ -9,6 +9,8 @@
 #include "GregoryPatchData.hpp"
 #include "FitGregoryPatches.hpp"
 #include <percept/Util.hpp>
+#include <stk_util/parallel/CommSparse.hpp>
+
 
 #define APRINTLN(a) do { if (debug_print) std::cout << #a << " = " << a << std::endl; } while(0)
 #define APRINTLN2(a,b) do { if (debug_print) std::cout << #a << " = " << a << " " << #b << " = " << b << std::endl; } while(0)
@@ -1005,7 +1007,7 @@ namespace percept {
   void FitGregoryPatches::
   findGhostEdges(EdgeSet& mainEdgeSet, NodeToEdgeMap& nodeToEdgeMap)
   {
-    stk::CommAll commAll (m_eMesh.parallel());
+    stk::CommSparse commAll (m_eMesh.parallel());
     std::vector<int>  procs;
     unsigned proc_size = m_eMesh.get_parallel_size();
     EdgeSet newEdgeSet;
@@ -1033,15 +1035,7 @@ namespace percept {
 
         if (istage == 0)
           {
-            unsigned proc_rank = commAll.parallel_rank();
-
-            bool local = true;
-            unsigned num_msg_bounds = proc_size < 4 ? proc_size : proc_size/4 ;
-            bool global = commAll.allocate_buffers(num_msg_bounds , false, local );
-            if ( not global )
-              {
-                std::cout << "P[" << proc_rank << "] : not global" << std::endl;
-              }
+            commAll.allocate_buffers();
           }
         else
           {
@@ -1938,8 +1932,9 @@ namespace percept {
       }
 
     try {
-      YAML::Parser parser1(file);
-      parser1.GetNextDocument(m_node);
+      //YAML::Parser parser1(file);
+      //parser1.GetNextDocument(m_node);
+      m_node = YAML::Load(file);
       //m_node_ptr = &m_node;
       parse(m_node);
       if (m_debug)
@@ -1980,13 +1975,13 @@ namespace percept {
       SIP(debug, bool(false));
       SIP(globalAngleCriterion, double(m_globalAngleCriterionDefault));
 
-      const YAML::Node *y_QA = node.FindValue("QA");
+      const YAML::Node y_QA = node["QA"];
       if (y_QA)
         {
-          SIP2(activate, bool(false), (*y_QA), (this->m_QA) );
-          SIP2(file, std::string(""), (*y_QA), (this->m_QA) );
-          SIP2(num_divisions, int(5), (*y_QA), (this->m_QA) );
-          SIP2(visualizer_command_prefix, std::string(""), (*y_QA), (this->m_QA));
+          SIP2(activate, bool(false), (y_QA), (this->m_QA) );
+          SIP2(file, std::string(""), (y_QA), (this->m_QA) );
+          SIP2(num_divisions, int(5), (y_QA), (this->m_QA) );
+          SIP2(visualizer_command_prefix, std::string(""), (y_QA), (this->m_QA));
 
           if (m_QA.m_visualizer_command_prefix.length())
             {
@@ -2002,46 +1997,44 @@ namespace percept {
             }
         }
 
-      const YAML::Node *y_surface_sets = node.FindValue("surface_sets");
+      const YAML::Node y_surface_sets = node["surface_sets"];
 
       if (y_surface_sets)
         {
-          VERIFY_OP_ON(y_surface_sets->Type(), ==, YAML::NodeType::Sequence, "bad surface_sets data in yaml file");
+          VERIFY_OP_ON(y_surface_sets.Type(), ==, YAML::NodeType::Sequence, "bad surface_sets data in yaml file");
           //set_if_present(*y_wedge, "activate", wedge_boundary_layer_special_refinement, false);
-          for (unsigned iSurfaceSet = 0; iSurfaceSet < y_surface_sets->size(); ++iSurfaceSet)
+          for (unsigned iSurfaceSet = 0; iSurfaceSet < y_surface_sets.size(); ++iSurfaceSet)
             {
-              const YAML::Node & y_surface_set = (*y_surface_sets)[iSurfaceSet];
+              const YAML::Node & y_surface_set = y_surface_sets[iSurfaceSet];
               VERIFY_OP_ON(y_surface_set.Type(), ==, YAML::NodeType::Map, "bad surface_set data");
-              for (YAML::Iterator i = y_surface_set.begin(); i != y_surface_set.end(); ++i)
+              for (YAML::const_iterator i = y_surface_set.begin(); i != y_surface_set.end(); ++i)
                 {
-                  const YAML::Node & key   = i.first();
-                  const YAML::Node & value = i.second();
+                  const YAML::Node & key   = i->first;
+                  const YAML::Node & value = i->second;
                   std::string v_key;
-                  key >> v_key;
+                  v_key = key.as<std::string>();
                   VERIFY_OP_ON(value.Type(), ==, YAML::NodeType::Sequence, "bad surface_set value data in [surfaceSetName: [s1,s2...]]");
                   for (unsigned jj=0; jj < value.size(); ++jj)
                     {
                       std::string ss;
-                      value[jj] >> ss;
+                      ss = value[jj].as<std::string>();
                       m_surfaceSets[v_key].push_back(ss);
                     }
                 }
             }
         }
 
-      const YAML::Node *y_angle_map = node.FindValue("angle_map");
+      const YAML::Node y_angle_map = node["angle_map"];
 
       if (y_angle_map)
         {
-          VERIFY_OP_ON(y_angle_map->Type(), ==, YAML::NodeType::Map, "bad angle_map data in yaml file");
-          for (YAML::Iterator i = y_angle_map->begin(); i != y_angle_map->end(); ++i)
+          VERIFY_OP_ON(y_angle_map.Type(), ==, YAML::NodeType::Map, "bad angle_map data in yaml file");
+          for (YAML::const_iterator i = y_angle_map.begin(); i != y_angle_map.end(); ++i)
             {
-              const YAML::Node & key   = i.first();
-              const YAML::Node & value = i.second();
-              std::string v_key;
-              double v_value;
-              key >> v_key;
-              value >> v_value;
+              const YAML::Node & key   = i->first;
+              const YAML::Node & value = i->second;
+              std::string v_key = key.as<std::string>();
+              double v_value = value.as<double>();
               m_angleMap[v_key] = v_value;
             }
         }

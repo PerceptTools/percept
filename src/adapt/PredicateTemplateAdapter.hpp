@@ -236,7 +236,7 @@
               removeEmptyElements();
               set_active_part();
               fix_side_sets_2();
-              stk::mesh::fixup_ghosted_to_shared_nodes(*m_eMesh.get_bulk_data());
+              //stk::mesh::fixup_ghosted_to_shared_nodes(*m_eMesh.get_bulk_data());
               m_eMesh.get_bulk_data()->modification_end();
               m_nodeRegistry->clear_element_owner_data_phase_2();
               m_eMesh.get_bulk_data()->modification_begin();
@@ -246,7 +246,7 @@
               m_nodeRegistry->prolongate(m_eMesh.get_coordinates_field());
               m_nodeRegistry->prolongateFields();
 
-              stk::mesh::fixup_ghosted_to_shared_nodes(*m_eMesh.get_bulk_data());
+              //stk::mesh::fixup_ghosted_to_shared_nodes(*m_eMesh.get_bulk_data());
               m_eMesh.get_bulk_data()->modification_end();
             }
             return_val_break_registration_loop = false;
