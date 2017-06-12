@@ -4,12 +4,12 @@ source module-file
 
 do_parallel_build=-j12
 
-do_build=0
+do_build=1
 
 do_build_superlu=$do_build
 do_build_xml=$do_build
 do_build_boost=$do_build
-do_build_yaml=1
+do_build_yaml=$do_build
 do_build_zlib=$do_build
 do_build_hdf5=$do_build
 do_build_netcdf=$do_build
@@ -156,7 +156,7 @@ fi
 
 if [ $do_build_zlib -eq 1 ]
 then
-  cd $percept_build_dir/packages/zlib-1.2.11
+  cd $percept_build_dir/packages/zlib-1.2.8
   CC=gcc CXX=g++ CFLAGS=-O3 CXXFLAGS=-O3 ./configure --prefix=$percept_build_dir/install/
   make clean
   make $do_parallel_build

@@ -136,7 +136,7 @@ if [ $do_get_zlib -eq 1 ]
 then
   echo Getting zlib...
   cd $percept_build_dir/packages
-  curl -s --retry 3 -o zlib-1.2.8.tar.gz http://zlib.net/zlib-1.2.8.tar.gz
+  curl -s --retry 3 -o zlib-1.2.8.tar.gz http://zlib.net/fossils/zlib-1.2.8.tar.gz
   tar zxf zlib-1.2.8.tar.gz
 fi
 
