@@ -53,112 +53,29 @@
 
 /// define only one of these to be 1
 /// current best setting is NODE_REGISTRY_MAP_TYPE_BOOST = 1
-#define NODE_REGISTRY_MAP_TYPE_BOOST 1
+
 
 #define STK_ADAPT_NODEREGISTRY_USE_ENTITY_REPO 0
 #define STK_ADAPT_NODEREGISTRY_DO_REHASH 1
 
-#if NODE_REGISTRY_MAP_TYPE_BOOST
-#include <boost/unordered_map.hpp>
-#endif
-
 #define DEBUG_NR_UNREF 0
 #define DEBUG_NR_DEEP 0
 
-#include <adapt/SubDimCell.hpp>
-#include <adapt/SDCEntityType.hpp>
-#include <adapt/NodeIdsOnSubDimEntityType.hpp>
+#include <adapt/NodeRegistryType.hpp>
+#include <adapt/NodeRegistry_KOKKOS.hpp>
 
 // use old PerceptMesh/BulkData create entities if set to 1 - if 0, use PerceptMesh ID server which is much faster (doesn't use DistributedIndex)
 #define USE_CREATE_ENTITIES 0
 
   namespace percept {
 
+    class NodeRegistry_KOKKOS;
+
     using std::vector;
     using std::map;
     using std::set;
 
     class Refiner;
-
-    // pair of rank and number of entities of that rank needed on a SubDimCell
-    struct NeededEntityType
-    {
-      stk::mesh::EntityRank first;  // e.g. EDGE_RANK if edges are needed to be marked
-      unsigned second;              // number of new nodes needed on this rank (e.g. a quadratic edge needs 2)
-      std::vector<int> third;       // special case: for non-homogeneous topos, like wedge/pyramid, say which sub-dim entities get marked
-      NeededEntityType(stk::mesh::EntityRank f = stk::topology::NODE_RANK, unsigned s = 0) : first(f), second(s), third(0) {}
-    };
-
-    inline std::ostream &operator<<(std::ostream& out, const boost::array<stk::mesh::EntityId, 1>& arr)
-    {
-      out << arr[0];
-      return out;
-    }
-
-    typedef boost::array<double, 2> Double2;
-    // tuple storage: SDC_DATA_GLOBAL_NODE_IDS, SDC_DATA_OWNING_ELEMENT_KEY,  SDC_DATA_OWNING_SUBDIM_RANK, SDC_DATA_OWNING_SUBDIM_ORDINAL, SDC_DATA_SPACING
-    typedef boost::tuple<NodeIdsOnSubDimEntityType, stk::mesh::EntityKey, unsigned char, unsigned char, Double2> SubDimCellData;
-
-    enum { MAX_NODES_ON_A_FACE = 4 };
-    typedef MySubDimCell<SDCEntityType, MAX_NODES_ON_A_FACE, CompareSDCEntityType> SubDimCell_SDCEntityType;
-
-    inline std::ostream& operator<<(std::ostream& out,  SubDimCellData& val)
-    {
-      std::ostringstream ostr;
-      ostr << "SDC:: node ids= [";
-      for (unsigned ii=0; ii < val.get<SDC_DATA_GLOBAL_NODE_IDS>().size(); ++ii)
-        {
-          ostr << " " << val.get<SDC_DATA_GLOBAL_NODE_IDS>().m_entity_id_vector[ii];
-        }
-      ostr << "] owning element rank= " << val.get<SDC_DATA_OWNING_ELEMENT_KEY>().rank()
-          << " id= " << val.get<SDC_DATA_OWNING_ELEMENT_KEY>().id()
-          << " subDim-ord= " << (int)val.get<SDC_DATA_OWNING_SUBDIM_ORDINAL>()
-          << " subDim-rank= " << (int)val.get<SDC_DATA_OWNING_SUBDIM_RANK>()
-          << " spacing info= " << val.get<SDC_DATA_SPACING>()[0] << " " << val.get<SDC_DATA_SPACING>()[1];
-      out << ostr.str() << std::endl;
-      return out;
-    }
-
-    typedef stk::mesh::Entity EntityPtr;
-
-    /// map of the node ids on a sub-dim entity to the data on the sub-dim entity
-
-#if NODE_REGISTRY_MAP_TYPE_BOOST
-#  ifdef STK_HAVE_TBB
-
-    typedef tbb::scalable_allocator<std::pair<SubDimCell_SDCEntityType const, SubDimCellData> > RegistryAllocator;
-    typedef boost::unordered_map<SubDimCell_SDCEntityType, SubDimCellData, my_fast_hash<SDCEntityType, 4>, my_fast_equal_to<SDCEntityType, 4>, RegistryAllocator > SubDimCellToDataMap;
-
-#  else
-
-    typedef boost::unordered_map<SubDimCell_SDCEntityType, SubDimCellData, my_fast_hash<SDCEntityType, 4>, my_fast_equal_to<SDCEntityType, 4> > SubDimCellToDataMap;
-    typedef boost::unordered_map<stk::mesh::EntityId, EntityPtr > EntityRepo;
-
-#  endif
-#endif
-
-    // Size and rank of sub-dim cells needing new nodes, actual nodes' EntityKeys stored in a SubDimCell<EntityKey>
-    enum CommDataTypeEnum {
-      CDT_SUBDIM_ENTITY_SIZE,
-      CDT_SUBDIM_ENTITY_RANK,
-      CDT_SUBDIM_ENTITY
-    };
-
-    // decode: size of SubDimCell, SubDimCell, sub-dim entity rank, non-owning element RANK
-    typedef boost::tuple<unsigned, stk::mesh::EntityRank, SubDimCell<stk::mesh::EntityKey> > CommDataType;
-
-    enum NodeRegistryState {
-      NRS_NONE,
-      NRS_START_REGISTER_NODE,
-      NRS_END_REGISTER_NODE,
-      NRS_START_CHECK_FOR_REMOTE,
-      NRS_END_CHECK_FOR_REMOTE,
-      NRS_START_PARALLEL_OPS,
-      NRS_START_GET_FROM_REMOTE,
-      NRS_END_GET_FROM_REMOTE,
-      NRS_END_PARALLEL_OPS
-    };
-
 
     //========================================================================================================================
     //========================================================================================================================
@@ -173,8 +90,6 @@
       static const unsigned NR_MARK_NONE             = 1u << 0;
       static const unsigned NR_MARK                  = 1u << 1;
 
-      typedef percept::SetOfEntities SetOfEntities;
-
       //========================================================================================================================
       // high-level interface
 
@@ -183,7 +98,6 @@
                    bool useCustomGhosting = true) : m_eMesh(eMesh),
                                                     m_refiner(refiner),
                                                     m_comm_all( new stk::CommSparse(eMesh.parallel()) ),
-                                                    m_ghosting(0),
                                                     m_pseudo_entities(*eMesh.get_bulk_data()),
                                                     m_useCustomGhosting(useCustomGhosting),
                                                     m_useAddNodeSharing(false),
@@ -216,9 +130,6 @@
       void beginRegistration(int ireg=0, int nreg=1);
       void endRegistration(int ireg=0, int nreg=1);
 
-      void beginLocalMeshMods(int ireg=0, int nreg=1);
-      void endLocalMeshMods(int ireg=0, int nreg=1);
-
       void beginCheckForRemote(int ireg=0, int nreg=1);
       void endCheckForRemote(int ireg=0, int nreg=1);
 
@@ -245,7 +156,6 @@
 
       /// makes coordinates of this new node be the centroid of its sub entity
       void prolongateCoords(const stk::mesh::Entity element,  stk::mesh::EntityRank needed_entity_rank, unsigned iSubDimOrd);
-      void prolongateCoordsAllSubDims(stk::mesh::Entity element);
       void prolongateField(const stk::mesh::Entity element,  stk::mesh::EntityRank needed_entity_rank, unsigned iSubDimOrd, stk::mesh::FieldBase *field);
 
       /// do interpolation for all fields, for the given nodes
@@ -374,6 +284,8 @@
 
       void do_add_node_sharing_comm();
 
+      void prolongateUsingValidCentroid(std::vector<std::pair<stk::mesh::Entity, stk::mesh::Entity> >& findValidCentroidElementNodePairs,
+              stk::mesh::Part* new_nodes_part, stk::mesh::FieldBase *field);
     public:
 
       bool is_empty( const stk::mesh::Entity element, stk::mesh::EntityRank needed_entity_rank, unsigned iSubDimOrd);
@@ -453,6 +365,8 @@
       void mod_begin();
       void mod_end(const std::string& msg="");
 
+      bool verifyAllKeysInKokkosNR(NodeRegistry_KOKKOS * nrk, SetOfEntities& nodesMappedTo, unsigned& noKeysNotInCommon);
+
     private:
       percept::PerceptMesh& m_eMesh;
       Refiner *m_refiner;
@@ -460,7 +374,6 @@
       SubDimCellToDataMap m_cell_2_data_map;
 
       vector<stk::mesh::EntityProc> m_nodes_to_ghost;
-      stk::mesh::Ghosting *m_ghosting;
       SetOfEntities m_pseudo_entities;
       bool m_useCustomGhosting;
       bool m_useAddNodeSharing;

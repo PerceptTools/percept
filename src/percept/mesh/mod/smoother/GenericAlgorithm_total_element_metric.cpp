@@ -1,9 +1,6 @@
 #include <percept/mesh/mod/smoother/GenericAlgorithm_total_element_metric.hpp>
 
 #include <percept/PerceptUtils.hpp>
-#include <percept/PerceptMesh.hpp>
-
-#include <percept/structured/BlockStructuredGrid.hpp>
 
 #include <percept/mesh/mod/smoother/SmootherMetric.hpp>
 #include <percept/mesh/mod/smoother/MeshSmoother.hpp>
@@ -12,7 +9,7 @@ namespace percept {
 
 template<>
 GenericAlgorithm_total_element_metric<STKMesh>::
-GenericAlgorithm_total_element_metric(SmootherMetricImpl<STKMesh> *metric, PerceptMesh *eMesh, bool& valid_in, size_t *num_invalid_in, Double& mtot_in, size_t& n_invalid_in)
+GenericAlgorithm_total_element_metric(SmootherMetricImpl<STKMesh> *metric, PerceptMesh *eMesh, bool valid_in, size_t *num_invalid_in, Double mtot_in, size_t n_invalid_in)
   : m_metric(metric), m_eMesh(eMesh), valid(valid_in), num_invalid(num_invalid_in), mtot(mtot_in), n_invalid(n_invalid_in)
 {
   coord_field = m_eMesh->get_coordinates_field();
@@ -60,7 +57,7 @@ GenericAlgorithm_total_element_metric(SmootherMetricImpl<STKMesh> *metric, Perce
 
 template<>
 GenericAlgorithm_total_element_metric<StructuredGrid>::
-GenericAlgorithm_total_element_metric(SmootherMetricImpl<StructuredGrid> *metric, PerceptMesh *eMesh, bool& valid_in, size_t *num_invalid_in, Double& mtot_in, size_t& n_invalid_in)
+GenericAlgorithm_total_element_metric(SmootherMetricImpl<StructuredGrid> *metric, PerceptMesh *eMesh, bool valid_in, size_t *num_invalid_in, Double mtot_in, size_t n_invalid_in)
   : m_metric(metric), m_eMesh(eMesh), valid(valid_in), num_invalid(num_invalid_in), mtot(mtot_in), n_invalid(n_invalid_in)
 {
   std::shared_ptr<BlockStructuredGrid> bsg = m_eMesh->get_block_structured_grid();
@@ -85,7 +82,7 @@ GenericAlgorithm_total_element_metric(SmootherMetricImpl<StructuredGrid> *metric
 
 template<typename MeshType>
 void GenericAlgorithm_total_element_metric<MeshType>::
-run()
+run(unsigned iBlock)
 {
 #if defined WITH_KOKKOS && !(KOKKOS_HAVE_CUDA)
   stk::diag::Timer root_timer("GATM", rootTimerStructured());
@@ -96,7 +93,9 @@ run()
     stk::diag::TimeBlock reduce1_block(reduce1);
 
     // main loop computes local and global metrics
-    Kokkos::parallel_reduce(elements.size(), *this, mtot);
+    Double interim_tot = (mtot);
+    Kokkos::parallel_reduce(Kokkos::RangePolicy<SecondaryExecSpace>(0,elements.size()), *this, interim_tot);
+    (mtot)=interim_tot;
   }
 
   {
@@ -104,9 +103,11 @@ run()
   	stk::diag::TimeBlock reduce1_block(reduce1);
 
     // second loop computes n_invalid and valid data
-    Kokkos::parallel_reduce(elements.size(), KOKKOS_LAMBDA (unsigned index, size_t &local_n_invalid) {
+  	size_t interim_n_invalid= (n_invalid);
+    Kokkos::parallel_reduce(Kokkos::RangePolicy<SecondaryExecSpace>(0,elements.size()), KOKKOS_LAMBDA (unsigned index, size_t &local_n_invalid) {
         local_n_invalid += element_invalid_flags(index);
-      }, n_invalid);
+      }, interim_n_invalid);
+    (n_invalid)=interim_n_invalid;
   }
 #else
   for (unsigned index=0; index<elements.size(); index++) {
@@ -117,73 +118,155 @@ run()
     n_invalid += element_invalid_flags[index];
   }
 #endif
-  valid = (n_invalid==0);
+  (valid) = (n_invalid==0);
 }
 
 
 // ETI
 template
 void GenericAlgorithm_total_element_metric<STKMesh>::
-run();
+run(unsigned iBlock);
 
 template
 void GenericAlgorithm_total_element_metric<StructuredGrid>::
-run();
+run(unsigned iBlock);
 
 ///////////////////////////////////////////////////////////////////////
 
 template<typename MetricType>
 SGridGenericAlgorithm_total_element_metric<MetricType>::
-SGridGenericAlgorithm_total_element_metric(PerceptMesh *eMesh, long double& mtot_in, size_t& n_invalid_in)
+SGridGenericAlgorithm_total_element_metric(PerceptMesh *eMesh, Double mtot_in, size_t n_invalid_in)
   : m_metric(eMesh), mtot(mtot_in), n_invalid(n_invalid_in)
 {
-  std::shared_ptr<BlockStructuredGrid> bsg = eMesh->get_block_structured_grid();
-  bsg->get_elements(elements);
-  Kokkos::Experimental::resize(element_invalid_flags, elements.size());
+    if (eMesh->get_block_structured_grid()) {
+        valid = false;
+        unsigned noBlocks =
+                eMesh->get_block_structured_grid()->m_sblocks.size();
+        std::shared_ptr<BlockStructuredGrid> bsg =
+                eMesh->get_block_structured_grid();
+
+        block_sizes.resize(noBlocks);
+        loop_orderings.resize(noBlocks);
+        element_invalid_flags_per_block.resize(noBlocks);
+
+        m_coord_field_current = bsg->m_fields["coordinates"].get();
+        m_coord_field_original = bsg->m_fields["coordinates_NM1"].get();
+        m_coords_current_iterator =
+                *m_coord_field_current->m_block_fields[0]; //orient iterators at the beginning of blocks
+        m_coords_original_iterator =
+                *m_coord_field_original->m_block_fields[0];
+
+        std::vector<StructuredCellIndex> elems_from_block;
+
+        for (unsigned iBlock = 0; iBlock < noBlocks; iBlock++) { //populate loop orderings and block sizes for all blocks in mesh
+            block_sizes[iBlock] = bsg->m_sblocks[iBlock]->m_sizes;
+            loop_orderings[iBlock] = bsg->m_sblocks[iBlock]->m_loop_ordering;
+            unsigned total_elems_this_block = (1
+                    + block_sizes[iBlock].cell_max[0]
+                    - block_sizes[iBlock].cell_min[0])
+                    * (1 + block_sizes[iBlock].cell_max[1]
+                            - block_sizes[iBlock].cell_min[1])
+                    * (1 + block_sizes[iBlock].cell_max[2]
+                            - block_sizes[iBlock].cell_min[2]);
+            Kokkos::Experimental::resize(
+                    element_invalid_flags_per_block[iBlock],
+                    total_elems_this_block);
+        }
+        m_iBlock= 0;;
+    }
 }
 
 // ETI
 template
-SGridGenericAlgorithm_total_element_metric<SmootherMetricUntangleImpl<StructuredGrid> >::
-SGridGenericAlgorithm_total_element_metric(PerceptMesh *eMesh, long double& mtot_in, size_t& n_invalid_in);
+SGridGenericAlgorithm_total_element_metric< SmootherMetricUntangleImpl<StructuredGrid> >::
+SGridGenericAlgorithm_total_element_metric(PerceptMesh *eMesh, Double mtot_in, size_t n_invalid_in);
+
+template
+SGridGenericAlgorithm_total_element_metric<HexMeshSmootherMetric>::
+SGridGenericAlgorithm_total_element_metric(PerceptMesh *eMesh, Double mtot_in, size_t n_invalid_in);
 
 template<typename MetricType>
-void SGridGenericAlgorithm_total_element_metric<MetricType>::
-run()
-{
-  stk::diag::Timer root_timer("GATM", rootTimerStructured());
-  stk::diag::TimeBlock root_block(root_timer);
+void SGridGenericAlgorithm_total_element_metric<MetricType>::run(
+        unsigned iBlock) {
+    m_iBlock= iBlock;
+    unsigned total_elems_this_block = (1 + block_sizes[iBlock].cell_max[0]
+            - block_sizes[iBlock].cell_min[0])
+            * (1 + block_sizes[iBlock].cell_max[1]
+                    - block_sizes[iBlock].cell_min[1])
+            * (1 + block_sizes[iBlock].cell_max[2]
+                    - block_sizes[iBlock].cell_min[2]);
+    stk::diag::Timer root_timer("GATM"+std::to_string(total_elems_this_block), rootTimerStructured());
+    stk::diag::TimeBlock root_block(root_timer);
 
-  {
-    stk::diag::Timer reduce1(std::string("GATM pr 1 ") + std::to_string((int)std::cbrt((double)elements.size())), root_timer);
-    stk::diag::TimeBlock reduce1_block(reduce1);
+    {
+        flags_iterator = element_invalid_flags_per_block[iBlock];
+        block_sizes_iterator = block_sizes[iBlock];
+        loop_orderings_iterator[0] = loop_orderings[iBlock][0];
+        loop_orderings_iterator[1] = loop_orderings[iBlock][1];
+        loop_orderings_iterator[2] = loop_orderings[iBlock][2];
 
-    // main loop computes local and global metrics
-    Kokkos::parallel_reduce(elements.size(), *this, mtot);
-  }
+        m_coords_current_iterator =
+                *m_coord_field_current->m_block_fields[iBlock]; //orient iterators at the beginning of blocks
+        m_coords_original_iterator =
+                *m_coord_field_original->m_block_fields[iBlock];
 
-  {
-    // second loop computes n_invalid and valid data
-    Kokkos::parallel_reduce(elements.size(), KOKKOS_LAMBDA (unsigned index, size_t &local_n_invalid) {
-        local_n_invalid += element_invalid_flags(index);
-      }, n_invalid);
-  }
+
+        stk::diag::Timer reduce1(
+                std::string("GATM pr 1 ")
+                        + std::to_string(
+                                (int) std::cbrt((double) total_elems_this_block)),
+                root_timer);
+        stk::diag::TimeBlock reduce1_block(reduce1);
+        // main loop computes local and global metrics
+        mtot = 0;
+        Double interim_mtot = mtot;
+        Kokkos::parallel_reduce(
+                Kokkos::RangePolicy<ExecSpace>(0, total_elems_this_block),
+                *this, interim_mtot);
+
+        mtot = interim_mtot;
+    }
+
+    {
+        stk::diag::Timer reduce2(
+                std::string("GATM pr 2 ")
+                        + std::to_string(
+                                (int) std::cbrt((double) total_elems_this_block)),
+                                root_timer);
+        stk::diag::TimeBlock reduce2_block(reduce2);
+        // second loop computes n_invalid and valid data
+        element_invalid_flags_reducer eifr;
+        eifr.flags = flags_iterator;
+        eifr.n_invalid = n_invalid;
+        eifr.reduce();
+        n_invalid = eifr.n_invalid;
+    }
+    valid = (n_invalid==0);
 }
 
 // ETI
 template
-void SGridGenericAlgorithm_total_element_metric<SmootherMetricUntangleImpl<StructuredGrid> >::run();
+void SGridGenericAlgorithm_total_element_metric<SmootherMetricUntangleImpl<StructuredGrid> >::run(unsigned iBlock);
+
+template/*<>*/
+void SGridGenericAlgorithm_total_element_metric<HexMeshSmootherMetric>::run(unsigned iBlock);
+
 
 template<typename MetricType>
 KOKKOS_INLINE_FUNCTION
 void SGridGenericAlgorithm_total_element_metric<MetricType>::
-operator()(const unsigned& index, long double& mtot_loc) const
+operator()(const unsigned& index, Double& mtot_loc) const
 {
-  typename StructuredGrid::MTElement element = elements[index];
-
   bool local_valid = false;
-  long double mm = m_metric.metric(element, local_valid);
-  element_invalid_flags(index) = !local_valid;
+  StructuredGrid::MTElement elem;
+  Kokkos::Array<unsigned,3> cell_ijk;
+  sgrid_multi_dim_indices_from_index_cell(block_sizes_iterator, loop_orderings_iterator,index,cell_ijk);
+
+  elem[0]=cell_ijk[0];
+  elem[1]=cell_ijk[1];
+  elem[2]=cell_ijk[2];
+  Double mm = m_metric.metric(elem, local_valid);
+  flags_iterator(index) = !local_valid;
 
   mtot_loc += mm;
 }
@@ -191,7 +274,45 @@ operator()(const unsigned& index, long double& mtot_loc) const
 // ETI
 template
 void SGridGenericAlgorithm_total_element_metric<SmootherMetricUntangleImpl<StructuredGrid> >::
-operator()(const unsigned& index, long double& mtot_loc) const;
+operator()(const unsigned& index, Double& mtot_loc) const;
+
+template<>
+KOKKOS_INLINE_FUNCTION
+void SGridGenericAlgorithm_total_element_metric<HexMeshSmootherMetric>::
+operator()(const unsigned& index,Double& mtot_loc) const
+{
+  bool local_valid = false;
+  double v_i_current[8][3];
+  double v_i_org[8][3];
+  unsigned indx[3] = { 0, 0, 0 };
+  unsigned II[3] = { 0, 0, 0 };
+  Kokkos::Array<unsigned,3> cell_ijk;
+  const int A0 = 0, A1 = 1, A2 = 2;
+
+  sgrid_multi_dim_indices_from_index_cell(block_sizes_iterator, loop_orderings_iterator,index,cell_ijk);
+
+  unsigned cnt = 0;
+  for (indx[2] = 0; indx[2] < 2; ++indx[2]) {
+      II[2] = indx[2] + cell_ijk[2];
+      for (indx[1] = 0; indx[1] < 2; ++indx[1]) {
+          II[1] = indx[1] + cell_ijk[1];
+          for (indx[0] = 0; indx[0] < 2; ++indx[0]) {
+              II[0] = indx[0] + cell_ijk[0];
+              for (unsigned ic = 0; ic < 3; ++ic) {
+                  v_i_current[cnt][ic] = m_coords_current_iterator(II[A0],
+                          II[A1], II[A2], ic);
+                  v_i_org[cnt][ic] = m_coords_original_iterator(II[A0],
+                          II[A1], II[A2], ic);
+              }
+              ++cnt;
+          }
+      }
+  }
+
+  Double mm = m_metric.metric(v_i_current, v_i_org, local_valid);
+  flags_iterator(index) = !local_valid;
+  mtot_loc += mm;
+}
 
 ///////////////////////////////////////////////////////////////////////
 
@@ -208,6 +329,8 @@ operator()(const unsigned& index, Double& mtot_loc)
   // FIXME
   m_metric->m_topology_data = topos[index];
 
+  //gather coords
+
   bool local_valid = false;
   Double mm = m_metric->metric(element, local_valid);
   element_invalid_flags(index) = !local_valid;
@@ -224,10 +347,10 @@ inline
 void GenericAlgorithm_total_element_metric<StructuredGrid>::
 
 operator()(const unsigned& index, Double& mtot_loc)
-{				//madbrew: the KKIF doesn't mind having this reference being passed?
+{
 
-  typename StructuredGrid::MTElement element = elements[index];
-
+  typename StructuredGrid::MTElement element = elements[index];//{elements[index][0],elements[index][1],elements[index][2],elements[index][3]};
+  //gather coords
 
   bool local_valid = false;
   Double mm = m_metric->metric(element, local_valid);
@@ -238,3 +361,4 @@ operator()(const unsigned& index, Double& mtot_loc)
 }
 
 } // namespace percept
+

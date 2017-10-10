@@ -19,6 +19,7 @@
 #include <stk_util/parallel/ParallelReduce.hpp>
 
 #include <stdio.h>
+#include <ctime>
 
 #include "mpi.h"
 
@@ -27,20 +28,20 @@
   template <typename MeshType>
   ReferenceMeshSmootherBaseImpl<MeshType>::
   ReferenceMeshSmootherBaseImpl(PerceptMesh *eMesh,
-                            typename MeshType::MTSelector *boundary_selector,
+//                            typename MeshType::MTSelector *boundary_selector,
+                            STKMesh::MTSelector *stk_select,
+                            StructuredGrid::MTSelector *sgrid_select,
                             typename MeshType::MTMeshGeometry *meshGeometry,
                             int inner_iterations,
                             double grad_norm,
                             int parallel_iterations)
-    : MeshSmootherImpl<MeshType>(eMesh, boundary_selector, meshGeometry, inner_iterations, grad_norm, parallel_iterations),
+    : MeshSmootherImpl<MeshType>(eMesh, stk_select,sgrid_select, meshGeometry, inner_iterations, grad_norm, parallel_iterations),
       m_scale(0),
       m_dmax(0),
       m_dmax_relative(0),
       m_dnew(0), m_dold(0), m_d0(1), m_dmid(0), m_dd(0), m_alpha(0), m_alpha_0(0), m_grad_norm(0), m_grad_norm_scaled(0),
       m_total_metric(0),
       m_stage(0),
-      m_omega(0),
-      m_omega_prev(0),
       m_iter(0),
       m_num_invalid(0), m_global_metric(std::numeric_limits<double>::max()), m_untangled(false), m_num_nodes(0),
       m_use_ref_mesh(true), m_do_animation(0)
@@ -50,6 +51,41 @@
         m_do_animation = toInt(eMesh->getProperty("ReferenceMeshSmootherBase_do_anim"));
         std::cout << "m_do_animation= " << m_do_animation << std::endl;
       }
+
+
+    std::string fileName = "smootherlog" + eMesh->getProperty("in_filename") + ".txt";
+
+    if(Base::m_eMesh->get_rank() == 0) {
+
+      myFile.open(fileName.c_str(), std::ios::out);
+
+      myFile.precision(6);
+      myFile.setf(std::ios_base::left,std::ios_base::adjustfield);
+      myFile.setf(std::ios_base::scientific);
+
+      unsigned width = 14;
+      myFile << std::setw(8) << "%iter";
+      myFile << std::setw(width) << "global_metric";
+      myFile << std::setw(width) << "invalid_elems";
+      myFile << std::setw(width) << "dmax";
+      myFile << std::setw(width) << "dmax_rel";
+      myFile << std::setw(width) << "grad/g0";
+      myFile << std::setw(width) << "gradScaled";
+      myFile << std::setw(width) << "alpha";
+      myFile << std::setw(width) << "alpha_0";
+      myFile << std::setw(6) << "stage";
+      myFile << std::setw(width) << "untangled_elems";
+      myFile << std::setw(width) << "noNodes";
+      myFile << std::endl;
+    }
+  }
+
+  template <typename MeshType>
+    ReferenceMeshSmootherBaseImpl<MeshType>::
+	~ReferenceMeshSmootherBaseImpl()
+  {
+	  if(Base::m_eMesh->get_rank() == 0)
+		  myFile.close();
   }
 
   template<>
@@ -67,41 +103,6 @@
     template<>
     void ReferenceMeshSmootherBaseImpl<StructuredGrid>::sync_fields(int iter)
     {}
-
-    template<>
-    void ReferenceMeshSmootherBaseImpl<STKMesh>::project_all_delta_to_tangent_plane(stk::mesh::FieldBase *field)
-    {
-      stk::mesh::Selector on_locally_owned_part =  ( m_eMesh->get_fem_meta_data()->locally_owned_part() );
-      stk::mesh::Selector on_globally_shared_part =  ( m_eMesh->get_fem_meta_data()->globally_shared_part() );
-
-      // node loop
-      const stk::mesh::BucketVector & buckets = m_eMesh->get_bulk_data()->buckets( m_eMesh->node_rank() );
-      for ( stk::mesh::BucketVector::const_iterator k = buckets.begin() ; k != buckets.end() ; ++k )
-        {
-          if (on_locally_owned_part(**k) || on_globally_shared_part(**k))
-            {
-              stk::mesh::Bucket & bucket = **k ;
-              const unsigned num_nodes_in_bucket = bucket.size();
-
-              for (unsigned i_node = 0; i_node < num_nodes_in_bucket; i_node++)
-                {
-                  stk::mesh::Entity node = bucket[i_node];
-                  std::pair<bool,int> fixed = this->get_fixed_flag(node);
-                  if (fixed.first)
-                    {
-                      continue;
-                    }
-
-                  double *cg_g = m_eMesh->field_data(field, node);
-
-                  if (fixed.second == MS_SURFACE)
-                    {
-                      project_delta_to_tangent_plane(node, cg_g);
-                    }
-                }
-            }
-        }
-    }
 
     template<>
     void ReferenceMeshSmootherBaseImpl<STKMesh>::check_project_all_delta_to_tangent_plane(stk::mesh::FieldBase *field)
@@ -157,11 +158,6 @@
     bool ReferenceMeshSmootherBaseImpl<MeshType>::check_convergence()
     {
       throw std::runtime_error("not implemented");
-#if 0
-      stk::all_reduce( m_eMesh->get_bulk_data()->parallel() , stk::ReduceMax<1>( & m_dmax ) );
-      bool cond = (m_num_invalid == 0 && m_dmax < gradNorm);
-      return cond;
-#endif
       return false;
     }
 
@@ -170,54 +166,6 @@
     {
       throw std::runtime_error("not implemented");
       return 0.0;
-    }
-
-    template<typename MeshType>
-    struct GA_run_algorithm
-    {
-      using This = GA_run_algorithm<MeshType>;
-      using RefMeshSmootherBase = ReferenceMeshSmootherBaseImpl<MeshType>;
-      RefMeshSmootherBase *m_rms;
-      PerceptMesh *m_eMesh;
-      typename MeshType::MTField *coord_field;
-      typename MeshType::MTField *coord_field_current;
-      typename MeshType::MTField *coord_field_projected;
-      typename MeshType::MTField *coord_field_original;
-      typename MeshType::MTField *coord_field_lagged;
-
-      GA_run_algorithm(RefMeshSmootherBase *rms, PerceptMesh *eMesh);
-
-    };
-
-    template<>
-    GA_run_algorithm<STKMesh>::GA_run_algorithm(RefMeshSmootherBase *rms, PerceptMesh *eMesh) : m_rms(rms), m_eMesh(eMesh)
-    {
-      coord_field           = eMesh->get_coordinates_field();
-      coord_field_current   = coord_field;
-      coord_field_projected = eMesh->get_field(stk::topology::NODE_RANK, "coordinates_N");
-      coord_field_original  = eMesh->get_field(stk::topology::NODE_RANK, "coordinates_NM1");
-      coord_field_lagged    = eMesh->get_field(stk::topology::NODE_RANK, "coordinates_lagged");
-
-      m_rms->m_coord_field_original  = coord_field_original;
-      m_rms->m_coord_field_projected = coord_field_projected;
-      m_rms->m_coord_field_lagged    = coord_field_lagged;
-      m_rms->m_coord_field_current   = coord_field_current;
-    }
-
-    template<>
-    GA_run_algorithm<StructuredGrid>::GA_run_algorithm(RefMeshSmootherBase *rms, PerceptMesh *eMesh) : m_rms(rms), m_eMesh(eMesh)
-    {
-      std::shared_ptr<BlockStructuredGrid> bsg = m_eMesh->get_block_structured_grid();
-      coord_field                              = bsg->m_fields["coordinates"].get();
-      coord_field_current                      = coord_field;
-      coord_field_projected                    = bsg->m_fields["coordinates_N"].get();
-      coord_field_original                     = bsg->m_fields["coordinates_NM1"].get();
-      coord_field_lagged                       = bsg->m_fields["coordinates_lagged"].get();
-
-      m_rms->m_coord_field_original  = coord_field_original;
-      m_rms->m_coord_field_projected = coord_field_projected;
-      m_rms->m_coord_field_lagged    = coord_field_lagged;
-      m_rms->m_coord_field_current   = coord_field_current;
     }
 
     template<typename MeshType>
@@ -265,22 +213,44 @@
     }
 
     template<typename MeshType>
+    void ReferenceMeshSmootherBaseImpl<MeshType>::print_iteration_status(const int num_invalid_0)
+	{
+    	if (0 != Base::m_eMesh->get_rank()) return;
+
+    	// m_iter=0 write header
+
+    	// write columns
+        unsigned width = 14;
+        myFile << std::setw(8) << m_iter;
+        myFile << std::setw(width) << m_global_metric;
+        myFile << std::setw(width) << num_invalid_0;
+        myFile << std::setw(width) << m_dmax;
+        myFile << std::setw(width) << m_dmax_relative;
+        myFile << std::setw(width) << std::sqrt(m_dnew/m_d0);
+        myFile << std::setw(width) << m_grad_norm_scaled;
+        myFile << std::setw(width) << m_alpha;
+        myFile << std::setw(width) << m_alpha_0;
+        myFile << std::setw(6) << m_stage;
+        myFile << std::setw(width) << m_untangled;
+        myFile << std::setw(width) << m_num_nodes;
+        myFile << std::endl;
+	}
+
+    template<typename MeshType>
     void ReferenceMeshSmootherBaseImpl<MeshType>::run_algorithm()
     {
-      GA_run_algorithm<MeshType> ga(this, Base::m_eMesh);
-
-      typename MeshType::MTField *coord_field           = ga.coord_field;
-      typename MeshType::MTField *coord_field_current   = ga.coord_field_current;
-      typename MeshType::MTField *coord_field_projected = ga.coord_field_projected;
-      typename MeshType::MTField *coord_field_original  = ga.coord_field_original;
-      typename MeshType::MTField *coord_field_lagged    = ga.coord_field_lagged;
-
       PerceptMesh *eMesh = Base::m_eMesh;
+      set_local_field_ptrs(eMesh);
+
       m_num_nodes = eMesh->get_number_nodes();
+      //madbrew: HACK
+//      eMesh->nodal_field_set_value("cg_edge_length",1.0);
+//      m_num_nodes = (int)(eMesh->nodal_field_dot("cg_edge_length","cg_edge_length"));
 
-      eMesh->copy_field(coord_field_lagged, coord_field_original);
 
-      static int anim_step = 0;
+      eMesh->copy_field("coordinates_lagged", "coordinates_NM1");
+
+      m_anim_step = 0;
 
       // untangle
       SmootherMetricUntangleImpl<MeshType> untangle_metric(eMesh);
@@ -288,25 +258,11 @@
       // shape
       SmootherMetricShapeB1Impl<MeshType> shape_b1_metric(eMesh, m_use_ref_mesh);
 
-      //double omegas[] = {0.0, 0.001, 0.01, 0.1, 0.2, 0.4, 0.6, 0.8, 1.0};
-      //double omegas[] = {0.001, 1.0};
-      //double omegas[] = { 0.001, 0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.07, 0.08, 0.09, 0.1, 0.2, 0.4, 0.45,0.46,0.47,0.48,0.49,0.5,0.52,0.54,0.56,0.59, 0.6, 0.8, 1.0};
-      double omegas[] = { 1.0};
-      //double omegas[] = { 0.001, 0.01, 0.1, 0.2, 0.4, 1.0};
-      //double omegas[] = {0.0, 0.001, 0.01, 0.1, 0.11, 0.12, 0.13, 0.14, 0.15, 0.16, 0.17, 0.18, 0.19, 0.2, 0.4, 0.6, 0.8, 1.0};
-      int nomega = sizeof(omegas)/sizeof(omegas[0]);
-
-      for (int outer = 0; outer < nomega; outer++)
         {
-          double omega = (outer < nomega ? omegas[outer] : 1.0);
-          m_omega = omega;
-          m_omega_prev = omega;
-          if (outer > 0) m_omega_prev = omegas[outer-1];
-
-          // set current state and evaluate mesh validity (current = omega*project + (1-omega)*original)
-          eMesh->nodal_field_axpbypgz(omega, coord_field_projected, (1.0-omega), coord_field_original, 0.0, coord_field_current);
-
+          eMesh->nodal_field_axpbypgz(1.0, "coordinates_N", 0.0, "coordinates_NM1", 0.0, "coordinates");
           size_t num_invalid = MeshSmootherImpl<MeshType>::parallel_count_invalid_elements(eMesh);
+          if (!eMesh->get_rank())
+            std::cout << "MeshSmoother: number of invalid elements before untangling = " << num_invalid << std::endl;
 
           m_num_invalid = num_invalid;
           m_untangled = (m_num_invalid == 0);
@@ -316,7 +272,7 @@
           int do_anim = m_do_animation; // = frequency of anim writes
           if (do_anim)
             {
-              anim<MeshType>(eMesh, anim_step);
+              anim<MeshType>(eMesh, m_anim_step);
             }
 
           int nstage = get_num_stages();
@@ -333,6 +289,9 @@
                 {
                   int num_invalid_1 = MeshSmootherImpl<MeshType>::parallel_count_invalid_elements(eMesh);
                   VERIFY_OP_ON(num_invalid_1, ==, 0, "Invalid elements exist for start of stage 2, quiting");
+
+                  if (!eMesh->get_rank())
+                    std::cout << "MeshSmoother: number of invalid elements after  untangling = " << num_invalid_1 << std::endl;
 
                   m_metric = &shape_b1_metric;
                 }
@@ -351,21 +310,14 @@
 
                   sync_fields(iter);
                   bool conv = check_convergence();
-                  if (!eMesh->get_rank())
-                    {
-                      std::cout << " iter= " << iter << " dmax= " << m_dmax << " dmax_rel= " << m_dmax_relative << " grad/g0= " << std::sqrt(m_dnew/m_d0)
-                                << " gradScaled= " << m_grad_norm_scaled
-                                << " m_alpha= " << m_alpha  << " m_alpha_0 = " << m_alpha_0
-                                << " num_invalid= " << num_invalid_0
-                                << " m_global_metric= " << m_global_metric << " stage= " << stage << " m_untangled= " << m_untangled
-                                << std::endl;
-                    }
+
+                  print_iteration_status(num_invalid_0);
 
                   if (do_anim)
                     {
                       if (iter_all % do_anim == 0)
                         {
-                          anim<MeshType>(eMesh, anim_step);
+                          anim<MeshType>(eMesh, m_anim_step);
                         }
                     }
 
@@ -380,13 +332,29 @@
                 }
             }
 
-          eMesh->copy_field(coord_field_lagged, coord_field);
+          eMesh->copy_field("coordinates_lagged", "coordinates");
         }
-
-      if (!eMesh->get_rank())
-        std::cout << "\nP[" << eMesh->get_rank() << "] tmp srk ReferenceMeshSmootherBase: running shape improver... done \n" << std::endl;
-
     }
+
+    template<>
+	void ReferenceMeshSmootherBaseImpl<STKMesh>::set_local_field_ptrs(PerceptMesh *eMesh)
+	{
+    	m_coord_field_original  = eMesh->get_field(stk::topology::NODE_RANK, "coordinates_NM1");
+    	m_coord_field_projected = eMesh->get_field(stk::topology::NODE_RANK, "coordinates_N");
+    	m_coord_field_lagged    = eMesh->get_field(stk::topology::NODE_RANK, "coordinates_lagged");
+    	m_coord_field_current   = eMesh->get_coordinates_field();
+	}
+
+    template<>
+	void ReferenceMeshSmootherBaseImpl<StructuredGrid>::set_local_field_ptrs(PerceptMesh *eMesh)
+	{
+        std::shared_ptr<BlockStructuredGrid> bsg = m_eMesh->get_block_structured_grid();
+
+        m_coord_field_original  = bsg->m_fields["coordinates_NM1"].get();
+        m_coord_field_projected = bsg->m_fields["coordinates_N"].get();
+        m_coord_field_lagged    = bsg->m_fields["coordinates_lagged"].get();
+        m_coord_field_current   = bsg->m_fields["coordinates"].get();
+	}
 
     template class ReferenceMeshSmootherBaseImpl<STKMesh>;
     template class ReferenceMeshSmootherBaseImpl<StructuredGrid>;

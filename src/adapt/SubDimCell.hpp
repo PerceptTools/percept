@@ -135,6 +135,7 @@
     template<class T, std::size_t N=4, class CompareClass = SubDimCellCompare<T>, class HC = SDCHashCode<T,N>  >
     class SubDimCell : public percept::NoMallocArray<T,N>
     {
+    protected:
       std::size_t m_hash;
     public:
       HC m_HashCode;

@@ -133,8 +133,7 @@ namespace percept {
 
           //eMesh.save_as("before-ref.1.e");
 
-          bool enforce_what[3] = {false, true, false};
-          breaker.refine( enforce_what);
+          breaker.refine();
           std::cout << "tet_transition number elements = "
                     << eMesh.get_number_elements() << std::endl;
 
@@ -181,7 +180,6 @@ namespace percept {
           stk::mesh::Selector univ_selector(eMesh.get_fem_meta_data()->universal_part());
 
           ElementRefinePredicate erp(eMesh, &univ_selector, refine_field, 0.0);
-          bool enforce_what[3] = {false, true, false};
           TransitionElementAdapter<ElementRefinePredicate> *breaker_p;
 
           std::vector<std::string> do_wedge_bl;
@@ -260,8 +258,7 @@ namespace percept {
                       ++iplot;
                     }
 
-                  // {node-, edge-, face-neighors}
-                  breaker.refine( enforce_what);
+                  breaker.refine();
 
                   //eMesh.print_info("refined", 2);
 
@@ -284,7 +281,7 @@ namespace percept {
                 {
                   elementOpLoop(*eMesh.get_bulk_data(), set_ref_field, refine_field);
 
-                  breaker.unrefine( enforce_what);
+                  breaker.unrefine();
                   int nel = eMesh.get_number_elements();
                   if (eMesh.get_rank() == 0)
                     std::cout << "P[" << eMesh.get_rank() << "] done... iunref_pass= " << iunref_pass << " local number elements= " << nel << std::endl;
@@ -309,7 +306,7 @@ namespace percept {
               elementOpLoop(*eMesh.get_bulk_data(), set_ref_field_val_unref_all, refine_field);
               if (eMesh.get_rank() == 0)
                 std::cout << "P[" << eMesh.get_rank() << "] iunrefAll_pass= " << iunref <<  std::endl;
-              breaker.unrefine( enforce_what);
+              breaker.unrefine();
 
               if (1)
                 {

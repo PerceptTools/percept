@@ -188,7 +188,7 @@ namespace percept {
     m_scale = 1.e-10;
 
     // r=0
-    eMesh->nodal_field_set_value(cg_s_field, 0.0);
+    eMesh->nodal_field_set_value("cg_s", 0.0);
 
     std::vector<stk::mesh::Entity> nodes;
 
@@ -390,11 +390,6 @@ namespace percept {
   {
     PerceptMesh *eMesh = m_eMesh;
 
-    stk::mesh::FieldBase *cg_g_field    = eMesh->get_field(stk::topology::NODE_RANK, "cg_g");
-    stk::mesh::FieldBase *cg_r_field    = eMesh->get_field(stk::topology::NODE_RANK, "cg_r");
-    stk::mesh::FieldBase *cg_d_field    = eMesh->get_field(stk::topology::NODE_RANK, "cg_d");
-    stk::mesh::FieldBase *cg_s_field    = eMesh->get_field(stk::topology::NODE_RANK, "cg_s");
-
     stk::mesh::Selector on_locally_owned_part =  ( eMesh->get_fem_meta_data()->locally_owned_part() );
     stk::mesh::Selector on_globally_shared_part =  ( eMesh->get_fem_meta_data()->globally_shared_part() );
     bool total_valid=false;
@@ -402,10 +397,10 @@ namespace percept {
     if (m_iter == 0)
       {
         get_edge_lengths(m_eMesh);
-        eMesh->nodal_field_set_value(cg_g_field, 0.0);
-        eMesh->nodal_field_set_value(cg_r_field, 0.0);
-        eMesh->nodal_field_set_value(cg_d_field, 0.0);
-        eMesh->nodal_field_set_value(cg_s_field, 0.0);
+        eMesh->nodal_field_set_value("cg_g", 0.0);
+        eMesh->nodal_field_set_value("cg_r", 0.0);
+        eMesh->nodal_field_set_value("cg_d", 0.0);
+        eMesh->nodal_field_set_value("cg_s", 0.0);
       }
 
     if (m_eMesh->get_rank() == 0)
@@ -421,23 +416,14 @@ namespace percept {
     if (m_eMesh->get_rank() == 0)
       std::cout << "ReferenceMeshSmootherAlgebraic: get_step done" << std::endl;
 
-    eMesh->copy_field(cg_g_field, cg_s_field);
-    eMesh->nodal_field_axpby(-1.0, cg_g_field, 0.0, cg_r_field);
+    eMesh->copy_field("cg_g", "cg_s");
+    eMesh->nodal_field_axpby(-1.0, "cg_g", 0.0, "cg_r");
 
-    m_dnew = eMesh->nodal_field_dot(cg_s_field, cg_s_field);
+    m_dnew = eMesh->nodal_field_dot("cg_s", "cg_s");
     if (m_iter == 0)
       {
         m_d0 = m_dnew;
       }
-
-    // #if 1
-    //     bool restarted = false;
-    //     double alpha = line_search(restarted, 0.0);
-    // #else
-    //     double alpha = 0.1;
-    // #endif
-    //     double snorm = eMesh->nodal_field_dot(cg_s_field, cg_s_field);
-    //     m_grad_norm_scaled = m_alpha_0*std::sqrt(snorm)/double(m_num_nodes);
 
     /// x = x + alpha*d
     double alpha = 1.0;

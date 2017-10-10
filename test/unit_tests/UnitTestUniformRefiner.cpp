@@ -31,7 +31,7 @@
 
 #include <percept/fixtures/SingleTetFixture.hpp>
 
-#include <stk_mesh/fixtures/HexFixture.hpp>
+#include <stk_unit_tests/stk_mesh_fixtures/HexFixture.hpp>
 
 
 #include <gtest/gtest.h>

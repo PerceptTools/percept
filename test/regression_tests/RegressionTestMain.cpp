@@ -35,10 +35,7 @@ int main(int argc, char **argv)
 
     MPI_Init(&argc, &argv);
 
-#if defined(WITH_KOKKOS)
     Kokkos::initialize(argc, argv);
-#endif
-
     testing::InitGoogleTest(&argc, argv);
 
     gl_argc = argc;
@@ -46,10 +43,7 @@ int main(int argc, char **argv)
 
     int returnVal = RUN_ALL_TESTS();
 
-#if defined(WITH_KOKKOS)
     Kokkos::finalize();
-#endif
-
     MPI_Finalize();
 
     percept::printTimersTableStructured();

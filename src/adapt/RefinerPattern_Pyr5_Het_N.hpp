@@ -283,7 +283,7 @@ namespace percept {
                       list.insert(element);
                       m_eMesh.dump_vtk("err-face.vtk", false, &list);
 
-                      SubDimCell_SDCEntityType subDimEntity(m_eMesh);
+                      SubDimCell_SDCEntityType subDimEntity(&m_eMesh);
                       nodeRegistry.getSubDimEntity(subDimEntity, element, m_eMesh.face_rank(), ifaceOrd);
                       std::vector<stk::mesh::Entity> nv;
                       for (unsigned jj=0; jj < subDimEntity.size(); ++jj)
@@ -588,7 +588,7 @@ namespace percept {
                       list.insert(element);
                       m_eMesh.dump_vtk("err-face.vtk", false, &list);
 
-                      SubDimCell_SDCEntityType subDimEntity(m_eMesh);
+                      SubDimCell_SDCEntityType subDimEntity(&m_eMesh);
                       nodeRegistry.getSubDimEntity(subDimEntity, element, m_eMesh.face_rank(), ifaceOrd);
                       std::vector<stk::mesh::Entity> nv;
                       for (unsigned jj=0; jj < subDimEntity.size(); ++jj)
@@ -664,32 +664,6 @@ namespace percept {
           if (0) std::cout << "tmp PyrPyrPartial createNewElements: id= " << eMesh.identifier(newElement) << std::endl;
           std::vector<stk::mesh::Entity> elements(1,element);
           eMesh.prolongateElementFields( elements, newElement);
-
-#ifndef NDEBUG
-          if (1)
-            {
-              nodeRegistry.prolongateCoordsAllSubDims(element);
-              VolumeUtil jacA;
-              double jacobian = 0.0;
-              jacA(jacobian, eMesh, newElement, eMesh.get_coordinates_field());
-
-              list.insert(newElement);
-
-              if (jacobian < 0)
-                {
-                  if (1) std::cout << "tmppyr PyrPyrPartial " << eMesh.demangle(typeid(*this).name()) << " createNewElements: id= " << eMesh.identifier(newElement) << " jac= " << jacobian << std::endl;
-                  eMesh.print_entity(newElement);
-                  std::cout << "tmppyr PyrPyrPartial parts= " << eMesh.print_entity_parts_string(newElement, "\n");
-                  std::cout << "tmppyr PyrPyrPartial parent parts= " << eMesh.print_entity_parts_string(element, "\n");
-                  double jac_p=0.0;
-                  jacA(jac_p, eMesh, element, eMesh.get_coordinates_field());
-                  if (1) std::cout << "tmppyr PyrPyrPartial " << eMesh.demangle(typeid(*this).name()) << " createNewElements: parent id= " << eMesh.identifier(element) << " jac_p= " << jac_p << std::endl;
-                  std::cout << "PyrPyrPartial:: pyr ielem= " << ielem << " num_new_pyr_elems= " << num_new_pyr_elems << " elems_local= " << elems_pyr_local[ielem] << std::endl;
-                  err=true;
-                  //throw std::runtime_error("neg vol PyrPyrPartial");
-                }
-            }
-#endif
 
           ++ft_element_pool;
           ++element_pool;

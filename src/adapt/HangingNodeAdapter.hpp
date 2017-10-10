@@ -90,32 +90,24 @@
 
       // low-level interface:
 
-      /** return true if mesh is 2-to-1 rule compliant
-       * check_what: {node-, edge-, face-} neighbors
-       */
-      bool check_two_to_one(bool check_what[3]);
-
     protected:
 
       /// wrappers around refine and unrefine
-      /// @param enforce_2_to_1_what: {node-, edge-, face-} neighbors
-      void refine(IAdapter& breaker, bool enforce_2_to_1_what[3]);
-      void unrefine(IAdapter& breaker, bool enforce_2_to_1_what[3]);
+      void refine(IAdapter& breaker);
+      void unrefine(IAdapter& breaker);
 
 
       /** after marking using field "refine_field", revisit all elements and upgrade
        * any that need it to enforce two to one
        * @return true if there was a change to refine_field; useful in a while(did_change) loop
-       * @param enforce_what: {node-, edge-, face-} neighbors
        */
-      bool enforce_two_to_one_refine(bool enforce_what[3]);
+      bool enforce_two_to_one_refine();
 
       /** after marking using field "refine_field", revisit all elements and downgrade
        * any that need it to enforce two to one during unrefinement
        * @return true if there was a change to refine_field; useful in a while(did_change) loop
-       * @param enforce_what: {node-, edge-, face-} neighbors
        */
-      bool enforce_two_to_one_unrefine(bool enforce_what[3]);
+      bool enforce_two_to_one_unrefine();
 
       bool hasChildren(stk::mesh::Entity element);
 
@@ -142,7 +134,6 @@
                          );
       bool should_check(stk::mesh::Entity element, int refine_level_elem,
                         stk::mesh::Entity neighbor, int refine_level_neighbor,
-                        bool get_what[3],
                         const CellTopologyData * const bucket_topo_data
                         );
 
@@ -179,8 +170,7 @@
       }
 
       /// wrappers around refine and unrefine
-      /// @param enforce_2_to_1_what: {node-, edge-, face-} neighbors
-      virtual void refine( bool enforce_what[3])
+      virtual void refine()
       {
         IAdapter& breaker = *this;
         {
@@ -189,7 +179,7 @@
           int max_iter=100;
           int iter=0;
           bool did_change=false;
-          while ((iter++ < max_iter) && (did_change = this->enforce_two_to_one_refine(enforce_what)) )
+          while ((iter++ < max_iter) && (did_change = this->enforce_two_to_one_refine()) )
             {
               if (m_debug_print)
                 std::cout << "P[" << m_pMesh.get_rank() << " iter= " << iter << " did_change= " << did_change
@@ -197,28 +187,14 @@
             }
         }
 
-        if (m_debug)
-          {
-            bool valid = check_two_to_one(enforce_what);
-            if (!valid)
-              throw std::runtime_error("invalid check_two_to_one after enforce_two_to_one_refine");
-          }
-
         {
           HNA_TIMER2A(HNA_RefDoBreak, breaker.rootTimer());
           breaker.doBreak();
         }
 
-        if (0 && m_debug)
-          {
-            bool valid = check_two_to_one(enforce_what);
-            if (!valid)
-              throw std::runtime_error("invalid check_two_to_one after refine");
-          }
-
       }
 
-      virtual void unrefine(bool enforce_what[3])
+      virtual void unrefine()
       {
         IAdapter& breaker = *this;
         {
@@ -226,7 +202,7 @@
           int max_iter=100;
           int iter=0;
           bool did_change=false;
-          while ((iter++ < max_iter) && (did_change = this->enforce_two_to_one_unrefine(enforce_what)) )
+          while ((iter++ < max_iter) && (did_change = this->enforce_two_to_one_unrefine()) )
             {
               if (m_debug_print)
                 std::cout << "P[" << m_pMesh.get_rank() << "]  iter= " << iter
@@ -234,12 +210,6 @@
                           << std::endl;
             }
 
-          if (m_debug)
-            {
-              bool valid = check_two_to_one(enforce_what);
-              if (!valid)
-                throw std::runtime_error("invalid check_two_to_one in unrefine");
-            }
         }
 
         if (m_only_enforce_unrefine)
@@ -258,7 +228,7 @@
 
       static const bool ters_active = true;
 
-      bool enforce_two_to_one_refine(bool enforce_what[3])
+      bool enforce_two_to_one_refine()
       {
         stk::ParallelMachine pm = m_pMesh.get_bulk_data()->parallel();
         bool did_change = false;
@@ -389,7 +359,7 @@
                                  && refine_field_neigh[0] > 0)
                               {
                                 if (should_check(element, refine_level_elem[0], *neighbor, refine_level_neigh[0],
-                                                 enforce_what, bucket_topo_data))
+                                                 bucket_topo_data))
                                   {
                                     refine_field_elem[0] = 1;
 
@@ -493,7 +463,7 @@
         return did_change;
       }
 
-      bool enforce_two_to_one_unrefine(bool enforce_what[3])
+      bool enforce_two_to_one_unrefine()
       {
         bool did_change = false;
         RefineLevelType *refine_level = m_pMesh.get_refine_level_field();
@@ -567,7 +537,7 @@
                                  && refine_field_elem[0] < 0)
                               {
                                 if (should_check(element, refine_level_elem[0], *neighbor, refine_level_neigh[0],
-                                                 enforce_what, bucket_topo_data))
+                                                 bucket_topo_data))
                                   {
                                     refine_field_elem[0] = 0;
                                     if (m_debug_print)
@@ -603,7 +573,7 @@
         vector<NeededEntityType> m_needed_entity_ranks;
 
       public:
-        SelectIfRefined(HangingNodeAdapter& hna) : m_subDimEntity(hna.m_pMesh) {
+        SelectIfRefined(HangingNodeAdapter& hna) : m_subDimEntity(&hna.m_pMesh) {
           hna.m_breakPattern[0]->fillNeededEntities(m_needed_entity_ranks);
         }
         bool operator()(HangingNodeAdapter& hna, stk::mesh::Entity element) {

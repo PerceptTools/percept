@@ -27,19 +27,6 @@ namespace percept {
 
   class BlockStructuredGrid;
 
-  template<typename UInt, typename UInt64>
-  struct SGridSizes {
-    UInt node_min[3];  // index min
-    UInt node_max[3];  // index max - all loops are for(i = node_min[0]; i <= node_max[0]; ++i)
-    UInt cell_min[3];
-    UInt cell_max[3];
-    UInt node_size[3];
-    UInt cell_size[3];
-
-    UInt node_size_global[3]; // this block may be parallel-distributed, this holds the size of the 'parent'/serial block
-    //UInt pcell_size[3];
-  };
-
   class StructuredBlock {
   public:
     //typedef MDArray Array4D;
@@ -63,7 +50,7 @@ namespace percept {
     Array4D& m_sgrid_coords;
     std::map<std::string, std::shared_ptr<Array4D> > m_fields;
 
-    SGridSizes<unsigned, uint64_t> m_sizes;
+    SGridSizes m_sizes;
     std::array<unsigned,3> m_loop_ordering; // loop ordering
     std::array<unsigned,3> m_access_ordering; // access ordering
 
@@ -90,7 +77,8 @@ namespace percept {
 
     // create a 1x1x1 cube of given sizes
     static std::shared_ptr<StructuredBlock>
-    fixture_1(stk::ParallelMachine comm, std::array<unsigned,3> sizes=std::array<unsigned,3>{{2u,2u,2u}}, unsigned iblock = 0, int base = 0, int zone = 0, BlockStructuredGrid *bsg = 0);
+    fixture_1(stk::ParallelMachine comm, std::array<unsigned,3> sizes=std::array<unsigned,3>{{2u,2u,2u}}, unsigned iblock = 0, int base = 0, int zone = 0, BlockStructuredGrid *bsg = 0,
+            std::array<double,3> dim_widths=std::array<double,3>{{1.0,1.0,1.0}},std::array<double,3> dim_offsets=std::array<double,3>{{0.0,0.0,0.0}});
 
     // return the ordinal of the given i,j,k in the list of all nodes
     uint64_t local_offset(uint64_t i, uint64_t j, uint64_t k, unsigned *sizes);
@@ -102,6 +90,9 @@ namespace percept {
 
     // create a VTK file representation of this grid
     void dump_vtk(const std::string& file_prefix);
+
+    unsigned get_block_id() const
+    {return m_iblock;}
 
   };
 

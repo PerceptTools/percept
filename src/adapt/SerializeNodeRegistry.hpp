@@ -1011,7 +1011,7 @@
             PerceptMesh eMesh;
             eMesh.open(input_mesh_new);
             m_spatialDim = eMesh.get_spatial_dim();
-            eMesh.setStreamingSize(m_M);
+            //eMesh.setStreamingSize(m_M);
             NodeRegistry *some_nr0 = 0;
             SerializeNodeRegistry snr0(eMesh, some_nr0, m_input_mesh_name, m_output_mesh_name, m_M, jM,  m_W, m_iW, m_M_0, m_M_1);
             snr0.getGlobalPartMap();
@@ -1139,7 +1139,7 @@
 
         typedef stk::mesh::EntityId SDCEntityType_ID;
         SDCEntityType_ID key_nodeId;
-        SubDimCell_SDCEntityType key(eMesh); // subDimEntity = (*iter).first;
+        SubDimCell_SDCEntityType key(&eMesh); // subDimEntity = (*iter).first;
         stk::mesh::EntityId value_nodeId;
 
         SubDimCellData value; // nodeId_elementOwnderId = (*iter).second;
@@ -1183,7 +1183,7 @@
               }
           }
 
-        nodeIds_onSE.push_back(NodeIdsOnSubDimEntityTypeQuantum(entity));
+        nodeIds_onSE.push_back(stk::mesh::Entity(entity));
 
         int sz = nodeIds_onSE.size();
         int sz1 = nodeIds_onSE.m_entity_id_vector.size();
@@ -1620,9 +1620,9 @@
                   //typedef stk::mesh::Entity SDCEntityType;
                   SDCEntityType_ID key_quantum;
                   //typedef SubDimCell<SDCEntityType> SubDimCell_SDCEntityType;
-                  SubDimCell_SDCEntityType key(eMesh); // subDimEntity = (*iter).first;
+                  SubDimCell_SDCEntityType key(&eMesh); // subDimEntity = (*iter).first;
 
-                  //struct NodeIdsOnSubDimEntityType : public std::vector<NodeIdsOnSubDimEntityTypeQuantum>
+                  //struct NodeIdsOnSubDimEntityType : public std::vector<stk::mesh::Entity>
                   // {
                   //     typedef IdVector entity_id_vector_type;
 

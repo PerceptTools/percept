@@ -10,6 +10,7 @@
 #include <signal.h>
 #include <stdlib.h>
 #include <percept/mesh/geometry/volume/VolumeUtil.hpp>
+#include <percept/PerceptUtils.hpp>
 
 #include <adapt/UniformRefinerPattern.hpp>
 #include <stk_mesh/base/EntityCommDatabase.hpp>
@@ -26,6 +27,7 @@
     bool s_allow_special_wedge_refine = false;  // for wedge boundary-layer refine
 
     const std::string UniformRefinerPatternBase::m_oldElementsPartName = "urp_oldElements";
+    const std::string UniformRefinerPatternBase::m_appendConvertString = "_urpconv";
 
     std::string UniformRefinerPatternBase::s_convert_options =
       "Quad4_Tri3_2, Quad4_Tri3_6, Quad4_Tri3_4, Tri3_Quad4_3, Tet4_Wedge6_Hex8, Wedge6_Hex8_6, Tet4_Hex8_4, Hex8_Tet4_24, Hex8_Tet4_6";
@@ -111,19 +113,6 @@
       return pattern;
     }
 
-
-    /*
-      static const SameRankRelationValue * getChildVectorPtr(  SameRankRelation& repo , Entity parent)
-      {
-      SameRankRelation::const_iterator i = repo.find( parent );
-      if (i != repo.end())
-      return &i->second;
-      else
-      return 0;
-      }
-    */
-
-
     // static
     /// if numChild is passed in as non-null, use that value, else use getNumNewElemPerElem() as size of child vector
     void UniformRefinerPatternBase::set_parent_child_relations(percept::PerceptMesh& eMesh, stk::mesh::Entity parent_elem, stk::mesh::Entity newElement,
@@ -162,8 +151,8 @@
               if (spt >= 1)
                 {
                   int which_relation = 0; // just pick the first one
-                  stk::mesh::EntityId parent_ord = static_cast<stk::mesh::EntityId>(parent_to_element_relations[which_relation].relation_ordinal());
-                  predicted_parent_id = eMesh.exodus_side_id(eMesh.identifier(parent_to_element_relations[which_relation].entity()),  parent_ord);
+                  const stk::mesh::ConnectivityOrdinal parent_ord_conn = parent_to_element_relations[which_relation].relation_ordinal();
+                  predicted_parent_id = eMesh.exodus_side_id(eMesh.identifier(parent_to_element_relations[which_relation].entity()), parent_ord_conn);
 
                   if (fdata_new)
                     fdata_new[0] = static_cast<ParentElementType_type>(predicted_parent_id);
@@ -949,12 +938,68 @@
     	}
     }
 
+    void UniformRefinerPatternBase::updateSurfaceBlockMap(percept::PerceptMesh& eMesh, stk::mesh::Part* part,
+                                                          stk::mesh::Part* part_to)
+    {
+      std::vector<const stk::mesh::Part *> surfaces =
+        eMesh.get_fem_meta_data()->get_surfaces_in_surface_to_block_map();
+
+      // case 1: part/part_to are blocks
+      if (      part->primary_entity_rank() == stk::topology::ELEMENT_RANK
+          && part_to->primary_entity_rank() == stk::topology::ELEMENT_RANK)
+        {
+          for (auto iter = surfaces.begin(); iter != surfaces.end(); ++iter)
+            {
+              const stk::mesh::Part * surface = *iter;
+              std::vector<const stk::mesh::Part*> blocks =
+                eMesh.get_fem_meta_data()->get_blocks_touching_surface(surface);
+              if (find(blocks.begin(), blocks.end(), part) != blocks.end())
+                {
+                  std::vector<const stk::mesh::Part*> new_blocks = blocks;
+                  if (find(new_blocks.begin(), new_blocks.end(), part_to) == new_blocks.end())
+                    new_blocks.push_back(part_to);
+                  eMesh.get_fem_meta_data()->set_surface_to_block_mapping(surface, new_blocks);
+                }
+            }
+        }
+
+      // case 2: part/part_to are surfaces
+      if (part->primary_entity_rank() == eMesh.get_fem_meta_data()->side_rank() &&
+          part_to->primary_entity_rank() == eMesh.get_fem_meta_data()->side_rank()
+          && find(surfaces.begin(), surfaces.end(), part) != surfaces.end())
+        {
+          std::vector<const stk::mesh::Part*> blocks = eMesh.get_fem_meta_data()->get_blocks_touching_surface(part);
+          eMesh.get_fem_meta_data()->set_surface_to_block_mapping(part_to, blocks);
+        }
+    }
+
+    void printSurfaceBlockMap(PerceptMesh& eMesh)
+    {
+        std::vector<const stk::mesh::Part *> surfaces =
+                eMesh.get_fem_meta_data()->get_surfaces_in_surface_to_block_map();
+
+        for (auto iter = surfaces.begin(); iter != surfaces.end(); ++iter)
+        {
+            const stk::mesh::Part * surface = *iter;
+            std::cout << "blocks touching surface=" << surface->name() << ": ";
+            std::vector<const stk::mesh::Part*> blocks =
+              eMesh.get_fem_meta_data()->get_blocks_touching_surface(surface);
+            for (auto block : blocks) {
+                std::cout << block->name() << " ";
+            }
+            std::cout << std::endl;
+        }
+    }
+
     void UniformRefinerPatternBase::setNeededParts(percept::PerceptMesh& eMesh, BlockNamesType block_names_ranks, bool sameTopology, bool skipConvertedParts)
     {
     	EXCEPTWATCH;
 
     	if (DEBUG_SET_NEEDED_PARTS)
     		std::cout << "\n\n ============= setNeededParts start \n\n " << PerceptMesh::demangle(typeid(*this).name()) << std::endl;
+
+    	// DEBUG
+//    	printSurfaceBlockMap(eMesh);
 
     	addRefineNewNodesPart(eMesh);
 
@@ -1018,6 +1063,8 @@
     					stk::io::put_io_part_attribute(*block_to);
     				}
 
+    				updateSurfaceBlockMap(eMesh, part, block_to);
+
     				stk::mesh::PartVector *pv  = const_cast<stk::mesh::PartVector *>(part->attribute<stk::mesh::PartVector>());
     				if (pv == 0)
     				{
@@ -1043,7 +1090,11 @@
     		}
     	}
 
-    	fixSubsets(eMesh, sameTopology);
+        // DEBUG
+//        printSurfaceBlockMap(eMesh);
+
+        if (!sameTopology) fixSubsets(eMesh);
+    	addExtraSurfaceParts(eMesh);
 
     	addOldPart(eMesh);
 
@@ -1051,14 +1102,8 @@
     }
 
 #define DEBUG_fixSubSets 0
-    void UniformRefinerPatternBase::fixSubsets(percept::PerceptMesh& eMesh, bool sameTopology)
+    void UniformRefinerPatternBase::fixSubsets(percept::PerceptMesh& eMesh)
     {
-      if (sameTopology)
-        return;
-
-      if (DEBUG_fixSubSets && eMesh.get_rank() == 0) std::cout << "fixSubsets:: sameTopology= " << sameTopology
-                                                               << std::endl;
-
       if (DEBUG_fixSubSets)
         printParts(this, false);
 
@@ -1147,6 +1192,70 @@
         }
     }
 
+    void UniformRefinerPatternBase::addExtraSurfaceParts(percept::PerceptMesh& eMesh)
+    {
+      if (eMesh.get_spatial_dim() == 2)
+        return;
+
+      std::vector<const stk::mesh::Part*> surfaces = eMesh.get_fem_meta_data()->get_surfaces_in_surface_to_block_map();
+      for (unsigned isu = 0; isu < surfaces.size(); ++isu)
+        {
+          stk::mesh::Part * from_superset = const_cast<stk::mesh::Part *>(surfaces[isu]);
+          VERIFY_OP_ON(from_superset, !=, 0, "error: null surface Part pointer found in surface to block map");
+          stk::mesh::PartVector subsets = from_superset->subsets();
+
+          for (auto subset_surface : subsets)
+            {
+              std::vector<const stk::mesh::Part*> blocks = eMesh.get_fem_meta_data()->get_blocks_touching_surface(subset_surface);
+              stk::topology side_topo = subset_surface->topology();
+              VERIFY_OP_ON(side_topo, !=, stk::topology::INVALID_TOPOLOGY, "bad side_topo = "+subset_surface->name() + " from_superset= " << from_superset->name());
+
+              std::string ioss_side_topo = "";
+              convert_stk_topology_to_ioss_name(side_topo, ioss_side_topo);
+
+              for (auto block : blocks)
+                {
+                  VERIFY_OP_ON(block, !=, 0, "error: null block Part pointer found in surface to block map for surface=" << from_superset->name());
+                  stk::topology elem_topo = block->topology();
+                  VERIFY_OP_ON(elem_topo, !=, stk::topology::INVALID_TOPOLOGY, "bad elem_topo");
+
+                  std::string ioss_elem_topo = "";
+                  convert_stk_topology_to_ioss_name(elem_topo, ioss_elem_topo);
+
+                  bool is_io_part = from_superset->attribute<Ioss::GroupingEntity>() != NULL;
+
+                  // need to create independent of toPart topology
+                  if (is_io_part && from_superset->id()>0)
+                    {
+                      // Name of form: "name_eltopo_sidetopo_id" or
+                      //               "name_block_id_sidetopo_id"
+                      // "name" is typically "surface".
+
+                      const std::string id = std::to_string(from_superset->id());
+
+                      std::string new_part_name = "surface_" + ioss_elem_topo + "_"+ ioss_side_topo +"_" + id;
+                      stk::mesh::Part* new_part = eMesh.get_fem_meta_data()->get_part(new_part_name);
+
+                      // alternate part naming:
+                      //       "name_block_id_sidetopo_id"
+
+                      std::string new_part_name_2 = "surface_" + block->name() + "_" + ioss_side_topo + "_" + id;
+                      stk::mesh::Part* new_part_type_2 = eMesh.get_fem_meta_data()->get_part(new_part_name_2);
+
+                      if (!new_part && !new_part_type_2)
+                        {
+                          new_part = &eMesh.get_fem_meta_data()->declare_part(new_part_name, eMesh.side_rank());
+                          stk::mesh::set_topology(*new_part, side_topo);
+                          eMesh.get_fem_meta_data()->declare_part_subset(*from_superset, *new_part);
+
+                          updateSurfaceBlockMap(eMesh, from_superset, new_part);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     void UniformRefinerPatternBase::
     genericEnrich_createNewElementsBase(percept::PerceptMesh& eMesh, NodeRegistry& nodeRegistry,
                                         stk::mesh::Entity element,  NewSubEntityNodesType& new_sub_entity_nodes, vector<stk::mesh::Entity>::iterator& element_pool,
@@ -1175,9 +1284,6 @@
 
       unsigned n_faces = cell_topo.getFaceCount();
       if (n_faces == 0) n_faces = 1; // 2D face has one "face"
-      unsigned n_sides = cell_topo.getSideCount();
-      if (0)
-        std::cout << "tmp  n_faces= " << n_faces << " n_sides= " << n_sides << std::endl;
 
       add_parts = m_toParts;
 
@@ -1234,10 +1340,6 @@
                 {
                   // FIXME assumes face is quadrilateral
                   shards::CellTopology face_topo = cell_topo.getDimension()==2 ? cell_topo : shards::CellTopology(cell_topo.getCellTopologyData( 2, i_face));
-                  if (0)
-                    std::cout << "tmp P[" << eMesh.get_rank() << "] inode = " << FACE_N(i_face) << " for i_face = " << i_face
-                              << " face_topo.getNodeCount()= " << face_topo.getNodeCount()
-                              << std::endl;
                   if (face_topo.getNodeCount() == 4 || toTopoKey_in == topo_key_quad9)
                     {
                       unsigned face_ord = 0;
@@ -1371,23 +1473,10 @@
       //getTopoDim(topoDim, cell_topo_key);
       unsigned cellDimension = (unsigned)topoDim;
 
-      // FIXME
-      if (0)
-        {
-          int nface = new_sub_entity_nodes[2].size();
-          std::cout << "tmp nface= " << nface << " cellDimension= " << cellDimension << std::endl;
-          for (int iface = 0; iface < nface; iface++)
-            {
-              std::cout << "tmp iface= " << iface << " vec= " << new_sub_entity_nodes[2][iface] << std::endl;
-            }
-        }
-
       unsigned n_edges = cell_topo_data->edge_count;
       if (n_edges == 0) n_edges = 1; // 1D edge has one "edge"
       unsigned n_faces = cell_topo.getFaceCount();
       if (n_faces == 0) n_faces = 1; // 2D face has one "face"
-      unsigned n_sides = cell_topo.getSideCount();
-      if (0) std::cout << "tmp  n_edges= " << n_edges << " n_faces= " << n_faces << " n_sides= " << n_sides << std::endl;
 
       for (unsigned i_need = 0; i_need < needed_entities.size(); i_need++)
         {
@@ -1405,7 +1494,6 @@
               nSubDimEntities = 1;
             }
 
-
           // FIXME - assumes first node on each sub-dim entity is the "linear" one
           for (unsigned iSubDim = 0; iSubDim < nSubDimEntities; iSubDim++)
             {
@@ -1417,11 +1505,9 @@
                   nodeRegistry.prolongateFields(*const_cast<stk::mesh::Entity>(&element), needed_entities[i_need].first, iSubDim);
                 }
 #endif
-
             }
         }
 
-      //const CellTopologyData * const cell_topo_data_toTopo = shards::getCellTopologyData< ToTopology >();
       const CellTopologyData * const cell_topo_data_toTopo = cell_topo_data_toTopo_in;
       VERIFY_OP_ON(cell_topo_data_toTopo, !=, 0, "bad topo 2");
       shards::CellTopology cellTopo(cell_topo_data_toTopo);
@@ -1463,7 +1549,7 @@
 
           VERIFY_OP_ON(iChild, <, elems.size(), "bad iChild");
 
-          vector<stk::mesh::EntityId>& EN = elems[iChild];
+          std::vector<stk::mesh::EntityId>& EN = elems[iChild];
 
           for (unsigned jNode = 0; jNode < (unsigned)ToTopology_node_count; jNode++)
             {
@@ -1489,39 +1575,15 @@
               const unsigned * perm_array = 0;
               if (usePerm)
                 {
-
                   int perm_ord = getPermutation(eMesh,FromTopology_vertex_count, element, cell_topo, rank_of_subcell, ordinal_of_subcell);
 
                   if (perm_ord < 0)
                     throw std::logic_error("permutation < 0 ");
-                  //std::cout << "tmp 0 " << perm_ord << " rank_of_subcell= " << rank_of_subcell << " ordinal_of_subcell= " << ordinal_of_subcell <<  std::endl;
-                  //std::cout << "tmp 0 " << cell_topo.getCellTopologyData()->subcell[rank_of_subcell][ordinal_of_subcell].topology << std::endl;
                   if (1 <= rank_of_subcell && rank_of_subcell <= 2)
                     {
                       perm_array = cell_topo.getCellTopologyData()->subcell[rank_of_subcell][ordinal_of_subcell].topology->permutation[perm_ord].node;
                     }
-
                 }
-
-              if (0)
-                {
-                  std::cout << "tmp 2 cell_topo                       = " << cell_topo.getName() << " isLinearElement= " << isLinearElement << std::endl;
-                  std::cout << "tmp m_primaryEntityRank               = " << m_primaryEntityRank << std::endl;
-                  std::cout << "tmp rank_of_subcell                   = " << rank_of_subcell << std::endl;
-                  std::cout << "tmp ordinal_of_subcell                = " << ordinal_of_subcell <<  std::endl;
-                  std::cout << "tmp ordinal_of_node_on_subcell        = " << ordinal_of_node_on_subcell << std::endl;
-                  std::cout << "tmp num_nodes_on_subcell              = " << num_nodes_on_subcell << std::endl;
-                  std::cout << "tmp new_sub_entity_nodes.size()       = " << new_sub_entity_nodes.size() << std::endl;
-                  std::cout << "tmp new_sub_entity_nodes[Face].size() = " << new_sub_entity_nodes[eMesh.face_rank()].size() << std::endl;
-                  if (new_sub_entity_nodes[eMesh.face_rank()].size())
-                    {
-                      std::cout << "tmp new_sub_entity_nodes[Face][ordinal_of_subcell].size() = "
-                                << new_sub_entity_nodes[eMesh.face_rank()][ordinal_of_subcell].size() << std::endl;
-                    }
-
-                  //std::cout << "tmp new_sub_entity_nodes = \n" << new_sub_entity_nodes << std::endl;
-                }
-
 
               // FIXME these ranks are hardcoded because there is a basic assumption in the table generation code that
               //    assumes these ranks are used
@@ -1569,59 +1631,10 @@
                         {
                           if (num_nodes_on_subcell > 1)
                             {
-                              if (0)
-                                {
-                                  std::cout << "tmp cell_topo                  = " << cell_topo.getName() << " isLinearElement= " << isLinearElement << std::endl;
-                                  std::cout << "tmp rank_of_subcell            = " << rank_of_subcell << std::endl;
-                                  std::cout << "tmp ordinal_of_subcell         = " << ordinal_of_subcell <<  std::endl;
-                                  std::cout << "tmp ordinal_of_node_on_subcell = " << ordinal_of_node_on_subcell << std::endl;
-                                  std::cout << "tmp num_nodes_on_subcell       = " << num_nodes_on_subcell << std::endl;
-
-                                  for (unsigned ii=0; ii < num_nodes_on_subcell; ii++)
-                                    {
-                                      std::cout << "tmp pa[ii]= " << perm_array[ii] << std::endl;
-                                    }
-
-                                  std::cout << "tmp new_sub_entity_nodes.size() = " << new_sub_entity_nodes.size() << std::endl;
-                                  std::cout << "tmp new_sub_entity_nodes[Face].size() = " << new_sub_entity_nodes[eMesh.face_rank()].size() << std::endl;
-                                  if (new_sub_entity_nodes[eMesh.face_rank()].size())
-                                    {
-                                      std::cout << "tmp new_sub_entity_nodes[Face][ordinal_of_subcell].size() = "
-                                                << new_sub_entity_nodes[eMesh.face_rank()][ordinal_of_subcell].size() << std::endl;
-                                    }
-
-                                  std::cout << "tmp new_sub_entity_nodes[Face][ordinal_of_subcell] = \n"
-                                            << new_sub_entity_nodes[eMesh.face_rank()][ordinal_of_subcell] << std::endl;
-
-                                  std::cout << "tmp new_sub_entity_nodes = \n"
-                                            << new_sub_entity_nodes << std::endl;
-
-                                  std::cout << "tmp  pa = " << (usePerm ? perm_array[ordinal_of_node_on_subcell] : ordinal_of_node_on_subcell) << std::endl;
-
-                                }
                               inode = NN_Q_P(eMesh.face_rank(), ordinal_of_subcell, ordinal_of_node_on_subcell, perm_array);
                             }
                           else
                             {
-                              if (0)
-                                {
-                                  std::cout << "tmp 1 cell_topo                       = " << cell_topo.getName() << " isLinearElement= " << isLinearElement << std::endl;
-                                  std::cout << "tmp m_primaryEntityRank               = " << m_primaryEntityRank << std::endl;
-                                  std::cout << "tmp rank_of_subcell                   = " << rank_of_subcell << std::endl;
-                                  std::cout << "tmp ordinal_of_subcell                = " << ordinal_of_subcell <<  std::endl;
-                                  std::cout << "tmp ordinal_of_node_on_subcell        = " << ordinal_of_node_on_subcell << std::endl;
-                                  std::cout << "tmp num_nodes_on_subcell              = " << num_nodes_on_subcell << std::endl;
-                                  std::cout << "tmp new_sub_entity_nodes.size()       = " << new_sub_entity_nodes.size() << std::endl;
-                                  std::cout << "tmp new_sub_entity_nodes[Face].size() = " << new_sub_entity_nodes[eMesh.face_rank()].size() << std::endl;
-                                  if (new_sub_entity_nodes[eMesh.face_rank()].size())
-                                    {
-                                      std::cout << "tmp new_sub_entity_nodes[Face][ordinal_of_subcell].size() = "
-                                                << new_sub_entity_nodes[eMesh.face_rank()][ordinal_of_subcell].size() << std::endl;
-                                    }
-
-                                  std::cout << "tmp new_sub_entity_nodes = \n" << new_sub_entity_nodes << std::endl;
-                                }
-
                               inode = NN_Q(eMesh.face_rank(), ordinal_of_subcell, ordinal_of_node_on_subcell);
                             }
                         }
@@ -1629,7 +1642,6 @@
                         {
                           inode = NN_Q(eMesh.face_rank(), ordinal_of_subcell, ordinal_of_node_on_subcell);
                         }
-
                     }
                   break;
                 case 3:
@@ -1638,15 +1650,6 @@
                 default:
                   throw std::logic_error("UniformRefinerPattern logic error");
                 }
-
-              if (0) std::cout << "tmp 2.1 " << inode << " " << jNode
-                               << " usePerm = " << usePerm
-                               << " childNodeIdx= " << childNodeIdx
-                               << " rank_of_subcell= " << rank_of_subcell
-                               << " ordinal_of_subcell = " << ordinal_of_subcell
-                               << " ordinal_of_node_on_subcell = " << ordinal_of_node_on_subcell
-                               << " num_nodes_on_subcell = " << num_nodes_on_subcell
-                               << std::endl;
               EN[jNode] = inode;
             }
         }
@@ -1654,7 +1657,6 @@
       bool use_declare_element_side = UniformRefinerPatternBase::USE_DECLARE_ELEMENT_SIDE &&  getPrimaryEntityRank() == eMesh.side_rank();
 
       std::vector<stk::mesh::Entity> nodes(ToTopology_node_count);
-
 
       for (unsigned iChild = 0; iChild < num_child; iChild++)
         {
@@ -1695,7 +1697,6 @@
               fdata[0] = double(eMesh.owner_rank(newElement));
             }
 
-
           change_entity_parts(eMesh, element, newElement);
 
           if (!isLinearElement)
@@ -1709,26 +1710,15 @@
           std::vector<stk::mesh::Entity> elements(1,element);
           eMesh.prolongateElementFields( elements, newElement);
 
-          if (0)
-            {
-              nodeRegistry.prolongateCoordsAllSubDims(element);
-              VolumeUtil jacA;
-              double jacobian = 0.0;
-              jacA(jacobian, m_eMesh, newElement, m_eMesh.get_coordinates_field());
-              if (1) std::cout << "tmp generic UniformRefinerPatternBase createNewElements: iChild= " << iChild << " id= " << eMesh.identifier(newElement) << " jac= " << jacobian << std::endl;
-            }
-
           ft_element_pool++;
           if (!use_declare_element_side)
             element_pool++;
         }
-
     }
 
     /// helpers for interpolating fields, coordinates
     /// ------------------------------------------------------------------------------------------------------------------------
 #define EXTRA_PRINT_URP_IF 0
-
 
     /// This version uses Intrepid for interpolation
     void UniformRefinerPatternBase::

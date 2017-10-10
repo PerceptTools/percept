@@ -6,10 +6,10 @@
 // license that can be found in the LICENSE file.
 
 #include <adapt/NodeRegistry.hpp>
-#include <adapt/SerializeNodeRegistry.hpp>
 #include <adapt/FindValidCentroid.hpp>
 #include <adapt/UniformRefinerPattern.hpp>
 #include <adapt/Refiner.hpp>
+#include <adapt/RefinerUtil.hpp>
 
 #include <percept/mesh/mod/smoother/SpacingFieldUtil.hpp>
 #include <stk_mesh/base/DataTraits.hpp>
@@ -32,17 +32,11 @@
     //static double m_min_spacing_factor = 0.5;  // reproduce (mostly) old behavior (centroids will be slightly diff)
     static double m_min_spacing_factor = 0.05;
 
-    percept::PerceptMesh *NIDQuantum::s_pMesh = 0;
-    std::ostream & operator << ( std::ostream & os, const NIDQuantum & nidq) {
-      os << nidq.get_id();
-      return os;
-    }
-
     double NodeRegistry::spacing_edge(std::vector<stk::mesh::Entity>& nodes,
                                       unsigned iv0, unsigned iv1, unsigned nsz, unsigned nsp,  double lspc[8][3], double den_xyz[3], double *coord[8])
     {
       VERIFY_OP_ON(nsz, ==, 2, "hmmm");
-      SubDimCell_SDCEntityType subDimEntity(m_eMesh);
+      SubDimCell_SDCEntityType subDimEntity(&m_eMesh);
       subDimEntity.clear();
       subDimEntity.insert(nodes[iv0]);
       subDimEntity.insert(nodes[iv1]);
@@ -58,23 +52,10 @@
       bool is_empty = nodeId_elementOwnderId_ptr == 0;
       //bool is_not_empty_but_data_cleared = (!is_empty && nodeId_elementOwnderId.get<SDC_DATA_GLOBAL_NODE_IDS>().size() == 0);
       if (is_empty) {
-        if (0)
-          {
-            std::cout << "tmp srk P[" << m_eMesh.get_rank() << "] s_nsz_parent = " << s_nsz_parent << " s_element_is_ghost = " << s_element_is_ghost
-                      << " iv0= " << iv0 << " iv1= " << iv1
-                      << " n0 =  " << m_eMesh.identifier(nodes[iv0]) << " n1= " << m_eMesh.identifier(nodes[iv1])
-                      << std::endl;
-          }
         return 0.5;
       }
-      if (0 && is_empty)
-        {
-          m_eMesh.dump_vtk(nodes[iv0], "node-iv0.vtk", s_oldPartSelector);
-          m_eMesh.dump_vtk(nodes[iv1], "node-iv1.vtk", s_oldPartSelector);
-        }
       VERIFY_OP_ON(is_empty, ==, false, "hmmm");
 
-      //unsigned iv[2]={iv0,iv1};
       double alp[2]={0.0,0.0};
       double alps[2]={0.0,0.0};
       double alp1[2]={0.0,0.0};
@@ -236,17 +217,6 @@
               double y = 0.5*(alp12+alp03);
               if (isp == 0)
                 {
-                  if (0 && m_eMesh.identifier(element) == 6659)
-                    {
-                      PerceptMesh::get_static_instance()->print(element, false);
-                      std::cout
-                        << " alp01= " << alp01
-                        << " alp32= " << alp32
-                        << " alp12= " << alp12
-                        << " alp03= " << alp03
-                        << std::endl;
-                    }
-
                   spc[0][0] = (1-x)*(1-y);
                   spc[1][0] = x*(1-y);
                   spc[2][0] = x*y;
@@ -324,9 +294,20 @@
           for (unsigned ipts=0; ipts < nsz; ipts++)
             {
               spc[ipts][isp] /= sum;
-              if (0 && nsz == 8 && isp == 1)
-                std::cout << "tmp srk spc[" << ipts << "]= " << spc[ipts][isp] << std::endl;
             }
+        }
+    }
+
+    // bcarnes: this code actually returns the last one of the restrictions if multiple are found
+    void getFieldRankAndDim(stk::mesh::FieldBase *field, int& fieldDim, stk::mesh::EntityRank& field_rank)
+    {
+        EXCEPTWATCH;
+        unsigned nfr = field->restrictions().size();
+        for (unsigned ifr = 0; ifr < nfr; ifr++)
+        {
+            const stk::mesh::FieldRestriction& fr = field->restrictions()[ifr];
+            field_rank = field->entity_rank();
+            fieldDim = fr.num_scalars_per_entity() ;
         }
     }
 
@@ -334,28 +315,11 @@
     void NodeRegistry::prolongate(stk::mesh::FieldBase *field, unsigned *subDimSize_in, bool useFindValidCentroid)
     {
       EXCEPTWATCH;
-      bool doPrint = false;
 
-      int ndiv = 5;
-      std::string sndiv = m_eMesh.getProperty("FindValidCentroid_ndiv");
-      if (sndiv.size())
-        {
-          ndiv = toInt(sndiv);
-        }
-      bool fvcDebug = false;
-      std::string FindValidCentroid_debug = m_eMesh.getProperty("FindValidCentroid_debug");
-      if (FindValidCentroid_debug == "true")
-        fvcDebug = true;
-      std::string FindValidCentroid_off = m_eMesh.getProperty("FindValidCentroid_off");
-      if (FindValidCentroid_off == "true")
-        useFindValidCentroid = false;
-      FindValidCentroid findValidCentroid(m_eMesh, ndiv, fvcDebug);
-      typedef std::pair<stk::mesh::Entity, stk::mesh::Entity> EntityPair ;
-      typedef std::vector<EntityPair > FindValidCentroidElementNodePairsType;
-      FindValidCentroidElementNodePairsType findValidCentroidElementNodePairs;
       stk::mesh::Part* new_nodes_part = m_eMesh.get_non_const_part("refine_new_nodes_part");
       VERIFY_OP_ON(new_nodes_part, !=, 0, "new_nodes_part is null");
-      bool do_respect_spacing = m_eMesh.get_respect_spacing();
+
+      const bool do_respect_spacing = m_eMesh.get_respect_spacing();
       // called from main code
       if (do_respect_spacing && !subDimSize_in)
         {
@@ -374,27 +338,21 @@
       stk::mesh::Selector oldPartSelector (*oldPart);
       s_oldPartSelector = &oldPartSelector;
 
-      int spatialDim = m_eMesh.get_spatial_dim();
+      const int spatialDim = m_eMesh.get_spatial_dim();
+
       int fieldDim = spatialDim;
       stk::mesh::EntityRank field_rank = stk::topology::NODE_RANK;
-      {
-        EXCEPTWATCH;
-        unsigned nfr = field->restrictions().size();
-        for (unsigned ifr = 0; ifr < nfr; ifr++)
-          {
-            const stk::mesh::FieldRestriction& fr = field->restrictions()[ifr];
-            field_rank = field->entity_rank();
-            fieldDim = fr.num_scalars_per_entity() ;
-          }
-      }
+
+      getFieldRankAndDim(field, fieldDim, field_rank);
+
       std::vector<double> c_p(fieldDim,0);
       std::vector<stk::mesh::Entity> nodes(8, stk::mesh::Entity());
 
-      if (field_rank != stk::topology::NODE_RANK)
-        {
-          return;
-        }
+      if (field_rank != stk::topology::NODE_RANK) return;
 
+      std::vector<std::pair<stk::mesh::Entity, stk::mesh::Entity> > findValidCentroidElementNodePairs;
+
+      // main loop over map
       SubDimCellToDataMap::iterator
         iter,
         iter_begin = m_cell_2_data_map.begin(),
@@ -403,16 +361,13 @@
       for (iter = iter_begin; iter != iter_end; ++iter)
         {
           const SubDimCell_SDCEntityType& subDimEntity = (*iter).first;
-          if (do_respect_spacing && *subDimSize_in == 2 && subDimEntity.size() != 2)
-            continue;
+                SubDimCellData& nodeId_elementOwnderId = (*iter).second;
 
-          SubDimCellData& nodeId_elementOwnderId = (*iter).second;
+          if (do_respect_spacing && *subDimSize_in == 2 && subDimEntity.size() != 2) continue;
 
           NodeIdsOnSubDimEntityType& nodeIds_onSE = nodeId_elementOwnderId.get<SDC_DATA_GLOBAL_NODE_IDS>();
-          if (nodeIds_onSE.size() == 0)
-            {
-              continue;
-            }
+          if (nodeIds_onSE.size() == 0) continue;
+
           unsigned owning_elementId = nodeId_elementOwnderId.get<SDC_DATA_OWNING_ELEMENT_KEY>().id();
           stk::mesh::EntityRank owning_elementRank = nodeId_elementOwnderId.get<SDC_DATA_OWNING_ELEMENT_KEY>().rank();
 
@@ -424,80 +379,37 @@
           Double2& nodeId_spacing = nodeId_elementOwnderId.get<SDC_DATA_SPACING>();
 #endif
 
-          static const SubDimCellData empty_SubDimCellData;
+          if (nodeIds_onSE.size() != 1) continue;
+          if (!m_eMesh.is_valid(nodeIds_onSE[0])) continue;
+          if (!m_eMesh.bucket(nodeIds_onSE[0]).member(*new_nodes_part)) continue;
 
-          bool is_empty = (nodeId_elementOwnderId == empty_SubDimCellData);
-
-          if (is_empty)
-            {
-              throw std::runtime_error("prolongate(field) empty cell found");
-            }
-
-          if (nodeIds_onSE.size() != 1)
-            {
-              continue;
-            }
-
-          stk::mesh::EntityRank needed_entity_rank = stk::topology::NODE_RANK;
-          // SPECIAL CASE
-          if (subDimEntity.size() == 1)
-            {
-              needed_entity_rank = stk::topology::ELEMENT_RANK;
-              if (doPrint)
-                {
-                  std::cout << "tmp NodeRegistry::prolongate(field) npts= " << subDimEntity.size() << " needed_entity_rank= " << needed_entity_rank
-                            << " nodeIds_onSE[0] = " << m_eMesh.identifier(nodeIds_onSE[0]) << " is valid= " << m_eMesh.is_valid(nodeIds_onSE[0])
-                            << " m_eMesh.isParentElement(element_p, false) " << m_eMesh.isParentElement(*subDimEntity.begin(), false)
-                            << std::endl;
-                }
-            }
-
-          if (!m_eMesh.is_valid(nodeIds_onSE[0]))
-            {
-              continue;
-            }
+          for (int ifd=0; ifd < fieldDim; ++ifd) c_p[ifd] = 0.0;
 
           stk::mesh::Entity c_node = nodeIds_onSE[0];
 
-          if (!m_eMesh.bucket(c_node).member(*new_nodes_part))
-            continue;
-
-          //std::vector<double> c_p(fieldDim,0);
-          for (int ifd=0; ifd < fieldDim; ++ifd)
-            {
-              c_p[ifd] = 0.0;
-            }
-          //static std::vector<stk::mesh::Entity> nodes(8, stk::mesh::Entity());
           unsigned nsz = 0;
           stk::mesh::Entity element_p = stk::mesh::Entity();
 
+          const stk::mesh::EntityRank needed_entity_rank =
+                  (subDimEntity.size() == 1) ? stk::topology::ELEMENT_RANK :
+                                               stk::topology::NODE_RANK;
+          // fill the array of nodes
           if (needed_entity_rank == stk::topology::ELEMENT_RANK)
             {
               EXCEPTWATCH;
               {
                 SDCEntityType elementId = *subDimEntity.begin();
                 element_p = elementId;
-                if (!m_eMesh.is_valid(element_p))
-                  {
-                    throw std::runtime_error("prolongate(field): bad elem found 2");
-                  }
+                VERIFY_OP_ON(m_eMesh.is_valid(element_p), ==, true, "prolongate(field): bad elem found 2");
               }
 
-              if (!m_eMesh.isParentElement(element_p, false))
-                {
-                  continue;
-                }
+              if (!m_eMesh.isParentElement(element_p, false)) continue;
 
               stk::mesh::Entity element = element_p;
               bool element_is_ghost = m_eMesh.isGhostElement(element);
               s_element_is_ghost = element_is_ghost;
               if (!element_is_ghost)
                 {
-                  if (doPrint)
-                    {
-                      std::cout << "tmp NodeRegistry::prolongate(field) element= ";
-                      m_eMesh.print(element);
-                    }
                   const percept::MyPairIterRelation elem_nodes (m_eMesh, element, stk::topology::NODE_RANK);
                   unsigned npts = elem_nodes.size();
                   nsz = npts;
@@ -506,21 +418,13 @@
                   for (unsigned ipts = 0; ipts < npts; ipts++)
                     {
                       stk::mesh::Entity node = elem_nodes[ipts].entity();
-                      if (!m_eMesh.is_valid(node))
-                        {
-                          throw std::runtime_error("prolongate(field): bad node found 1.0");
-                        }
+                      VERIFY_OP_ON(m_eMesh.is_valid(node), ==, true, "prolongate(field): bad node found 1.0");
                       nodes[ipts] = node;
-                      if (doPrint)
-                        {
-                          std::cout << "tmp NodeRegistry::prolongate(field) nodes[" << ipts << "] = ";
-                          m_eMesh.print(node);
-                        }
                     }
                   stk::topology topo = m_eMesh.topology(element);
                   if (topo == stk::topology::PYRAMID_5 || topo == stk::topology::WEDGE_6 || topo == stk::topology::HEX_8)
                     {
-                      findValidCentroidElementNodePairs.push_back(EntityPair(element, c_node));
+                      findValidCentroidElementNodePairs.push_back(std::pair<stk::mesh::Entity, stk::mesh::Entity>(element, c_node));
                     }
                 }
             }
@@ -530,6 +434,7 @@
               nodes.resize(nsz, stk::mesh::Entity());
               c_p.resize(fieldDim,0);
 
+              // bcarnes: not sure what special case this is
               if (do_respect_spacing && nsz == 4 &&  spatialDim == 3 && owning_elementRank == m_eMesh.element_rank())
                 {
                   std::vector<stk::mesh::Entity> side_node_entities;
@@ -555,6 +460,7 @@
                 }
             }
 
+          // next compute or copy a spacing field
           {
             // FIXME for quadratic elements
             if (do_respect_spacing && (nsz <= 8 && spacing_field && (spacing_field != field) ) )
@@ -566,40 +472,38 @@
                 unsigned ipts=0;
                 SpacingFieldUtil sfu(m_eMesh);
 
-                double * coord[8] = {0,0,0,0,0,0,0,0};
+                double *      coord[8] = {0,0,0,0,0,0,0,0};
                 double * field_data[8] = {0,0,0,0,0,0,0,0};
-                double * spacing[8] = {0,0,0,0,0,0,0,0};
+                double *    spacing[8] = {0,0,0,0,0,0,0,0};
 
                 for (ipts=0; ipts < nsz; ipts++)
                   {
-                    coord[ipts] = m_eMesh.field_data_inlined(m_eMesh.get_coordinates_field(), nodes[ipts]);
-                    field_data[ipts] = m_eMesh.field_data_inlined(field, nodes[ipts]);
-                    spacing[ipts] = m_eMesh.field_data_inlined(spacing_field, nodes[ipts]);
+                    coord     [ipts] = m_eMesh.field_data_inlined(m_eMesh.get_coordinates_field(), nodes[ipts]);
+                    field_data[ipts] = m_eMesh.field_data_inlined(field,                           nodes[ipts]);
+                    spacing   [ipts] = m_eMesh.field_data_inlined(spacing_field,                   nodes[ipts]);
                   }
 
                 double spc[8][3] = {{0,0,0},{0,0,0},{0,0,0},{0,0,0},{0,0,0},{0,0,0},{0,0,0},{0,0,0}};
-                double den = 0.0;
-                (void)den;
                 double den_xyz[3] = {0,0,0};
                 double unit_edge_vec[3] = {0,0,0};
                 if (nsz == 2)
                   {
-                    den = 0.0;
+                    double len = 0.0;
+                    for (int isp = 0; isp < spatialDim; isp++)
+                      {
+                        len += (coord[1][isp] - coord[0][isp])*(coord[1][isp] - coord[0][isp]);
+                      }
+                    VERIFY_OP_ON(len, >, 0.0, "bad len in prolongate");
+                    len = std::sqrt(len);
+                    for (int isp = 0; isp < spatialDim; isp++)
+                      {
+                        unit_edge_vec[isp] = (coord[1][isp] - coord[0][isp]) / len;
+                      }
                     for (ipts=0; ipts < nsz; ipts++)
                       {
-                        double len = 0.0;
-                        for (int isp = 0; isp < spatialDim; isp++)
-                          {
-                            len += (coord[1][isp] - coord[0][isp])*(coord[1][isp] - coord[0][isp]);
-                          }
-                        VERIFY_OP_ON(len, >, 1.e-20, "bad len in prolongate");
-                        for (int isp = 0; isp < spatialDim; isp++)
-                          {
-                            unit_edge_vec[isp] = (coord[1][isp] - coord[0][isp]) / std::sqrt(len);
-                          }
                         spc[ipts][0] = sfu.spacing_at_node_in_direction(unit_edge_vec, nodes[ipts], &oldPartSelector);
 
-                        spc[ipts][0] = std::fabs(spc[ipts][0])/std::sqrt(len);
+                        spc[ipts][0] = std::fabs(spc[ipts][0])/len;
                       }
                     for (ipts=0; ipts < nsz; ipts++)
                       {
@@ -622,13 +526,6 @@
 
                   }
                 normalize_spacing(element_p, nodes, nsz, spatialDim, spc, den_xyz, coord);
-                if (0 && nsz==2 && (coord[1][0] < 1.e-3 && coord[0][0] < 1.e-3))
-                  for (ipts=0; ipts < nsz; ipts++)
-                    for (int isp = 0; isp < spatialDim; isp++)
-                      {
-                        std::cout << "y = " << coord[ipts][1] << " new spc[" << ipts << "]= " << spc[ipts][1] << std::endl;
-                      }
-
 
                 for (ipts=0; ipts < nsz; ipts++)
                   {
@@ -642,7 +539,7 @@
                   }
 #endif // !defined(NO_GEOM_SUPPORT)
               }
-            else
+            else // fall back to simple average
               {
                 EXCEPTWATCH;
                 double dnpts = nsz;
@@ -657,12 +554,6 @@
                       }
                     double *  field_data = m_eMesh.field_data_inlined(field, node);
 
-                    if (doPrint && field_data)
-                      {
-                        std::cout << "tmp NodeRegistry::prolongate(field) npts= " << subDimEntity.size() << " ipts= " << ipts
-                                  << " field_data= " << field_data[0] << " " << field_data[1] << " " << field_data[2] << std::endl;
-                      }
-
                     if (field_data)
                       {
                         for (int isp = 0; isp < fieldDim; isp++)
@@ -674,96 +565,104 @@
               }
           }
 
-
-          // set coords
+          // finally set field values at the single node c_node
           {
             EXCEPTWATCH;
 
-            double *  c_coord = m_eMesh.field_data_inlined(field, c_node);
+            double * c_fvals = m_eMesh.field_data_inlined(field, c_node);
 
-            if (c_coord)
+            if (c_fvals)
               {
                 for (int isp = 0; isp < fieldDim; isp++)
                   {
-                    c_coord[isp] = c_p[isp];
-                  }
-
-                if (doPrint)
-                  {
-                    std::cout << "tmp NodeRegistry::prolongate(field) for node= " << m_eMesh.identifier(c_node) << " c_coord= " << c_coord[0] << " " << c_coord[1]
-                              << " " << (fieldDim == 3 ? c_coord[2] : 0) << " " << m_eMesh.print_entity_compact(c_node) << std::endl;
+                    c_fvals[isp] = c_p[isp];
                   }
               }
           }
         }
 
-      if (useFindValidCentroid && field == m_eMesh.get_coordinates_field())
-        {
-          for (FindValidCentroidElementNodePairsType::iterator itp = findValidCentroidElementNodePairs.begin();
-               itp != findValidCentroidElementNodePairs.end(); ++itp)
-            {
-              stk::mesh::Entity c_node = itp->second;
-              stk::mesh::Entity element = itp->first;
+      // if we found any (element,node) pairs needed special valid centroids, do those last
+      const std::string FindValidCentroid_off = m_eMesh.getProperty("FindValidCentroid_off");
+      if (FindValidCentroid_off == "true")
+        useFindValidCentroid = false;
 
-              if (!m_eMesh.bucket(c_node).member(*new_nodes_part))
+      if (useFindValidCentroid && field == m_eMesh.get_coordinates_field())
+          prolongateUsingValidCentroid(findValidCentroidElementNodePairs, new_nodes_part, field);
+    }
+
+    void NodeRegistry::prolongateUsingValidCentroid(
+            std::vector<std::pair<stk::mesh::Entity, stk::mesh::Entity> >& findValidCentroidElementNodePairs,
+            stk::mesh::Part* new_nodes_part, stk::mesh::FieldBase *field)
+    {
+        const std::string sndiv = m_eMesh.getProperty("FindValidCentroid_ndiv");
+        const int ndiv = (sndiv.size()) ? toInt(sndiv) : 5;
+
+        const std::string FindValidCentroid_debug = m_eMesh.getProperty("FindValidCentroid_debug");
+        const bool fvcDebug = (FindValidCentroid_debug == "true");
+
+        FindValidCentroid findValidCentroid(m_eMesh, ndiv, fvcDebug);
+
+        int fieldDim = m_eMesh.get_spatial_dim();
+        stk::mesh::EntityRank field_rank = stk::topology::NODE_RANK;
+
+        getFieldRankAndDim(field, fieldDim, field_rank);
+
+        std::vector<double> c_p(fieldDim,0);
+        std::vector<stk::mesh::Entity> nodes(8, stk::mesh::Entity());
+
+        for (std::vector<std::pair<stk::mesh::Entity, stk::mesh::Entity> >::iterator itp = findValidCentroidElementNodePairs.begin();
+                itp != findValidCentroidElementNodePairs.end(); ++itp)
+        {
+            stk::mesh::Entity c_node = itp->second;
+            stk::mesh::Entity element = itp->first;
+
+            if (!m_eMesh.bucket(c_node).member(*new_nodes_part))
                 continue;
 
-              std::vector<double> c_p(fieldDim,0);
-              unsigned nsz = 0;
-              static std::vector<stk::mesh::Entity> nodes;
-              const percept::MyPairIterRelation elem_nodes (m_eMesh, element, stk::topology::NODE_RANK);
-              unsigned npts = elem_nodes.size();
-              nsz = npts;
-              nodes.resize(nsz, stk::mesh::Entity());
-              c_p.resize(fieldDim,0);
-              for (unsigned ipts = 0; ipts < npts; ipts++)
-                {
-                  stk::mesh::Entity node = elem_nodes[ipts].entity();
-                  nodes[ipts] = node;
-                }
+            unsigned nsz = 0;
+            const percept::MyPairIterRelation elem_nodes (m_eMesh, element, stk::topology::NODE_RANK);
+            unsigned npts = elem_nodes.size();
+            nsz = npts;
+            nodes.resize(nsz, stk::mesh::Entity());
+            c_p.resize(fieldDim,0);
+            for (unsigned ipts = 0; ipts < npts; ipts++)
+            {
+                stk::mesh::Entity node = elem_nodes[ipts].entity();
+                nodes[ipts] = node;
+            }
 
-              double dnpts = nsz;
-              unsigned ipts=0;
-              for (ipts=0; ipts < nsz; ipts++)
+            double dnpts = nsz;
+            unsigned ipts=0;
+            for (ipts=0; ipts < nsz; ipts++)
+            {
+                stk::mesh::Entity node = nodes[ipts];
+                double *  field_data = m_eMesh.field_data_inlined(field, node);
+                if (field_data)
                 {
-                  stk::mesh::Entity node = nodes[ipts];
-                  double *  field_data = m_eMesh.field_data_inlined(field, node);
-                  if (field_data)
+                    for (int isp = 0; isp < fieldDim; isp++)
                     {
-                      for (int isp = 0; isp < fieldDim; isp++)
-                        {
-                          c_p[isp] += field_data[isp]/dnpts;
-                        }
+                        c_p[isp] += field_data[isp]/dnpts;
                     }
                 }
+            }
 
-              bool didChange = findValidCentroid.findCentroid(element, &c_p[0], nodes, c_node);
+            bool didChange = findValidCentroid.findCentroid(element, &c_p[0], nodes, c_node);
 
-              // set coords
-              if (didChange)
+            // set coords
+            if (didChange)
+            {
+                double *  c_coord = m_eMesh.field_data_inlined(field, c_node);
+
+                if (c_coord)
                 {
-                  double *  c_coord = m_eMesh.field_data_inlined(field, c_node);
-
-                  if (c_coord)
+                    for (int isp = 0; isp < fieldDim; isp++)
                     {
-                      for (int isp = 0; isp < fieldDim; isp++)
-                        {
-                          c_coord[isp] = c_p[isp];
-                        }
-
-                      if (doPrint)
-                        {
-                          std::cout << "tmp NodeRegistry::prolongate(field) for node= " << m_eMesh.identifier(c_node) << " c_coord= " << c_coord[0] << " " << c_coord[1]
-                                    << " " << (fieldDim == 3 ? c_coord[2] : 0) << " " << m_eMesh.print_entity_compact(c_node) << std::endl;
-                        }
+                        c_coord[isp] = c_p[isp];
                     }
-              }
+                }
             }
         }
-
-
-    } // prolongate(stk::mesh::FieldBase *)
-
+    }
 
     static void get_rbar_parts(percept::PerceptMesh& eMesh, std::vector<std::string>& block_names_include, std::set<stk::mesh::Part *>& rbar_parts)
     {
@@ -1170,15 +1069,6 @@
     {
       m_cell_2_data_map.clear();
       init_entity_repo();
-      if (m_ghosting) {
-        //m_eMesh.get_bulk_data()->modification_begin();
-        mod_begin();
-        m_eMesh.get_bulk_data()->destroy_ghosting(*m_ghosting);
-        //stk::mesh::fixup_ghosted_to_shared_nodes(*m_eMesh.get_bulk_data());
-        //m_eMesh.get_bulk_data()->modification_end();
-        mod_end("init");
-        m_ghosting = 0;
-      }
     }
 
     void NodeRegistry::
@@ -1225,16 +1115,6 @@
         if (CHECK_DB) checkDB("endRegistration - after rehash");
       }
       m_state = NRS_END_REGISTER_NODE;
-    }
-
-    void NodeRegistry::
-    beginLocalMeshMods(int ireg, int nreg)
-    {
-    }
-
-    void NodeRegistry::
-    endLocalMeshMods(int ireg, int nreg)
-    {
     }
 
     void NodeRegistry::
@@ -1589,7 +1469,7 @@
     void NodeRegistry::forceInMap(std::vector<stk::mesh::Entity>& vecNodes, unsigned mark, stk::mesh::Entity element, stk::mesh::EntityRank needed_rank, unsigned iSubDimOrd )
     {
       unsigned numNewNodes = vecNodes.size();
-      SubDimCell_SDCEntityType subDimEntity(m_eMesh);
+      SubDimCell_SDCEntityType subDimEntity(&m_eMesh);
       getSubDimEntity(subDimEntity, element, needed_rank, iSubDimOrd);
 
       NodeIdsOnSubDimEntityType nodeIds_onSE(numNewNodes, stk::mesh::Entity(), mark);
@@ -1603,25 +1483,13 @@
       putInMap(subDimEntity, data);
     }
 
-    static bool isSame(PerceptMesh& eMesh, SubDimCell_SDCEntityType& subDimEntity, std::vector<stk::mesh::EntityId>& vids)
-    {
-      if (subDimEntity.size() != vids.size())
-        return false;
-      for (unsigned ii=0; ii < subDimEntity.size(); ++ii)
-        {
-          if (eMesh.id(subDimEntity[ii]) != vids[ii])
-            return false;
-        }
-      return true;
-    }
-
     /// Register the need for a new node on the sub-dimensional entity @param subDimEntity on element @param element.
     /// If the element is a ghost element, the entity is still registered: the locality/ownership of the new entity
     /// can be determined by the locality of the element (ghost or not).
     bool NodeRegistry::registerNeedNewNode(const stk::mesh::Entity element, NeededEntityType& needed_entity_rank, unsigned iSubDimOrd, bool needNodes,const CellTopologyData * const bucket_topo_data)
     {
       bool ret_val = false;
-      SubDimCell_SDCEntityType subDimEntity(m_eMesh);
+      SubDimCell_SDCEntityType subDimEntity(&m_eMesh);
       bool foundGhostNode = getSubDimEntity(subDimEntity, element, needed_entity_rank.first, iSubDimOrd, bucket_topo_data);
       if (foundGhostNode)
         return ret_val;
@@ -1631,13 +1499,6 @@
 
       static SubDimCellData empty_SubDimCellData;
 
-      bool debug = false;
-      if (0 && subDimEntity.size() == 4)
-        {
-          stk::mesh::EntityId ids[] = { 2, 3, 8, 9};
-          std::vector<stk::mesh::EntityId> vids(&ids[0], &ids[0]+4);
-          debug = isSame(m_eMesh,subDimEntity, vids);
-        }
       SubDimCellData* nodeId_elementOwnderId_ptr = getFromMapPtr(subDimEntity);
       SubDimCellData& nodeId_elementOwnderId = (nodeId_elementOwnderId_ptr ? *nodeId_elementOwnderId_ptr : empty_SubDimCellData);
       bool is_empty = nodeId_elementOwnderId_ptr == 0;
@@ -1654,8 +1515,6 @@
       bool should_put_in_rank_gte = (element_rank >= db_rank);
       bool should_put_in = should_put_in_rank_gt || (should_put_in_id && should_put_in_rank_gte);
 
-      unsigned originalMark = nodeId_elementOwnderId.get<SDC_DATA_GLOBAL_NODE_IDS>().m_mark;
-
       unsigned smark=0;
       if (!is_empty)
         {
@@ -1667,14 +1526,6 @@
           smark = mark;
         }
 
-      if (debug && !is_empty)
-        {
-          std::cout << m_eMesh.rank() << " registerNeedNewNode element= " << m_eMesh.print_entity_compact(element) << "\n needNodes= " << needNodes << " iSubDimOrd= " << iSubDimOrd
-                    << " is_empty= " << is_empty << " is_not_empty_but_data_cleared= " << is_not_empty_but_data_cleared << " should_put_in= " << should_put_in
-                    << " originalMark= " << originalMark << " currentMark= " << smark << " NR_MARK= " << NR_MARK
-                    << m_eMesh.demangled_stacktrace(20)
-                    << std::endl;
-        }
       /// once it's in, the assertion should be:
       ///   owning_elementId < non_owning_elementId && owning_elementRank >= non_owning_elementRank
       ///
@@ -1709,6 +1560,18 @@
           ret_val = true;
         }
 
+      // all debug code from here on
+
+      bool debug = false;
+      if (debug && !is_empty)
+        {
+      unsigned originalMark = nodeId_elementOwnderId.get<SDC_DATA_GLOBAL_NODE_IDS>().m_mark;
+          std::cout << m_eMesh.rank() << " registerNeedNewNode element= " << m_eMesh.print_entity_compact(element) << "\n needNodes= " << needNodes << " iSubDimOrd= " << iSubDimOrd
+                    << " is_empty= " << is_empty << " is_not_empty_but_data_cleared= " << is_not_empty_but_data_cleared << " should_put_in= " << should_put_in
+                    << " originalMark= " << originalMark << " currentMark= " << smark << " NR_MARK= " << NR_MARK
+                    << m_eMesh.demangled_stacktrace(20)
+                    << std::endl;
+        }
       if (debug)
         {
           SubDimCellData* a_nodeId_elementOwnderId_ptr = getFromMapPtr(subDimEntity);
@@ -1753,7 +1616,7 @@
           out  << "P[" << m_eMesh.get_rank() << "] query:: " << msg << " element is not valid= " << elementId << std::endl;
           return;
         }
-      SubDimCell_SDCEntityType subDimEntity(m_eMesh);
+      SubDimCell_SDCEntityType subDimEntity(&m_eMesh);
 
       unsigned iSubDimOrd0 = iSubDimOrd;
       if (edge)
@@ -1855,12 +1718,6 @@
             {
               sout << " " << m_eMesh.identifier(subDimEntity[k]) << " ";
             }
-#if 0
-          for (unsigned k=0; k < subDimEntity.size(); k++)
-            {
-              std::cout << " " << (stk::mesh::EntityId) subDimEntity[k] << " ";
-            }
-#endif
           out << sout.str() << std::endl;
         }
     }
@@ -1869,7 +1726,7 @@
     /// When remeshing during unrefinement, replace ownership of sub-dim entities by non-deleted elements
     bool NodeRegistry::replaceElementOwnership(const stk::mesh::Entity element, NeededEntityType& needed_entity_rank, unsigned iSubDimOrd, bool needNodes_notUsed,const CellTopologyData * const bucket_topo_data)
     {
-      SubDimCell_SDCEntityType subDimEntity(m_eMesh);
+      SubDimCell_SDCEntityType subDimEntity(&m_eMesh);
       getSubDimEntity(subDimEntity, element, needed_entity_rank.first, iSubDimOrd,bucket_topo_data);
 
       static SubDimCellData new_SubDimCellData;
@@ -1909,7 +1766,7 @@
     {
       bool needNodes = false;
       bool ret_val = false;
-      SubDimCell_SDCEntityType subDimEntity(m_eMesh);
+      SubDimCell_SDCEntityType subDimEntity(&m_eMesh);
       bool foundGhostNode = getSubDimEntity(subDimEntity, element, needed_entity_rank.first, iSubDimOrd, bucket_topo_data);
       if (foundGhostNode)
         return ret_val;
@@ -1977,16 +1834,6 @@
         }
       return ret_val;
     }
-
-    struct EntityIdSorter
-    {
-      PerceptMesh& m_eMesh;
-      EntityIdSorter(PerceptMesh& eMesh) : m_eMesh(eMesh) {}
-      bool operator()(stk::mesh::Entity a, stk::mesh::Entity b)
-      {
-        return m_eMesh.id(a) < m_eMesh.id(b);
-      }
-    };
 
     /**
      *  For any given subDimEntity (edge, tri or quad face), we can define an "owner" for it as the processor
@@ -2096,7 +1943,7 @@
       if (s_use_new_ownership_check && m_eMesh.isGhostElement(element))
         return true;
 
-      SubDimCell_SDCEntityType subDimEntity(m_eMesh);
+      SubDimCell_SDCEntityType subDimEntity(&m_eMesh);
       bool hasGhostNode = getSubDimEntity(subDimEntity, element, needed_entity_rank.first, iSubDimOrd,bucket_topo_data);
 
       stk::CommSparse& comm_all = *m_comm_all;
@@ -2170,13 +2017,6 @@
             {
               bool owning_element_is_ghost = m_eMesh.isGhostElement(owning_element);
               send_to_other_procs = !owning_element_is_ghost;
-              //VERIFY_OP_ON(owning_element_is_ghost, ==, false, "bad owning elem");
-            }
-          else
-            {
-              //if (owning_element_is_ghost)
-                //if (owning_element_is_ghost && m_eMesh.isGhostElement(element))
-                //return true;
             }
 
           // if this element is a ghost, and the owning element of the node is not a ghost, send info
@@ -2232,26 +2072,6 @@
     {
       return checkForRemote(element, needed_entity_rank, iSubDimOrd, needNodes_notUsed,bucket_topo_data);
     }
-
-
-    void NodeRegistry::prolongateCoordsAllSubDims(stk::mesh::Entity element)
-    {
-      const CellTopologyData * const element_topo_data = m_eMesh.get_cell_topology(m_eMesh.bucket(element));
-
-      this->prolongateCoords(element, m_eMesh.element_rank(), 0);
-      for (unsigned iedge=0; iedge < element_topo_data->edge_count; ++iedge)
-        {
-          this->prolongateCoords(element, m_eMesh.edge_rank(), iedge);
-        }
-      if (m_eMesh.get_spatial_dim() == 3)
-        {
-          for (unsigned iface=0; iface < element_topo_data->side_count; ++iface)
-            {
-              this->prolongateCoords(element, m_eMesh.side_rank(), iface);
-            }
-        }
-    }
-
 
     /// makes coordinates of this new node be the centroid of its sub entity
     void NodeRegistry::prolongateCoords(const stk::mesh::Entity element,  stk::mesh::EntityRank needed_entity_rank, unsigned iSubDimOrd)
@@ -2358,7 +2178,7 @@
         }
 
       unsigned *null_u = 0;
-      SubDimCell_SDCEntityType subDimEntity(m_eMesh);
+      SubDimCell_SDCEntityType subDimEntity(&m_eMesh);
       getSubDimEntity(subDimEntity, element, needed_entity_rank, iSubDimOrd);
       static SubDimCellData empty_SubDimCellData;
 
@@ -2511,7 +2331,7 @@
 
       unsigned nparts = parts.size();
 
-      SubDimCell_SDCEntityType subDimEntity(m_eMesh);
+      SubDimCell_SDCEntityType subDimEntity(&m_eMesh);
       getSubDimEntity(subDimEntity, element, needed_entity_rank, iSubDimOrd);
       static  SubDimCellData empty_SubDimCellData;
       SubDimCellData* nodeId_elementOwnderId_ptr = getFromMapPtr(subDimEntity);
@@ -3352,7 +3172,7 @@
             }
         }
 
-      SubDimCell_SDCEntityType subDimEntity(m_eMesh);
+      SubDimCell_SDCEntityType subDimEntity(&m_eMesh);
       //getSubDimEntity(subDimEntity, element, needed_entity_rank, iSubDimOrd);
       for (unsigned inode = 0; inode < subDimEntitySize; ++inode)
         {
@@ -3572,11 +3392,6 @@
                   NodeIdsOnSubDimEntityType& nodeIds_onSE = nodeId_elementOwnderId.get<SDC_DATA_GLOBAL_NODE_IDS>();
                   if (resize_nodeId_data)
                     {
-                      stk::mesh::EntityId id = ((nodeIds_onSE.size() && m_eMesh.is_valid(nodeIds_onSE[0])) ? m_eMesh.id(nodeIds_onSE[0]) : 0);
-                      if (0)
-                      std::cout << m_eMesh.rank() << "www resizing for id= " << id
-                                << "\n" << m_eMesh.demangled_stacktrace(20)
-                                << std::endl;
                       nodeIds_onSE.resize(0);
                     }
                   nodeId_elementOwnderId.get<SDC_DATA_OWNING_ELEMENT_KEY>() = stk::mesh::EntityKey(owning_elementRank, 0u);
@@ -3595,44 +3410,6 @@
       }
 
     }
-
-#if 0
-    void NodeRegistry::clear_element_owner_data()
-    {
-      SubDimCellToDataMap::iterator iter;
-      SubDimCellToDataMap& map = m_cell_2_data_map;
-      SubDimCellToDataMap map_new;
-      for (iter = map.begin(); iter != map.end(); ++iter)
-        {
-          SubDimCellData& nodeId_elementOwnderId = (*iter).second;
-
-          stk::mesh::EntityId owning_elementId = nodeId_elementOwnderId.get<SDC_DATA_OWNING_ELEMENT_KEY>().id();
-          stk::mesh::EntityRank owning_elementRank = nodeId_elementOwnderId.get<SDC_DATA_OWNING_ELEMENT_KEY>().rank();
-
-          if (owning_elementId)
-            {
-              stk::mesh::Entity owning_element = get_entity_element(*m_eMesh.get_bulk_data(), owning_elementRank, owning_elementId);
-
-              if (m_eMesh.is_valid(owning_element))
-                {
-                  bool in_deleted_list = elems_to_be_deleted.find(owning_element) != elems_to_be_deleted.end();
-
-                  if (in_deleted_list)
-                    {
-                      NodeIdsOnSubDimEntityType& nodeIds_onSE = nodeId_elementOwnderId.get<SDC_DATA_GLOBAL_NODE_IDS>();
-                      if (resize_nodeId_data) nodeIds_onSE.resize(0);
-                      nodeId_elementOwnderId.get<SDC_DATA_OWNING_ELEMENT_KEY>() = stk::mesh::EntityKey(owning_elementRank, 0u);
-                    }
-                }
-            }
-          else
-            {
-              NodeIdsOnSubDimEntityType& nodeIds_onSE = nodeId_elementOwnderId.get<SDC_DATA_GLOBAL_NODE_IDS>();
-              if (resize_nodeId_data) nodeIds_onSE.resize(0);
-            }
-        }
-    }
-#endif
 
     void NodeRegistry::dumpDB(std::string msg)
     {
@@ -3686,7 +3463,7 @@
           mem += sizeof(stk::mesh::EntityKey);
           NodeIdsOnSubDimEntityType& nodeIds_onSE = nodeId_elementOwnderId.get<SDC_DATA_GLOBAL_NODE_IDS>();
 
-          unsigned mem1 = (sizeof(NodeIdsOnSubDimEntityTypeQuantum)+
+          unsigned mem1 = (sizeof(stk::mesh::Entity)+
                            sizeof(stk::mesh::EntityId))*nodeIds_onSE.size() +sizeof(unsigned);
 
           mem += mem1;
@@ -3714,7 +3491,6 @@
         }
       else
         {
-          //stk::mesh::fixup_ghosted_to_shared_nodes(*m_eMesh.get_bulk_data());
           m_eMesh.get_bulk_data()->modification_end();
         }
     }
@@ -3798,7 +3574,6 @@
     void NodeRegistry::communicate_marks_unpack(stk::CommSparse& commAll)
     {
       unsigned proc_size = m_eMesh.get_parallel_size();
-      //unsigned proc_rank = m_eMesh.get_parallel_rank();
 
       CommDataType buffer_entry;
 
@@ -3818,7 +3593,7 @@
                   //stk::mesh::EntityRank needed_entity_rank = buffer_entry.get<CDT_SUBDIM_ENTITY_RANK>();
                   unsigned              subDimEntitySize   = buffer_entry.get<CDT_SUBDIM_ENTITY_SIZE>();
 
-                  SubDimCell_SDCEntityType subDimEntity(m_eMesh);
+                  SubDimCell_SDCEntityType subDimEntity(&m_eMesh);
                   //getSubDimEntity(subDimEntity, owning_element, needed_entity_rank, iSubDimOrd);
                   for (unsigned inode = 0; inode < subDimEntitySize; ++inode)
                     {
@@ -3846,4 +3621,75 @@
           }
       }
     }
-  }
+
+    bool NodeRegistry::verifyAllKeysInKokkosNR(NodeRegistry_KOKKOS * nrk, SetOfEntities& nodesMappedTo, unsigned& noKeysNotInCommon)
+    {   //checks if all the key value pairs of the NodeRegistry being called on match key value pairs in the NodeRegistry_KOKKOS being passed as an argument
+        //madbrew: not sure if this is really a fair comparison since the node id's in NodeIdsOnSubDimEntityType can differ due to the fact that map loops differ between the registry's when adding id's
+        //this causes the registry's to have the same number of id's and even the same sets of id's but a different mapping between parent (i.e. edge/face) and children node(s)
+        nodesMappedTo.clear();
+        noKeysNotInCommon = 0;
+        if(!nrk)
+        {
+            std::cout << "NodeRegistry::compare_to_kokkos_NR  :  Invalid NodeRegistry_KOKKOS pointer, aborting NR diff\n";
+            return false;
+        }
+
+        bool kUOmap_contains_bUOmap = true;
+
+        SubDimCellToDataMap * map = &m_cell_2_data_map;
+        for (SubDimCellToDataMap::iterator iter = map->begin(); iter != map->end(); ++iter)
+        {
+            const SubDimCell_SDCEntityType& subDimEntity_BOOST = (*iter).first;
+            SubDimCellData& data_BOOST = (*iter).second;
+
+            SubDimCellData * data_KOKKOS = nrk->getFromMapPtr(subDimEntity_BOOST);
+
+            if(!data_KOKKOS){
+                kUOmap_contains_bUOmap = false;
+                if(kUOmap_contains_bUOmap)
+                    std::cout << "NodeRegistry::compare_to_kokkos_NR  :  key with m_HashCode = " << subDimEntity_BOOST.getHash() << " NOT FOUND kokkos map\n";
+                noKeysNotInCommon++;
+            }
+            else //compare data fields                   typedef boost::tuple<NodeIdsOnSubDimEntityType, stk::mesh::EntityKey, unsigned char, unsigned char, Double2> SubDimCellData;
+            {
+                if ( !( data_KOKKOS->get<0>() == data_BOOST.get<0>() ))
+                {
+//                    kUOmap_contains_bUOmap = false;
+                    std::cout << "NodeRegistry::compare_to_kokkos_NR  :  NodeIdsOnSubDimEntityType on tuple's do not match between NodeRegistry and KokkosNodeRegistry\n";
+                    std::cout << "  kOUmap NodeIdsOnSubDimEntityType  = "<< data_KOKKOS->get<0>() << " bOUmap NodeIdsOnSubDimEntityType  = " << data_BOOST.get<0>() << "\n";
+                }
+                if(!( data_KOKKOS->get<1>() == data_BOOST.get<1>() ))
+                {
+//                    kUOmap_contains_bUOmap = false;
+                    std::cout << "NodeRegistry::compare_to_kokkos_NR  :  EntityKey on tuple's do not match between NodeRegistry and KokkosNodeRegistry\n";
+                    std::cout << "  kOUmap EntityKey = "<< data_KOKKOS->get<1>() << " bOUmap EntityKey = " << data_BOOST.get<1>() << "\n";
+                }
+                if(!( data_KOKKOS->get<2>() == data_BOOST.get<2>() ) )
+                {
+//                    kUOmap_contains_bUOmap = false;
+                    std::cout << "NodeRegistry::compare_to_kokkos_NR  :  unsigned char on tuple's do not match between NodeRegistry and KokkosNodeRegistry\n";
+                    std::cout << "  kOUmap unsigned char = "<< data_KOKKOS->get<2>() << " bOUmap unsigned char = " << data_BOOST.get<2>() << "\n";
+                }
+                if(!( data_KOKKOS->get<3>() == data_BOOST.get<3>() ) )
+                {
+//                    kUOmap_contains_bUOmap = false;
+                    std::cout << "NodeRegistry::compare_to_kokkos_NR  :  unsigned char on tuple's do not match between NodeRegistry and KokkosNodeRegistry\n";
+                    std::cout << "  kOUmap unsigned char = "<< data_KOKKOS->get<3>() << " bOUmap unsigned char = " << data_BOOST.get<3>() << "\n";
+                }
+                if(!( data_KOKKOS->get<4>() == data_BOOST.get<4>() ) )
+                {
+//                    kUOmap_contains_bUOmap = false;
+                    std::cout << "NodeRegistry::compare_to_kokkos_NR  :  Double2 on tuple's do not match between NodeRegistry and KokkosNodeRegistry\n";
+                    std::cout << "  kOUmap Double2 = "<< data_KOKKOS->get<4>() << " bOUmap Double2 = " << data_BOOST.get<4>() << "\n";
+                }
+            }
+            if(!kUOmap_contains_bUOmap)
+                std::cout << "NodeRegistry::compare_to_kokkos_NR  :  key with m_HashCode = " << subDimEntity_BOOST.getHash() << " doesn't match anything in kokkos map\n\n";
+            for(unsigned iEnt=0;iEnt<data_BOOST.get<0>().m_entity_id_vector.size();iEnt++){
+                unsigned ent_val = data_BOOST.get<0>().m_entity_id_vector[iEnt];
+                nodesMappedTo.insert(stk::mesh::Entity(ent_val));
+            }
+        }
+        return noKeysNotInCommon==0;
+    }
+  }//percept

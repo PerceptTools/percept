@@ -27,7 +27,6 @@
 #include <percept/PerceptBoostArray.hpp>
 
 #include <adapt/SubDimCell.hpp>
-#include <adapt/NIDQuantum.hpp>
 
   namespace percept {
 
@@ -46,7 +45,6 @@
     };
 
     typedef stk::mesh::Entity SDCEntityType;
-    //typedef NIDQuantum SDCEntityType;
 
     class MyEntityLess {
     public:
@@ -141,17 +139,22 @@
     public:
       typedef SubDimCell<T, N, CompareClass, HC> base_type;
 
-      percept::PerceptMesh& m_eMesh;
-      MySubDimCell(percept::PerceptMesh& eMesh) : base_type(), m_eMesh(eMesh) {
-        base_type::m_HashCode = HC(&eMesh);
-        base_type::m_CompareClass = CompareClass(&eMesh);
+      percept::PerceptMesh* m_eMesh;
+      MySubDimCell(percept::PerceptMesh* eMesh) : base_type(), m_eMesh(eMesh) {
+        base_type::m_HashCode = HC(eMesh);
+        base_type::m_CompareClass = CompareClass(eMesh);
       }
-      MySubDimCell(percept::PerceptMesh& eMesh, unsigned num_ids) : base_type(num_ids), m_eMesh(eMesh)
+      MySubDimCell(percept::PerceptMesh* eMesh, unsigned num_ids) : base_type(num_ids), m_eMesh(eMesh)
       {
-        base_type::m_HashCode = HC(&eMesh);
-        base_type::m_CompareClass = CompareClass(&eMesh);
+        base_type::m_HashCode = HC(eMesh);
+        base_type::m_CompareClass = CompareClass(eMesh);
+      }
+      MySubDimCell()
+      {
+          m_eMesh = 0;
       }
 
+      MySubDimCell& operator=(const MySubDimCell& from);
     };
 
 
@@ -195,7 +198,7 @@
         if (x.size() != y.size()) return false;
         _Tp::const_iterator ix = x.begin();
         _Tp::const_iterator iy = y.begin();
-        MyEntityEqual ee = MyEntityEqual(&(x.m_eMesh));
+        MyEntityEqual ee = MyEntityEqual((x.m_eMesh));
         for (; ix != x.end(); ix++, iy++)
           {
             if (!ee(*ix, *iy)) return false;
@@ -216,7 +219,7 @@
         if (x.size() != y.size()) return false;
         _Tp::const_iterator ix = x.begin();
         _Tp::const_iterator iy = y.begin();
-        MyEntityEqual ee = MyEntityEqual(&(x.m_eMesh));
+        MyEntityEqual ee = MyEntityEqual((x.m_eMesh));
         for (; ix != x.end(); ix++, iy++)
           {
             if (!ee(*ix, *iy)) return false;

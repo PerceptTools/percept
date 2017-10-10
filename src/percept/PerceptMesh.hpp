@@ -89,7 +89,7 @@
 
 #include <percept/FieldTypes.hpp>
 
-#if STK_ADAPT_HAVE_YAML_CPP
+#if defined(STK_ADAPT_HAVE_YAML_CPP)
 #include <percept/YamlUtils.hpp>
 #endif
 
@@ -172,10 +172,6 @@
       add_field_int(const std::string& field_name, const unsigned entity_rank, int vectorDimension=0, const std::string part_name="universal_part",
                     bool add_to_io=true);
 
-      /// set to enable all internal fields being saved to the output db
-      bool get_save_internal_fields() { return m_save_internal_fields; }
-      void set_save_internal_fields(bool sv) { m_save_internal_fields = sv; }
-
       /// options to IOSS/Exodus for e.g. large files | auto-decomp | auto-join
       /// to use, set the string to a combination of {"large", "auto-decomp:yes",  "auto-decomp:no",  "auto-join:yes", "auto-join:no" },
       ///  e.g. "large,auto-decomp:yes"
@@ -228,9 +224,6 @@
       uint64_t
       get_number_elements();
 
-      uint64_t
-      get_number_sides();
-
       int
       get_number_nodes();
 
@@ -246,11 +239,6 @@
       int get_parallel_size() { return stk::parallel_machine_size(m_comm); }
       stk::ParallelMachine parallel() {return m_comm;}
       std::string rank() { std::ostringstream str; str << "P[" << get_rank() << "]" ;  return str.str(); }
-      std::string print_memory_high_water_mark();
-      static void get_memory_high_water_mark_across_processors(MPI_Comm comm, size_t& hwm_max, size_t& hwm_min, size_t& hwm_avg, size_t& hwm_sum);
-      std::string print_memory_now();
-      std::string print_memory_both();
-      static void get_memory_now_across_processors(MPI_Comm comm, size_t& hwm_max, size_t& hwm_min, size_t& hwm_avg, size_t& hwm_sum);
       bool get_do_print_memory() { return m_do_print_memory; }
       void set_do_print_memory(bool m) { m_do_print_memory = m; }
 
@@ -266,32 +254,9 @@
       /// print a node, edge, element, etc; optionally pass in a field to dump data associated with the entity
       void print_entity(const stk::mesh::Entity entity, stk::mesh::FieldBase* field=0) { print_entity(std::cout, entity, field); };
 
-      /// print (to a string) the faces of an element, possibly sorted on ID
-      std::string print_entity_faces(stk::mesh::Entity element, bool sorted=true);
-
-      /// print all sub-dim entities of the given rank of the element, possibly sorted
-      //std::string print_entity_subdims(stk::mesh::Entity element, stk::mesh::EntityRank subDimRank, bool sorted=true);
-
-      /// print the given sub-dim entity of the given rank of the element, possibly sorted
-      std::string print_entity_subdim(stk::mesh::Entity element, stk::mesh::EntityRank subDimRank, unsigned subDimOrd, bool sorted=true);
-      typedef boost::tuple<stk::mesh::Entity, stk::mesh::EntityRank, unsigned, std::vector<stk::mesh::EntityId> > SubDimInfoType;
-      std::string print_entity_subdim(const SubDimInfoType& subDim, bool sorted=true)
-      {
-        return print_entity_subdim(subDim.get<0>(), subDim.get<1>(), subDim.get<2>(), sorted);
-      }
-      void get_subdim_entity(std::vector<stk::mesh::EntityId>& results_list, stk::mesh::Entity element, stk::mesh::EntityRank subDimRank, unsigned subDimOrd, bool sorted=true);
-
-      std::string print_entity_field_string(stk::mesh::Entity entity, std::string fieldName);
-      std::string print_entity_field_string(stk::mesh::EntityId entityId, stk::mesh::EntityRank rank, std::string fieldName);
-      std::string print_entity_field_all_string(stk::mesh::EntityId entityId, stk::mesh::EntityRank rank);
-      void print_entity_field(stk::mesh::Entity entity, std::string fieldName);
-      void print_entity_field(stk::mesh::EntityId entityId, stk::mesh::EntityRank rank, std::string fieldName);
       std::string print_entity_parts_string(stk::mesh::Entity entity, const std::string& sep=" " );
       std::string print_entity_parts_string(stk::mesh::EntityId entityId, stk::mesh::EntityRank rank);
       static std::string print_part_vector_string(const stk::mesh::PartVector& pv, const std::string& sep=" ", bool extra_info=false);
-
-      std::string print_connected_entities_string(stk::mesh::EntityId elementId, stk::mesh::EntityRank rank, stk::mesh::EntityRank connectedRank);
-      std::string print_connected_entities_string(stk::mesh::EntityId elementId, stk::mesh::EntityRank rank);
 
       /// stk_topology...
       stk::mesh::Permutation find_permutation(stk::mesh::Entity element, stk::mesh::Entity side, unsigned side_ord);
@@ -305,6 +270,8 @@
                                                             stk::mesh::Entity& element_found,
                                                             unsigned& side_ord_found, bool debug=false);
 
+      typedef boost::tuple<stk::mesh::Entity, stk::mesh::EntityRank, unsigned, std::vector<stk::mesh::EntityId> > SubDimInfoType;
+
       /// return info about elements that contain the given collection of entities - returns the number of results found
       int in_mesh(const std::vector<stk::mesh::EntityId>& subDim, std::vector<SubDimInfoType>& results, bool sorted=true);
 
@@ -314,6 +281,8 @@
 
       /// for surface faces (tri's and quad's) find if the given parametric coords are inside
       bool in_face(stk::mesh::Entity face, const double *uv, const double tol=1.e-5) const;
+
+      void get_subdim_entity(std::vector<stk::mesh::EntityId>& results_list, stk::mesh::Entity element, stk::mesh::EntityRank subDimRank, unsigned subDimOrd, bool sorted=true);
 
       /// shorter output for print_entity
       std::string print_entity_compact(const stk::mesh::Entity entity, stk::mesh::FieldBase* field=0, int prec=6);
@@ -354,20 +323,7 @@
         if( val) val[ordinal] = value;
       }
 
-      /// get the value of a field on the given node; if a vector field, pass in the index of the vector required (ordinal)
-      double get_node_field_data(stk::mesh::FieldBase *field, const stk::mesh::EntityId node_id, unsigned ordinal=0)
-      {
-        double *val = node_field_data(field, node_id);
-        return val ? val[ordinal] : 0.0;
-      }
-      /// set the value of a field on the given node; if a vector field, pass in the index of the vector required (ordinal)
-      void set_node_field_data(double value, stk::mesh::FieldBase *field, const stk::mesh::EntityId node_id, unsigned ordinal=0)
-      {
-        double *val = node_field_data(field, node_id);
-        if( val) val[ordinal] = value;
-      }
-
-      /// get a pointer to a node with given id
+     /// get a pointer to a node with given id
       stk::mesh::Entity get_node(const stk::mesh::EntityId node_id)
       {
         return get_bulk_data()->get_entity(node_rank(), node_id);
@@ -397,9 +353,6 @@
       /// find and return pointer to element that contains given point - in parallel, check return for null (if null, element containing point is on another proc)
       stk::mesh::Entity get_element(double x, double y, double z=0, double t=0) ;
 #endif
-
-      // find which of src_entity's entities entity is, return max unsigned if not found
-      unsigned index_of(stk::mesh::Entity src_entity, stk::mesh::Entity entity);
 
       static bool is_percept_lite();
 
@@ -494,10 +447,10 @@
 
       /// add coordinate-like fields needed, for example, to use smoothing of geometry-projected refined meshes
       /// Must be called before commit()
-      void add_coordinate_state_fields();
+      void add_coordinate_state_fields(const bool output_fields=false);
 
       /// add spacing fields for having refinement obey the spacing (i.e. putting new nodes not at midpoint)
-      void add_spacing_fields();
+      void add_spacing_fields(const bool output_fields=false);
 
       /// set proc_rank on each element
       void set_proc_rank_field(stk::mesh::FieldBase *proc_rank_field=0);
@@ -505,12 +458,10 @@
       /// get number of coordinate field states needed
       bool has_coordinate_state_fields() { return m_num_coordinate_field_states != 1; }
 
-      /// copy field state data from one state (src_state) to another (dest_state)
-      void copy_field_state(stk::mesh::FieldBase* field, unsigned dest_state, unsigned src_state);
-
       /// copy field data from one field (field_src) to another (field_dest)
       void copy_field(stk::mesh::FieldBase* field_dest, stk::mesh::FieldBase* field_src);
       void copy_field(typename StructuredGrid::MTField* field_dest, typename StructuredGrid::MTField* field_src);
+      void copy_field(const std::string dest_field, const std::string src_field);
 
       template<class FieldTypeDst, class FieldTypeSrc>
       void copy_element_field(FieldTypeDst* field_dest, FieldTypeSrc* field_src)
@@ -559,34 +510,33 @@
 
       }
 
-
-      /// axpby calculates: y = alpha*x + beta*y
-      void nodal_field_state_axpby(stk::mesh::FieldBase* field, double alpha, unsigned x_state, double beta, unsigned y_state);
-
       /// axpby calculates: y = alpha*x + beta*y
       void nodal_field_axpby(double alpha, stk::mesh::FieldBase* field_x, double beta, stk::mesh::FieldBase* field_y);
       void nodal_field_axpby(double alpha, typename StructuredGrid::MTField* field_x, double beta, typename StructuredGrid::MTField* field_y);
-
-      /// axpbypgz calculates: z = alpha*x + beta*y + gamma*z
-      void nodal_field_state_axpbypgz(stk::mesh::FieldBase* field, double alpha, unsigned x_state, double beta, unsigned y_state, double gamma, unsigned z_state);
+      void nodal_field_axpby(double alpha, const std::string field_x, double beta, const std::string field_y);
 
       /// axpbypgz calculates: z = alpha*x + beta*y + gamma*z
       void nodal_field_axpbypgz(double alpha, stk::mesh::FieldBase* field_x,
-                                double beta, stk::mesh::FieldBase* field_y,
+                                double beta,  stk::mesh::FieldBase* field_y,
                                 double gamma, stk::mesh::FieldBase* field_z);
 
       void nodal_field_axpbypgz(double alpha, typename StructuredGrid::MTField* field_x,
-                                double beta, typename StructuredGrid::MTField* field_y,
+                                double beta,  typename StructuredGrid::MTField* field_y,
                                 double gamma, typename StructuredGrid::MTField* field_z);
 
+      void nodal_field_axpbypgz(double alpha, const std::string field_x,
+                                double beta,  const std::string field_y,
+                                double gamma, const std::string field_z);
+
       /// dot calculates: x.y
-      double nodal_field_dot_old(stk::mesh::FieldBase* field_x, stk::mesh::FieldBase* field_y);
       long double nodal_field_dot(stk::mesh::FieldBase* field_x, stk::mesh::FieldBase* field_y);
       long double nodal_field_dot(typename StructuredGrid::MTField* field_x, typename StructuredGrid::MTField* field_y);
+      long double nodal_field_dot(const std::string field_x, const std::string field_y);
 
       /// set field to constant value
       void nodal_field_set_value(stk::mesh::FieldBase* field_x, double value = 0.0);
       void nodal_field_set_value(typename StructuredGrid::MTField* field_x, double value = 0.0);
+      void nodal_field_set_value(const std::string field_x, double value = 0.0);
 
       /// remove blocks in the mesh used solely for geometry association, during output of the mesh to Exodus.
       /// @param geometry_file_name = name of the OpenNURBS file (*.3dm) containing the geometry info
@@ -600,7 +550,6 @@
 
       static stk::mesh::Selector select_active_elements(stk::mesh::BulkData& bulk, std::vector<stk::mesh::EntityRank> part_ranks = std::vector<stk::mesh::EntityRank>());
       static stk::mesh::Selector select_inactive_elements(stk::mesh::BulkData& bulk, std::vector<stk::mesh::EntityRank> part_ranks = std::vector<stk::mesh::EntityRank>());
-      static stk::mesh::Selector select_non_auto_declared_parts(stk::mesh::MetaData& meta);
 
       /// convenience functions for parts
       void get_parts_of_rank(stk::mesh::EntityRank rank, stk::mesh::PartVector& parts);
@@ -657,11 +606,8 @@
       /// the exodus side ID is defined by 10*id_of_volume_element_id + side_of_element_ordinal + 1
       ///    so, it combines the element owner and the side
       /// the decipher_exodus_side_id function goes the opposite direction
-      stk::mesh::EntityId exodus_side_id(stk::mesh::Entity side);
-      static stk::mesh::EntityId exodus_side_id(stk::mesh::EntityId element_owner_id, stk::mesh::ConnectivityOrdinal which_side_ord);
-      static stk::mesh::EntityId exodus_side_id(stk::mesh::EntityId element_owner_id, unsigned which_side_ord);
-      static void decipher_exodus_side_id(stk::mesh::EntityId id, stk::mesh::EntityId& id_new, stk::mesh::ConnectivityOrdinal& ord);
-      void renumber_sides_for_exodus();
+      stk::mesh::EntityId exodus_side_id(const stk::mesh::EntityId element_id, const stk::mesh::ConnectivityOrdinal& ord);
+      void decipher_exodus_side_id(const stk::mesh::EntityId side_id, stk::mesh::EntityId& element_id, stk::mesh::ConnectivityOrdinal& ord);
       void set_parent_element_field();
 
       /////// mesh parameter ////////////////////////////////////////////////////////////////////////////////
@@ -737,9 +683,6 @@
       void get_node_node_neighbors(stk::mesh::Entity node, std::set<stk::mesh::Entity>& neighbors, stk::mesh::EntityRank rank = stk::topology::ELEMENT_RANK);
 
       void get_node_neighbors(stk::mesh::Entity element, SetOfEntities& neighbors, stk::mesh::EntityRank rank = stk::topology::ELEMENT_RANK);
-
-      // only for side-rank
-      void get_element_node_neighbors_sharing_side(stk::mesh::Entity side, SetOfEntities& neighbors);
 
       void filter_active_only(std::set<stk::mesh::Entity>& set);
 
@@ -817,10 +760,6 @@
       // allow setting spatial dim after creation (for compatability with new MetaData)
       void setSpatialDim(int sd);
 #endif
-
-      // streaming refine mesh
-      void setStreamingSize(int streaming_size) { m_streaming_size= streaming_size; }
-      int getStreamingSize() { return m_streaming_size; }
 
       /// reads the given file into a temporary model and prints info about it
       void dump(const std::string& file="");
@@ -905,23 +844,15 @@
 
       unsigned numChildren(stk::mesh::Entity gp);
 
-      stk::mesh::Entity getGrandParent(stk::mesh::Entity element, bool check_for_family_tree=true);
       bool hasGrandChildren(stk::mesh::Entity parent, bool check_for_family_tree=true);
-      bool hasGreatGrandChildren(stk::mesh::Entity gp, bool check_for_family_tree=true);
 
       /// is element a parent at the leaf level (either there is only one level, and it's a parent, or
       ///    if more than one, the element is a child and a parent and its children have no children)
       bool isParentElementLeaf( const stk::mesh::Entity element, bool check_for_family_tree=true);
 
-      /// is element a parent at level 2 (meaning that it is both a child and a parent)
-      bool isParentElementLevel2( const stk::mesh::Entity element, bool check_for_family_tree=true);
-
       /// is element a child with siblings with no nieces or nephews (siblings with children)
       ///  (alternative would be "is child and is parent not a grandparent")
       bool isChildWithoutNieces( const stk::mesh::Entity element, bool check_for_family_tree=true);
-
-      /// is element a child with siblings with no nieces who have nieces (siblings with children)
-      bool isChildWithoutGrandNieces( const stk::mesh::Entity element, bool check_for_family_tree=true);
 
       // return false if we couldn't get the children
       bool getChildren( const stk::mesh::Entity element, std::vector<stk::mesh::Entity>& children, bool check_for_family_tree=true, bool only_if_element_is_parent_leaf=false);
@@ -929,16 +860,11 @@
 
       void allDescendants(stk::mesh::Entity element, SetOfEntities& descendants, bool only_leaves=true);
 
-      void printParentChildInfo(const stk::mesh::Entity element, bool check_for_family_tree=true);
       std::string printParent(stk::mesh::Entity element, bool check_for_family_tree=true);
       std::string printChildren(stk::mesh::Entity element, bool recurse=true);
 
       stk::mesh::Entity rootOfTree(stk::mesh::Entity element);
       // ====================================================================================================================================
-
-      /// returns a new mesh with only Shell elements for each surface tri/quad - used in FitGregoryPatches
-      void
-      convertSurfacesToShells(const std::string& fileName, stk::mesh::PartVector *parts=0, bool useGlobalIds = false);
 
       void
       convertSurfacesToShells1_meta(PerceptMesh& eMesh,
@@ -1018,33 +944,21 @@
       // if pool_size is set, use a pooling scheme with that pool size
       void createEntities(stk::mesh::EntityRank entityRank, int count, std::vector<stk::mesh::Entity>& requested_entities);
 
-      void createNodes(int count, std::vector<stk::mesh::Entity>& requested_entities);
-
       // id server
       stk::mesh::EntityId getNextId(stk::mesh::EntityRank rank);
       void initializeIdServer();
       bool getEntitiesUsingIdServer(stk::mesh::EntityRank entityRank, int count, std::vector<stk::mesh::Entity>& requested_entities, stk::mesh::PartVector extraParts = stk::mesh::PartVector(0) );
       bool getEntitiesUsingIdServerNewNodes(int count, std::vector<stk::mesh::Entity>& requested_entities);
 
-      double * field_data(const stk::mesh::FieldBase *field, const stk::mesh::Bucket & bucket, unsigned *stride=0);
       double * field_data(const stk::mesh::FieldBase *field, const stk::mesh::Entity node, unsigned *stride=0);
 
-      double * field_data(const stk::mesh::FieldBase& field, const stk::mesh::Bucket & bucket, unsigned *stride=0) { return field_data(&field, bucket, stride); }
       double * field_data(const stk::mesh::FieldBase& field, const stk::mesh::Entity node, unsigned *stride=0) { return field_data(&field, node, stride); }
 
       inline double *
       field_data_inlined(const stk::mesh::FieldBase *field, const stk::mesh::Entity node)
       {
         return field_data(field, node);
-//         return
-//           field->rank() == 0 ?
-//           stk::mesh::field_data( *static_cast<const ScalarFieldType *>(field) , node )
-//           :
-//           stk::mesh::field_data( *static_cast<const CoordinatesFieldType *>(field) , node );
       }
-
-
-      double * node_field_data(stk::mesh::FieldBase *field, const stk::mesh::EntityId node_id);
 
       static unsigned size1(const stk::mesh::Bucket& bucket) { return bucket.size(); }
       static unsigned size1(const stk::mesh::Entity element) { return 1; }
@@ -1071,7 +985,7 @@
       double edge_length_ave(const stk::mesh::Entity entity, stk::mesh::FieldBase* coord_field = 0, double* min_edge_length=0, double* max_edge_length=0,  const CellTopologyData * topology_data_in = 0);
 
 #if !STK_PERCEPT_LITE
-      double edge_length_ave(const typename StructuredGrid::MTElement entity, typename StructuredGrid::MTField* coord_field = 0, double* min_edge_length=0, double* max_edge_length=0, const typename StructuredGrid::MTCellTopology topology_data_in = 0);
+      double edge_length_ave(const typename StructuredGrid::MTElement entity, typename StructuredGrid::MTField* coord_field = 0, double* min_edge_length=0, double* max_edge_length=0, const typename StructuredGrid::MTCellTopology * topology_data_in = 0);
 
       static
       void findMinMaxEdgeLength(stk::mesh::BulkData& bulk, const stk::mesh::Bucket &bucket,  stk::mesh::Field<double, stk::mesh::Cartesian>& coord_field,
@@ -1083,9 +997,6 @@
       void
       element_side_permutation(const stk::mesh::Entity element, const stk::mesh::Entity side, unsigned iSubDimOrd,
                                int& returnedIndex, int& returnedPolarity, bool use_coordinate_compare=false, bool debug=false);
-
-      // FIXME
-      SameRankRelation& adapt_parent_to_child_relations() { return m_adapt_parent_to_child_relations; }
 
       bool
       isBoundarySurface(stk::mesh::Part& block, stk::mesh::Part& surface, bool allow_single_node_sharing=false);
@@ -1152,11 +1063,15 @@
       void set_transition_element_field(TransitionElementType * field) { m_transition_element_field = field; m_transition_element_field_set = true; }
       void set_transition_element_field_2d(TransitionElementType * field) { m_transition_element_field_2d = field; m_transition_element_field_set = true; }
       void set_refine_level_field(RefineLevelType * field) { m_refine_level_field = field; m_refine_level_field_set = true; }
-    private:
+
+      /// read the bulk data (no op in create mode)
+      void readBulkData();
+
+private:
 
       void set_read_properties();
 
-#if STK_ADAPT_HAVE_YAML_CPP
+#if defined(STK_ADAPT_HAVE_YAML_CPP)
       bool parse_property_map_string(const YAML::Node& node);
 #endif
       void setup_geometry_parts(const std::string& geometry_file_name);
@@ -1172,9 +1087,6 @@
       void create_metaDataNoCommit( const std::string& gmesh_spec);
 
       void commit_metaData();
-
-      /// read the bulk data (no op in create mode)
-      void readBulkData();
 
       // look for omitted parts
       void checkForPartsToAvoidWriting();
@@ -1242,12 +1154,7 @@
       std::string                           m_filename;
       stk::ParallelMachine                  m_comm;
 
-      SameRankRelation m_adapt_parent_to_child_relations;
-
       stk::mesh::PartVector                 m_io_omitted_parts;
-
-      // normally 0, unless using streaming refine
-      int                                   m_streaming_size;
 
 #if !STK_PERCEPT_LITE
       Searcher *                            m_searcher;
@@ -1264,7 +1171,6 @@
 
       static PerceptMesh* s_static_singleton_instance;
       stk::mesh::PartVector                 * m_geometry_parts;
-      bool                                  m_save_internal_fields;
 
       std::string                           m_ioss_read_options;
       std::string                           m_ioss_write_options;

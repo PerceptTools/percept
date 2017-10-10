@@ -7,7 +7,7 @@
 
 #include <gtest/gtest.h>
 
-#include <stk_mesh/fixtures/HexFixture.hpp>
+#include <stk_unit_tests/stk_mesh_fixtures/HexFixture.hpp>
 
 #include <percept/uq/Percept_API_KLSolver.hpp>
 

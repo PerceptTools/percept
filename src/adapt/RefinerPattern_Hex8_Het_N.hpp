@@ -250,7 +250,7 @@ namespace percept {
                       list.insert(element);
                       m_eMesh.dump_vtk("err-face.vtk", false, &list);
 
-                      SubDimCell_SDCEntityType subDimEntity(m_eMesh);
+                      SubDimCell_SDCEntityType subDimEntity(&m_eMesh);
                       nodeRegistry.getSubDimEntity(subDimEntity, element, m_eMesh.face_rank(), ifaceOrd);
                       std::vector<stk::mesh::Entity> nv;
                       for (unsigned jj=0; jj < subDimEntity.size(); ++jj)
@@ -544,7 +544,7 @@ namespace percept {
                       list.insert(element);
                       m_eMesh.dump_vtk("err-face.vtk", false, &list);
 
-                      SubDimCell_SDCEntityType subDimEntity(m_eMesh);
+                      SubDimCell_SDCEntityType subDimEntity(&m_eMesh);
                       nodeRegistry.getSubDimEntity(subDimEntity, element, m_eMesh.face_rank(), ifaceOrd);
                       std::vector<stk::mesh::Entity> nv;
                       for (unsigned jj=0; jj < subDimEntity.size(); ++jj)
@@ -616,23 +616,6 @@ namespace percept {
           if (0) std::cout << "tmp HexPyrPartial createNewElements: id= " << eMesh.identifier(newElement) << std::endl;
           std::vector<stk::mesh::Entity> elements(1,element);
           eMesh.prolongateElementFields( elements, newElement);
-
-#ifndef NDEBUG
-          if (0)
-            {
-              nodeRegistry.prolongateCoordsAllSubDims(element);
-              VolumeUtil jacA;
-              double jacobian = 0.0;
-              jacA(jacobian, eMesh, newElement, eMesh.get_coordinates_field());
-              if (jacobian < 0)
-                {
-                  if (1) std::cout << "tmppyr HexPyrPartial " << eMesh.demangle(typeid(*this).name()) << " createNewElements: newElement id= " << eMesh.identifier(newElement) 
-                                   << " orig elem id= " << eMesh.id(element)
-                                   << " jac= " << jacobian << std::endl;
-                  throw std::runtime_error("neg vol HexPyrPartial");
-                }
-            }
-#endif
 
           ++ft_element_pool;
           ++element_pool;

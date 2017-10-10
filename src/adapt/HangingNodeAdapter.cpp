@@ -11,7 +11,6 @@
 
   namespace percept {
 
-    static bool m_debug_print = false;
     bool s_do_transition_break = false;
 
     bool HangingNodeAdapterBase::hasChildren(stk::mesh::Entity element)
@@ -177,109 +176,11 @@
 
     bool HangingNodeAdapterBase::should_check(stk::mesh::Entity element, int refine_level_elem,
                                               stk::mesh::Entity neighbor, int refine_level_neighbor,
-                                              bool get_what[3],
                                               const CellTopologyData * const bucket_topo_data
                                               )
     {
-      if (get_what[2])
-        {
-          bool isfn = is_face_neighbor(element, refine_level_elem, neighbor, refine_level_neighbor, bucket_topo_data);
-          if (isfn) return true;
-        }
-      if (get_what[1] && m_pMesh.get_spatial_dim() == 3)
-        {
-          bool isen = is_edge_neighbor(element, refine_level_elem, neighbor, refine_level_neighbor, false, bucket_topo_data);
-          if (isen) return true;
-        }
-      if (get_what[0])
-        {
-          bool isnn = is_node_neighbor(element, refine_level_elem, neighbor, refine_level_neighbor, false);
-          if (isnn) return true;
-        }
-
-      return false;
+        return is_edge_neighbor(element, refine_level_elem, neighbor, refine_level_neighbor, false, bucket_topo_data);
     }
-
-    bool HangingNodeAdapterBase::check_two_to_one(bool check_what[3])
-    {
-      bool valid = true;
-      RefineLevelType *refine_level = m_pMesh.get_refine_level_field();
-      if (!refine_level)
-        {
-          throw std::logic_error("must have refine_level field for hanging-node refinement");
-        }
-
-      stk::mesh::Selector on_locally_owned_part =  ( m_pMesh.get_fem_meta_data()->locally_owned_part() );
-      const stk::mesh::BucketVector & buckets = m_pMesh.get_bulk_data()->buckets( m_pMesh.element_rank() );
-
-      for ( stk::mesh::BucketVector::const_iterator k = buckets.begin() ; k != buckets.end() ; ++k )
-        {
-          if (1 || on_locally_owned_part(**k))
-            {
-              stk::mesh::Bucket & bucket = **k ;
-              const CellTopologyData * const bucket_topo_data = m_pMesh.get_cell_topology(bucket);
-              const unsigned num_elements_in_bucket = bucket.size();
-              for (unsigned iElement = 0; iElement < num_elements_in_bucket; iElement++)
-                {
-                  stk::mesh::Entity element = bucket[iElement];
-
-                  if (hasChildren(element))
-                    continue;
-
-                  int *refine_level_elem = stk::mesh::field_data( *refine_level , element );
-#if USE_BOOST_POOL_ALLOC
-                  LocalSetType selected_neighbors;
-#else
-                  pool.Reset();
-                  LocalSetType selected_neighbors(LocalSet::less(), &pool);
-#endif
-                  get_node_neighbors(element, selected_neighbors);
-
-                  for (LocalSetType::iterator neighbor = selected_neighbors.begin();
-                       neighbor != selected_neighbors.end(); ++neighbor)
-                    {
-                      if (hasChildren(*neighbor))
-                        continue;
-
-                      int *refine_level_neigh = stk::mesh::field_data( *refine_level , *neighbor );
-
-                      bool do_check = false;
-                      if (check_what[0])
-                        {
-                          do_check |= is_node_neighbor(element, refine_level_elem[0],
-                                                       *neighbor, refine_level_neigh[0],
-                                                       false);
-                        }
-                      if (check_what[1])
-                        {
-                          do_check |= is_edge_neighbor(element, refine_level_elem[0],
-                                                       *neighbor, refine_level_neigh[0],
-                                                       false, bucket_topo_data);
-                        }
-                      if (check_what[2])
-                        {
-                          do_check |= is_face_neighbor(element, refine_level_elem[0],
-                                                       *neighbor, refine_level_neigh[0],
-                                                       false, bucket_topo_data);
-                        }
-                      if (do_check && std::abs(refine_level_neigh[0] - refine_level_elem[0]) > 1)
-                        {
-                          if (m_debug_print)
-                            std::cout << "check_two_to_one: invalid element (id,level)= ("
-                                      << m_pMesh.identifier(element) << ", " << refine_level_elem[0]
-                                      << ") due to neighbor: (" << m_pMesh.identifier(*neighbor)
-                                      << ", " << refine_level_neigh[0] << ")"
-                                      << std::endl;
-                          valid = false;
-                        }
-                    }
-                }
-            }
-        }
-      return valid;
-
-    }
-
 
   }
 

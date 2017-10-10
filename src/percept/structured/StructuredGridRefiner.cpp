@@ -10,10 +10,11 @@
 #include <adapt/UniformRefinerPattern.hpp>
 #include <adapt/UniformRefiner.hpp>
 #include <sys/time.h>
+#include <stk_util/parallel/ParallelReduce.hpp>
 
 namespace percept {
 
-  void get_new_sizes(const SGridSizes<UInt, uint64_t>& input_sizes,SGridSizes<UInt, uint64_t>& output_sizes  ) {
+  void get_new_sizes(const SGridSizes& input_sizes,SGridSizes& output_sizes  ) {
     // new sizes
     const unsigned m_index_base =0;
     UInt sizes[3], new_sizes[3];
@@ -31,10 +32,12 @@ namespace percept {
       }
   }
 
-  void StructuredGridRefiner::do_refine_structured()
+  unsigned StructuredGridRefiner::do_refine_structured()
   {
     m_output->m_sblocks.resize(0);
-    const int my_rank = stk::parallel_machine_rank(m_output->m_comm);;
+    const int my_rank = stk::parallel_machine_rank(m_output->m_comm);
+
+    unsigned num_refined_cells = 0;
 
     double runTime = 0;
     for (unsigned iblock=0; iblock < m_input->m_sblocks.size(); ++iblock)
@@ -48,7 +51,11 @@ namespace percept {
         std::shared_ptr<StructuredBlock> sgiNew ( new StructuredBlock(sgi->m_comm, iblock, nijk, node_size_global, sgi->m_name+"_refined", sgi->m_base, sgi->m_zone, m_output.get()) );
         m_output->m_sblocks.push_back(sgiNew);
 
-	get_new_sizes(sgi->m_sizes,sgiNew->m_sizes);
+        get_new_sizes(sgi->m_sizes,sgiNew->m_sizes);
+
+        num_refined_cells += (sgiNew->m_sizes).cell_size[0]*
+                             (sgiNew->m_sizes).cell_size[1]*
+                             (sgiNew->m_sizes).cell_size[2];
 
         bool debug = m_debug > 0;
         if (debug)
@@ -107,10 +114,13 @@ namespace percept {
             std::array<cgsize_t, 3> donor_end = zc.m_donorRangeEnd;
             for (unsigned j=0; j < 3; ++j)
               {
-                range_beg[j] = 2*(range_beg[j] - m_index_base) + m_index_base;
-                range_end[j] = 2*(range_end[j] - m_index_base) + m_index_base;
-                donor_beg[j] = 2*(donor_beg[j] - m_index_base) + m_index_base;
-                donor_end[j] = 2*(donor_end[j] - m_index_base) + m_index_base;
+                    range_beg[j] = 2*(range_beg[j] - m_index_base) + m_index_base;
+
+                    range_end[j] = 2*(range_end[j] - m_index_base) + m_index_base;
+
+                    donor_beg[j] = 2*(donor_beg[j] - m_index_base) + m_index_base;
+
+                    donor_end[j] = 2*(donor_end[j] - m_index_base) + m_index_base;
               }
             std::array<int, 3> transform = zc.m_transform;
             int owner_zone = zc.m_ownerZone;
@@ -140,20 +150,29 @@ namespace percept {
             Ioss::IJK_t range_end = bc.m_rangeEnd;
             for (unsigned j=0; j < 3; ++j)
               {
-                range_beg[j] = 2*(range_beg[j] - m_index_base) + m_index_base;
-                range_end[j] = 2*(range_end[j] - m_index_base) + m_index_base;
+                    range_beg[j] = 2*(range_beg[j] - m_index_base) + m_index_base;
+
+                    range_end[j] = 2*(range_end[j] - m_index_base) + m_index_base;
               }
             
             sgiNew->m_boundaryConditions.emplace_back(bcname, range_beg, range_end);
           }
         }
       }
-    std::cout << "Runtime (seconds) over " <<  m_input->m_sblocks.size() << " blocks was " << runTime << std::endl;
+
+    stk::all_reduce(m_output->m_comm, stk::ReduceSum<1>(&num_refined_cells));
+
+    if (my_rank == 0) {
+        std::cout << "Total number of cells after refinement = " << num_refined_cells << std::endl;
+        std::cout << "Runtime (seconds) over " <<  m_input->m_sblocks.size() << " blocks was " << runTime << std::endl;
+    }
+
+    return num_refined_cells;
   }
 
-  void StructuredGridRefiner::do_refine()
+  unsigned StructuredGridRefiner::do_refine()
   {
-    do_refine_structured();
+    return do_refine_structured();
   }
 
   void StructuredGridRefiner::print(std::ostream& out, int level)

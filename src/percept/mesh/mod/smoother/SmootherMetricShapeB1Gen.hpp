@@ -118,19 +118,6 @@ namespace percept {
       double onB[8];
       double *Norm[8];
 
-      static bool lambdaSet = false;
-      static bool useLambda = false;
-      static bool smoothSurfaces = false;
-      if (!lambdaSet)
-        {
-          lambdaSet = true;
-          smoothSurfaces = m_eMesh->get_smooth_surfaces();
-          if (m_eMesh->get_smooth_surfaces() && m_eMesh->getProperty("ReferenceMeshSmootherNewton.use_lambda") == "true")
-            {
-              useLambda = true;
-            }
-        }
-
       int spatialDim = m_eMesh->get_spatial_dim();
 
       static std::vector<double> normals(3, 0.0);
@@ -158,16 +145,7 @@ namespace percept {
           L[i] = (m_cg_lambda_field? *stk::mesh::field_data( *static_cast<const ScalarFieldType  *>(m_cg_lambda_field) , v_i[i] ) : 0.0);
           Y[i] = (m_coord_field_0 ? stk::mesh::field_data( *static_cast<const CoordinatesFieldType  *>(m_coord_field_0) , v_i[i] ) : 0);
           std::pair<bool,int> fixed;
-          if (useLambda) fixed = m_smoother->get_fixed_flag(v_i[i]);
-          if (useLambda && !fixed.first && (fixed.second == MS_SURFACE || fixed.second == MS_ON_BOUNDARY))
-            {
-              onB[i] = 1.0;
-            }
-          else
-            {
-              onB[i] = 0.0;
-            }
-
+          onB[i] = 0.0;
         }
 
 

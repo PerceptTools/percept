@@ -66,7 +66,7 @@
 #include <adapt/UniformRefinerPattern_def.hpp>
 #include <stk_mesh/base/MeshUtils.hpp>
 
-#include <stk_unit_test_utils/ReadWriteSidesetTester.hpp>
+#include "stk_unit_test_utils/ReadWriteSidesetTester.hpp"
 
 // this is for testing the local-refine refactoring
 #define UNIFORM_REFINER UniformRefiner
@@ -81,8 +81,6 @@
     {
 
 #include "RegressionTestFileLoc.hpp"
-
-#define EXTRA_PRINT 0
 
       static std::string procs_string[9] = {"np0", "np1", "np2", "np3", "np4", "np5", "np6", "np7", "np8"};
 
@@ -170,57 +168,6 @@
       //======================================================================================================================
       //======================================================================================================================
       //======================================================================================================================
-
-
-#if 0
-      TEST(regr_uniformRefiner, break_quad4_to_quad9_to_quad9_shell_1)
-      {
-        EXCEPTWATCH;
-
-        stk::ParallelMachine pm = MPI_COMM_WORLD ;
-
-        //const unsigned p_rank = stk::parallel_machine_rank( pm );
-        const unsigned p_size = stk::parallel_machine_size( pm );
-
-        // this case can't be load balanced (I presume there are too few elements)
-
-        if (p_size <= 1)
-          {
-            // start_demo_break_quad4_to_quad9_to_quad9_shell
-            std::string input_mesh = input_files_loc+"shell-tests"+path_sep+"freshell_quad4.g";
-            if (p_size > 1)
-              {
-                doLoadBalance(pm, input_mesh);
-              }
-
-            percept::PerceptMesh eMesh(3u);
-            eMesh.open(input_mesh);
-
-            ShellQuad4_ShellQuad9_1 break_quad4_to_quad9_1(eMesh);
-
-            int scalarDimension = 0; // a scalar
-            //         int vectorDimension = 3;
-
-            stk::mesh::FieldBase* proc_rank_field = eMesh.add_field("proc_rank", stk::topology::ELEMENT_RANK, scalarDimension);
-
-            eMesh.commit();
-
-            eMesh.print_info("quad mesh");
-            eMesh.save_as(output_files_loc+"freshell_quad4_quad9_0.g");
-
-            UNIFORM_REFINER breaker(eMesh, break_quad4_to_quad9_1, proc_rank_field);
-            //breaker.setIgnoreSideSets(true);
-            breaker.doBreak();
-
-            //eMesh.print_info("quad mesh refined", 5);
-            eMesh.print_info("quad shell mesh enriched");
-            eMesh.save_as(output_files_loc+"freshell_quad4_quad9_1.g");
-            eMesh.save_as(input_files_loc+"freshell_quad9_quad9_0.g");
-
-          }
-      }
-#endif
-
 
       TEST(regr_uniformRefiner, beam_enrich)
       {
@@ -500,90 +447,6 @@
       //======================================================================================================================
       //======================================================================================================================
 
-
-#if 0
-      TEST(regr_uniformRefiner, break_quad4_to_quad9_to_quad9_shell)
-      {
-        EXCEPTWATCH;
-
-        stk::ParallelMachine pm = MPI_COMM_WORLD ;
-
-        //const unsigned p_rank = stk::parallel_machine_rank( pm );
-        const unsigned p_size = stk::parallel_machine_size( pm );
-
-        // this case can't be load balanced (I presume there are too few elements)
-
-        if (p_size <= 1)
-          {
-            // start_demo_break_quad4_to_quad9_to_quad9_shell
-            std::string input_mesh = input_files_loc+"shell-tests"+path_sep+"freshell_quad4.g";
-            if (p_size > 1)
-              {
-                doLoadBalance(pm, input_mesh);
-              }
-
-            percept::PerceptMesh eMesh(3u);
-            eMesh.open(input_mesh);
-
-            ShellQuad4_ShellQuad9_1 break_quad4_to_quad9_1(eMesh);
-
-            int scalarDimension = 0; // a scalar
-            //         int vectorDimension = 3;
-
-            stk::mesh::FieldBase* proc_rank_field = eMesh.add_field("proc_rank", stk::topology::ELEMENT_RANK, scalarDimension);
-
-            eMesh.commit();
-
-            eMesh.print_info("quad mesh");
-            eMesh.save_as(output_files_loc+"freshell_quad4_quad9_0.g");
-
-            UNIFORM_REFINER breaker(eMesh, break_quad4_to_quad9_1, proc_rank_field);
-            //breaker.setIgnoreSideSets(true);
-            breaker.doBreak();
-
-            //eMesh.print_info("quad mesh refined", 5);
-            eMesh.print_info("quad shell mesh enriched");
-            eMesh.save_as(output_files_loc+"freshell_quad4_quad9_1.g");
-            eMesh.save_as(input_files_loc+"freshell_quad9_quad9_0.g");
-
-          }
-
-#if 0
-        if (1 && p_size <= 1)
-          {
-
-            percept::PerceptMesh eMesh(3u);
-            eMesh.open(input_files_loc+"freshell_quad9_quad9_0.g");
-
-            ShellQuad9_ShellQuad9_4 break_quad9_to_quad_9(eMesh);
-
-            int scalarDimension = 0; // a scalar
-            stk::mesh::FieldBase* proc_rank_field = eMesh.add_field("proc_rank", stk::topology::ELEMENT_RANK, scalarDimension);
-
-            eMesh.commit();
-
-            //eMesh.print_info("quad mesh");
-            //eMesh.save_as(output_files_loc+"freshell_quad4_quad9_0.g");
-
-            UNIFORM_REFINER breaker(eMesh, break_quad9_to_quad_9, proc_rank_field);
-            //breaker.setIgnoreSideSets(true);
-            breaker.doBreak();
-
-            //eMesh.print_info("quad mesh refined", 5);
-            eMesh.print_info("quad shell mesh enriched and refined");
-            eMesh.save_as(output_files_loc+"freshell_quad9_quad9_1.g");
-            // end_demo
-
-          }
-#endif
-      }
-#endif
-
-      //======================================================================================================================
-      //======================================================================================================================
-      //======================================================================================================================
-
-
       TEST(regr_uniformRefiner, break_quad_to_quad_shell)
       {
         EXCEPTWATCH;
@@ -710,27 +573,6 @@
         output_draw(dir+"wedge6.dot",  Wedge6_Wedge6_8::draw() );
 
         output_draw(dir+"quad9.dot", Quad9_Quad9_4::draw(true));
-
-        // refine
-#if 0
-        std::cout << Line2_Line2_2::draw() << std::endl;
-        std::cout << Tri3_Tri3_4::draw() << std::endl;
-        std::cout << Tet4_Tet4_8::draw() << std::endl;
-        std::cout << Hex8_Hex8_8::draw() << std::endl;
-#endif
-        // enrich
-        //     typedef  UniformRefinerPattern<shards::Quadrilateral<4>, shards::Quadrilateral<9>, 1, SierraPort >            Quad4_Quad9_1;
-        //     typedef  UniformRefinerPattern<shards::Quadrilateral<4>, shards::Quadrilateral<8>, 1, SierraPort >            Quad4_Quad8_1;
-        //     typedef  UniformRefinerPattern<shards::Triangle<3>,      shards::Triangle<6>,      1, SierraPort >            Tri3_Tri6_1;
-        //     typedef  UniformRefinerPattern<shards::Tetrahedron<4>,   shards::Tetrahedron<10>,  1, SierraPort >            Tet4_Tet10_1;
-        //     typedef  UniformRefinerPattern<shards::Hexahedron<8>,    shards::Hexahedron<27>,   1, SierraPort >            Hex8_Hex27_1;
-        //     typedef  UniformRefinerPattern<shards::Hexahedron<8>,    shards::Hexahedron<20>,   1, SierraPort >            Hex8_Hex20_1;
-
-        //     // convert
-        //     typedef  UniformRefinerPattern<shards::Quadrilateral<4>, shards::Triangle<3>,      6 >                        Quad4_Tri3_6;
-        //     typedef  UniformRefinerPattern<shards::Quadrilateral<4>, shards::Triangle<3>,      4, Specialization >        Quad4_Tri3_4;
-        //     typedef  UniformRefinerPattern<shards::Hexahedron<8>,    shards::Tetrahedron<4>,  24 >                        Hex8_Tet4_24;
-
       }
 
       //======================================================================================================================
@@ -903,15 +745,6 @@
         //const unsigned p_rank = stk::parallel_machine_rank( pm );
         const unsigned p_size = stk::parallel_machine_size( pm );
 
-        //FIXME
-        if (0)
-          {
-            percept::PerceptMesh eMesh(2u);
-            eMesh.open(input_files_loc+"break_test"+path_sep+"quad"+path_sep+"sidesets"+path_sep+"quad_sidesets.e");
-            eMesh.commit();
-            eMesh.print_info("quad mesh");
-          }
-
         if (p_size == 1 || p_size == 2)
           {
             // start_demo_uniformRefiner_break_quad_to_quad
@@ -990,32 +823,6 @@
         EXCEPTWATCH;
         MPI_Barrier( MPI_COMM_WORLD );
 
-        // start_demo_uniformRefiner_hex8_tet4_6_12_1
-
-        /*
-          const EntityKey watch_key(0, 1);
-          const EntityKey not_watch_key(0, 2);
-          const std::string tracing_func = "stk::mesh::BulkData";
-          const std::string not_tracing_func = "stk::mesh::MetaData";
-          const stk::mesh::LogMask active_mask = stk::mesh::LOG_ENTITY;
-          const stk::mesh::LogMask inactive_mask = stk::mesh::LOG_BUCKET;
-
-          // Set up a dummy trace configuration. Here, we're telling the tracing
-          // system that we want to trace BulkData calls related to entities,
-          // specifically Node[1].
-          std::ostringstream trace_output;
-          stk::mesh::setStream(trace_output);
-          meshlog.setPrintMask(active_mask | stk::mesh::LOG_TRACE);
-          stk::mesh::watch(watch_key);
-          stk::diag::Trace::addTraceFunction(tracing_func);
-
-          //      stk::mesh::setStream(use_case::dwout());
-          //   meshlog.setPrintMask(stk::mesh::LOG_ENTITY | stk::mesh::LOG_TRACE | stk::mesh::LOG_TRACE_SUB_CALLS);
-          //   stk::mesh::watch(stk::mesh::EntityKey(0, 11)); // Node 11
-          //   stk::diag::Trace::addTraceFunction("stk::mesh::");
-
-          */
-
         percept::PerceptMesh eMesh(3u);
 
         unsigned p_size = eMesh.get_parallel_size();
@@ -1084,10 +891,6 @@
 
             eMesh.save_as(output_files_loc+"cylinder_hex8_tet4_6_12_1.e");
             eMesh.save_as(input_files_loc+"cylinder_tet4_hex8_4.e");
-
-            // gcov
-            if (p_size == 1)
-              eMesh.renumber_sides_for_exodus();
 
             // end_demo
           }
@@ -1229,13 +1032,10 @@
 
         bool doGenSideSets = true;
 
-        //const unsigned p_rank = stk::parallel_machine_rank( pm );
         const unsigned p_size = stk::parallel_machine_size( pm );
-        //if (p_size == 1 || p_size == 3)
-        if (p_size == 1 || p_size == 3 || p_size == 4)
+        if (p_size <= 4)
           {
             const unsigned n = 12;
-            //const unsigned nx = n , ny = n , nz = p_size*n ;
             const unsigned nx = n , ny = n;
 
             percept::QuadFixture<double> fixture( pm , nx , ny, doGenSideSets);
@@ -1248,15 +1048,14 @@
 
             fixture.generate_mesh();
 
-            //eMesh.print_info("quad mesh");
+            std::ofstream mesh0("mesh0.txt");
+            eMesh.get_bulk_data()->dump_all_mesh_info(mesh0);
 
             eMesh.save_as(output_files_loc+"quad_fixture_0.e");
             eMesh.close();
 
             for (int iBreak = 0; iBreak < 2; iBreak++)
               {
-                std::cout << "\n\n\n ================ tmp Refine Pass = " << iBreak << std::endl;
-
                 percept::PerceptMesh eMesh1(2);
                 std::string fileName = std::string(output_files_loc+"quad_fixture_")+toString(iBreak)+std::string(".e");
                 eMesh1.open(fileName);
@@ -1265,31 +1064,17 @@
                 stk::mesh::FieldBase* proc_rank_field = eMesh1.add_field("proc_rank", stk::topology::ELEMENT_RANK, scalarDimension);
                 eMesh1.commit();
 
-                //                 if (iBreak != 0)
-                //                   proc_rank_field = eMesh1.get_field(stk::topology::ELEMENT_RANK, "proc_rank");
+                UniformRefiner breaker(eMesh1, break_quad_to_quad_4, proc_rank_field);
 
-                UNIFORM_REFINER breaker(eMesh1, break_quad_to_quad_4, proc_rank_field);
-
-                //breaker.setRemoveOldElements(false);
                 breaker.doBreak();
                 std::string fileName1 = std::string(output_files_loc+"quad_fixture_")+toString(iBreak+1)+std::string(".e");
-                //eMesh1.save_as(fileName+"_ref.e");
-                //eMesh1.print_info("quad_fixture_1.e");
+
+                std::ofstream mesh_refine("mesh" + std::to_string(iBreak+1) + ".txt");
+                eMesh1.get_bulk_data()->dump_all_mesh_info(mesh_refine);
 
                 eMesh1.save_as(fileName1);
                 eMesh1.close();
-
-                if (0 && iBreak==0)
-                  {
-                    percept::PerceptMesh e1(2);
-                    std::cout << "\n\n\n ================ tmp eMesh1.open_read_only(quad_fixture_1.e) \n\n\n " << std::endl;
-                    e1.open_read_only(input_files_loc+"quad_fixture_1.e");
-                    e1.print_info("quad_fixture_1_read.e");
-                    e1.close();
-                  }
               }
-
-            // end_demo
           }
       }
 
@@ -1803,7 +1588,6 @@
       }
 
 
-#if 1
       //======================================================================================================================
       //======================================================================================================================
       //======================================================================================================================
@@ -1842,7 +1626,7 @@
 
           }
       }
-#endif
+
       //======================================================================================================================
       //======================================================================================================================
       //======================================================================================================================
@@ -2509,20 +2293,6 @@
 
             eMesh.commit();
 
-            if (0)
-              {
-                // delete the second element
-                eMesh.get_bulk_data()->modification_begin();
-                stk::mesh::Entity element_1 = (**(eMesh.get_bulk_data()->buckets(stk::topology::ELEMENT_RANK).begin()))[1];
-                if ( ! eMesh.get_bulk_data()->destroy_entity( element_1 ) )
-                  {
-                    throw std::logic_error("failed in deleting element");
-                  }
-                stk::mesh::fixup_ghosted_to_shared_nodes(*eMesh.get_bulk_data());
-                eMesh.get_bulk_data()->modification_end();
-              }
-
-
             eMesh.save_as(output_files_loc+"swept-wedge-hex_0.e");
 
             UNIFORM_REFINER breaker(eMesh, break_wedge, proc_rank_field);
@@ -2934,63 +2704,6 @@
       //======================================================================================================================
       //======================================================================================================================
 
-#if 0
-      TEST(regr_uniformRefiner, beam_refine)
-      {
-        EXCEPTWATCH;
-        MPI_Barrier( MPI_COMM_WORLD );
-
-        stk::ParallelMachine pm = MPI_COMM_WORLD ;
-
-        const unsigned p_size = stk::parallel_machine_size(pm);
-
-        if (p_size <= 1)
-          {
-            // create the mesh
-            {
-
-              percept::BeamFixture mesh(pm, false);
-              stk::io::put_io_part_attribute(  mesh.m_block_beam );
-              mesh.m_metaData.commit();
-              mesh.populate();
-
-              bool isCommitted = true;
-              percept::PerceptMesh em1(&mesh.m_metaData, &mesh.m_bulkData, isCommitted);
-              em1.save_as(input_files_loc+"beam_0.e");
-
-            }
-
-            // refine
-            {
-              percept::PerceptMesh eMesh(3u);
-              eMesh.open(input_files_loc+"beam_0.e");
-              //URP_Heterogeneous_3D break_pattern(eMesh);
-              Beam2_Beam2_2 break_pattern(eMesh);
-              int scalarDimension = 0; // a scalar
-              stk::mesh::FieldBase* proc_rank_field = eMesh.add_field("proc_rank", stk::topology::ELEMENT_RANK, scalarDimension);
-              eMesh.commit();
-
-              eMesh.save_as(output_files_loc+"beam_0.e");
-
-              eMesh.print_info("beam", 2);
-
-              UNIFORM_REFINER breaker(eMesh, break_pattern, proc_rank_field);
-              //breaker.setRemoveOldElements(false);
-              breaker.setIgnoreSideSets(true);
-              breaker.doBreak();
-
-              eMesh.save_as(output_files_loc+"beam_1.e");
-
-            }
-          }
-      }
-
-#endif
-      //======================================================================================================================
-      //======================================================================================================================
-      //======================================================================================================================
-#if 1
-
       TEST(regr_uniformRefiner, biplane_refine)
       {
         EXCEPTWATCH;
@@ -3034,7 +2747,6 @@
           }
       }
 
-#endif
       //======================================================================================================================
       //======================================================================================================================
       //======================================================================================================================
@@ -3308,43 +3020,6 @@
       //======================================================================================================================
       //======================================================================================================================
       //======================================================================================================================
-
-#if 0
-
-      TEST(regr_uniformRefiner, wedge6_18_enrich_refine)
-      {
-        EXCEPTWATCH;
-        MPI_Barrier( MPI_COMM_WORLD );
-
-        // start_demo_regr_uniformRefiner_wedge6_18_enrich_refine
-
-        percept::PerceptMesh eMesh(3u);
-
-        unsigned p_size = eMesh.get_parallel_size();
-        if (p_size == 1)
-          {
-            eMesh.open(input_files_loc+"swept-wedge_enrich_refine_0.e");
-
-            Wedge15_Wedge15_8 break_wedge(eMesh);
-
-            int scalarDimension = 0; // a scalar
-            stk::mesh::FieldBase* proc_rank_field = eMesh.add_field("proc_rank", stk::topology::ELEMENT_RANK, scalarDimension);
-
-            eMesh.commit();
-
-            UNIFORM_REFINER breaker(eMesh, break_wedge, proc_rank_field);
-            breaker.setIgnoreSideSets(true);
-            breaker.doBreak();
-
-            eMesh.save_as(output_files_loc+"swept-wedge_enrich_refine_1.e");
-          }
-        // end_demo
-      }
-#endif
-
-      //=============================================================================
-      //=============================================================================
-      //=============================================================================
 
       TEST(regr_uniformRefiner, tet_hmesh)
       {
@@ -3639,8 +3314,8 @@
                                     percept::MyPairIterRelation parent_to_element_relations (eMesh, parent_elem, eMesh.element_rank());
                                     VERIFY_OP_ON(parent_to_element_relations.size(), >=, 1, "not enough relations from side to element");
                                     int which_relation = 0; // just pick the first one
-                                    stk::mesh::EntityId parent_ord = static_cast<stk::mesh::EntityId>(parent_to_element_relations[which_relation].relation_ordinal());
-                                    predicted_parent_id = eMesh.exodus_side_id(eMesh.identifier(parent_to_element_relations[which_relation].entity()) , parent_ord);
+                                    const stk::mesh::ConnectivityOrdinal parent_ord_conn = parent_to_element_relations[which_relation].relation_ordinal();
+                                    predicted_parent_id = eMesh.exodus_side_id(eMesh.identifier(parent_to_element_relations[which_relation].entity()) , parent_ord_conn);
 
                                     if (debug && fdata_new)
                                       {
@@ -3708,7 +3383,6 @@
               breaker.setAlwaysInitializeNodeRegistry(false);
 
               breaker.doBreak();
-              //eMesh.renumber_sides_for_exodus();
               if (debug)
                 {
                   std::cout << "print_all eMesh01: " << std::endl;
@@ -3732,8 +3406,6 @@
 
               UniformRefinerPattern<shards::Quadrilateral<4>, shards::Quadrilateral<4>, 4, SierraPort > break_pattern(eMesh1);
               eMesh1.commit();
-
-              //eMesh1.renumber_sides_for_exodus();
 
               check_parent_element_field(eMesh1, "after read", debug);
 
@@ -3842,8 +3514,6 @@
             breaker.setAlwaysInitializeNodeRegistry(false);
             breaker.doBreak();
 
-            //eMesh.renumber_sides_for_exodus();
-
             eMesh.save_as(input_files_loc+"cylinder_hex8_rft_1.e");
 
             check_parent_element_field(eMesh, "after refine", debug);
@@ -3940,7 +3610,7 @@
         eMesh.new_mesh(percept::GMeshSpec(gmesh_spec));
 
         stk::mesh::Part& part = eMesh.get_fem_meta_data()->declare_part("exposed_boundary_part", stk::topology::FACE_RANK);
-        stk::io::put_io_part_attribute(part);
+        if (0) stk::io::put_io_part_attribute(part);
 
         Hex8_Hex8_8 break_hex_to_hex(eMesh);
 
@@ -3994,10 +3664,6 @@
         breaker.doBreak();
 
         eMesh.save_as("exposed_boundary_part.e-s0002");
-
-
-        // end_demo
-
       }
 
 

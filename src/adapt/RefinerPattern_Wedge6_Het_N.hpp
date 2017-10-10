@@ -24,9 +24,6 @@
 
 namespace percept {
 
-#define LOCAL_DEBUG 0
-#define LOCAL_DEBUG_PP 0
-
   extern bool s_do_transition_break;
   extern bool s_allow_special_wedge_refine;  // for wedge boundary-layer refine
 
@@ -165,17 +162,6 @@ namespace percept {
             }
         }
 
-      if (LOCAL_DEBUG)
-        {
-          std::vector<unsigned> em(&edge_marks[0], &edge_marks[0]+DiscretizeWedge::nedges);
-          std::vector<unsigned> fm(&face_marks[0], &face_marks[0]+DiscretizeWedge::nfaces);
-          std::cout << "WedgeTetPartial:createNewElements:: element= " << m_eMesh.identifier(element)
-                    << " num_edges_marked= " << num_edges_marked << " num_faces_marked= " << num_faces_marked
-                    << "\n em= " << em
-                    << "\n fm= " << fm
-                    << std::endl;
-        }
-
       //if (num_edges_marked == 0 && num_faces_marked == 0)
       if (num_edges_marked == 0)
         return;
@@ -190,17 +176,6 @@ namespace percept {
       ( DiscretizeWedge::is_mapped_v(i) ? VERT_N(i) :    \
         ( DiscretizeWedge::is_mapped_e(i) ? EDGE_N(i - DiscretizeWedge::edge_offset) : \
           ( DiscretizeWedge::is_mapped_f(i) ? FACE_N(i - DiscretizeWedge::face_offset) : Q_CENTROID_N_EV ) ) )
-
-      if (LOCAL_DEBUG)
-        std::cout << "WedgeTetPartial:createNewElements:: elem= " << m_eMesh.identifier(element)
-                  << " m_primaryEntityRank= " << m_primaryEntityRank
-          //<< " Q_CENTROID_N_EV = " << Q_CENTROID_N_EV
-                  << " new_sub_entity_nodes[m_primaryEntityRank].size()= "
-                  << new_sub_entity_nodes[m_primaryEntityRank].size()
-                  << " " << (new_sub_entity_nodes[m_primaryEntityRank].size() ?
-                       (new_sub_entity_nodes[m_primaryEntityRank][0].size() ?
-                        new_sub_entity_nodes[m_primaryEntityRank][0][0] : 123456 ) : 1234567)
-                  << std::endl;
 
       std::vector<stk::mesh::Entity> new_nodes;
       bool useAltNode = false;
@@ -256,7 +231,7 @@ namespace percept {
                       list.insert(element);
                       m_eMesh.dump_vtk("err-face.vtk", false, &list);
 
-                      SubDimCell_SDCEntityType subDimEntity(m_eMesh);
+                      SubDimCell_SDCEntityType subDimEntity(&m_eMesh);
                       nodeRegistry.getSubDimEntity(subDimEntity, element, m_eMesh.face_rank(), ifaceOrd);
                       std::vector<stk::mesh::Entity> nv;
                       for (unsigned jj=0; jj < subDimEntity.size(); ++jj)
@@ -270,20 +245,7 @@ namespace percept {
               ht[ii] = Q_CV_EV(ee);
             }
           elems_tet[ielem] = ht;
-
-          if (LOCAL_DEBUG)
-            std::cout << "tmp srk tet ielem= " << ielem << " num_new_elems= " << num_new_elems << " elems_local= " << elems_tet_local[ielem]
-                      << " new_sub_entity_nodes[elem_rank].size= " << new_sub_entity_nodes[m_primaryEntityRank].size()
-                      << " new_sub_entity_nodes[elem_rank][0].size= " << new_sub_entity_nodes[m_primaryEntityRank][0].size()
-                      << " m_primaryEntityRank= " << m_primaryEntityRank << " useAltNode= " << useAltNode
-                      << "\n elem= " << elems_tet[ielem]
-                      << std::endl;
         }
-
-      if (LOCAL_DEBUG)
-        std::cout << "tmp RefinerPattern_Wedge6_Tet4_N::num_edges_marked= " << num_edges_marked
-                  << " num_new_elems= " << num_new_elems
-                  << std::endl;
 
       for (unsigned ielem=0; ielem < elems_tet.size(); ielem++)
         {
@@ -466,18 +428,6 @@ namespace percept {
             }
         }
 
-      if (LOCAL_DEBUG)
-        {
-          std::vector<unsigned> em(&edge_marks[0], &edge_marks[0]+9);
-          std::vector<unsigned> fm(&face_marks[0], &face_marks[0]+5);
-          std::cout << "WedgePyrPartial:createNewElements start:: element= " << m_eMesh.identifier(element)
-                    << " num_edges_marked= " << num_edges_marked << " num_faces_marked= " << num_faces_marked
-                    << "\n em= " << em
-                    << "\n fm= " << fm
-                    << std::endl;
-          eMesh.print_entity(element);
-        }
-
       if (num_edges_marked == 0 && num_faces_marked == 0)
         return;
 
@@ -485,27 +435,10 @@ namespace percept {
                                   edge_marks, face_marks,
                                   elems_tet_local, elems_pyr_local, elems_wedge_local, s_allow_special_wedge_refine);
 
-
-      if (LOCAL_DEBUG)
-        std::cout << "WedgePyrPartial:createNewElements:: pyr elem= " << m_eMesh.identifier(element) << " topo= " << m_eMesh.bucket(element).topology()
-                  << " elems_tet_local.size= " << elems_tet_local.size()
-                  << " elems_pyr_local.size= " << elems_pyr_local.size()
-          //<< " Q_CENTROID_N_EV = " << Q_CENTROID_N_EV
-                  << " new_sub_entity_nodes[m_primaryEntityRank].size()= "
-                  << new_sub_entity_nodes[m_primaryEntityRank].size()
-                  << " " << (new_sub_entity_nodes[m_primaryEntityRank].size() ?
-                       (new_sub_entity_nodes[m_primaryEntityRank][0].size() ?
-                        new_sub_entity_nodes[m_primaryEntityRank][0][0] : 123456 ) : 1234567)
-                  << std::endl;
-
       std::vector<stk::mesh::Entity> new_nodes;
       bool useAltNode = false;
       if (!new_sub_entity_nodes[m_primaryEntityRank][0].size())
         {
-          //throw std::runtime_error("no centroid node availabled");
-           // std::cout << " bad element: " << std::endl;
-           // m_eMesh.print(element);
-           // m_eMesh.dump_vtk("bad.vtk");
           if (1)
             {
               if (!m_eMesh.getEntitiesUsingIdServerNewNodes( 1, new_nodes))
@@ -576,7 +509,7 @@ namespace percept {
                       list.insert(element);
                       m_eMesh.dump_vtk("err-face.vtk", false, &list);
 
-                      SubDimCell_SDCEntityType subDimEntity(m_eMesh);
+                      SubDimCell_SDCEntityType subDimEntity(&m_eMesh);
                       nodeRegistry.getSubDimEntity(subDimEntity, element, m_eMesh.face_rank(), ifaceOrd);
                       std::vector<stk::mesh::Entity> nv;
                       for (unsigned jj=0; jj < subDimEntity.size(); ++jj)
@@ -590,31 +523,6 @@ namespace percept {
               hp[ii] = Q_CV_EV(ee);
             }
           elems_pyr[ielem] = hp;
-          if (LOCAL_DEBUG)
-            std::cout << "tmp srk pyr ielem= " << ielem << " num_new_elems= " << num_new_elems << " elems_local= " << elems_pyr_local[ielem]
-                      << " new_sub_entity_nodes[elem_rank].size= " << new_sub_entity_nodes[m_primaryEntityRank].size()
-                      << " new_sub_entity_nodes[elem_rank][0].size= " << new_sub_entity_nodes[m_primaryEntityRank][0].size()
-                      << " m_primaryEntityRank= " << m_primaryEntityRank << " useAltNode= " << useAltNode
-                      << "\n elem= " << elems_pyr[ielem]
-                      << std::endl;
-        }
-
-      if (LOCAL_DEBUG)
-        std::cout << "tmp RefinerPattern_Wedge6_Pyr::num_edges_marked= " << num_edges_marked
-                  << " num_new_elems= " << num_new_elems << " elems_pyr.size= " << elems_pyr.size()
-                  << std::endl;
-
-      if (LOCAL_DEBUG)
-        {
-          nodeRegistry.prolongateCoords(element, eMesh.element_rank(), 0);
-          for (unsigned iedge=0; iedge < 9; ++iedge)
-            {
-              nodeRegistry.prolongateCoords(element, eMesh.edge_rank(), iedge);
-            }
-          for (unsigned iface=0; iface < 3; ++iface)
-            {
-              nodeRegistry.prolongateCoords(element, eMesh.side_rank(), iface);
-            }
         }
 
       for (unsigned ielem=0; ielem < elems_pyr.size(); ielem++)
@@ -653,27 +561,13 @@ namespace percept {
             }
 
           unsigned nchild = eMesh.numChildren(element);
-          //set_parent_child_relations(eMesh, element, newElement, ielem);
           set_parent_child_relations(eMesh, element, newElement,  *ft_element_pool, nchild);
 
-          if (LOCAL_DEBUG)
-            {
-              nodeRegistry.prolongateCoordsAllSubDims(element);
-              VolumeUtil jacA;
-              double jacobian = 0.0;
-              jacA(jacobian, m_eMesh, newElement, m_eMesh.get_coordinates_field());
-              VERIFY_OP_ON(jacobian, >, 0.0, "bad wedge jacobian");
-              if (0) std::cout << "tmp WedgePyrPartial createNewElements: ielem= " << ielem << " newElement id= "
-                               << eMesh.identifier(newElement) << " parentElemId= " << eMesh.identifier(element) << " jac= " << jacobian << std::endl;
-            }
-
-          if (LOCAL_DEBUG) std::cout << "tmp createNewElements: isParentElement= " << m_eMesh.isParentElement(element, false) << std::endl;
           std::vector<stk::mesh::Entity> elements(1,element);
           eMesh.prolongateElementFields( elements, newElement);
 
           ++ft_element_pool;
           ++element_pool;
-
         }
     }
 
@@ -845,44 +739,12 @@ namespace percept {
             special_te_case_2 = -1;
         }
 
-      //if (LOCAL_DEBUG || special_te_case_2 >= 0)
-      if (LOCAL_DEBUG)
-        {
-          std::vector<unsigned> em(&edge_marks[0], &edge_marks[0]+DiscretizeWedge::nedges);
-          std::vector<unsigned> fm(&face_marks[0], &face_marks[0]+DiscretizeWedge::nfaces);
-          std::cout << "P[" << eMesh.get_rank() << "] WedgeWedgePartial:createNewElements:: element= " << m_eMesh.identifier(element)
-                    << " num_edges_marked= " << num_edges_marked << " num_faces_marked= " << num_faces_marked
-                    << " special_te_case_2= " << special_te_case_2
-                    << "\n em= " << em
-                    << "\n fm= " << fm
-                    << std::endl;
-        }
-
-      //if (num_edges_marked == 0 && num_faces_marked == 0)
       if (num_edges_marked == 0)
         return;
 
       DiscretizeWedge::discretize(eMesh, element,
                                   edge_marks, face_marks,
                                   elems_tet_local, elems_pyr_local, elems_wedge_local, s_allow_special_wedge_refine);
-
-      if (LOCAL_DEBUG) // || special_te_case_2 >= 0)
-        std::cout << "P[" << eMesh.get_rank() << "] WedgeWedgePartial:createNewElements:: elem= " << m_eMesh.identifier(element)
-                  << " m_primaryEntityRank= " << m_primaryEntityRank
-                  << " s_allow_special_wedge_refine= " << s_allow_special_wedge_refine
-                  << " special_iso= " << special_iso
-                  << " special_te= " << special_te
-                  << " special_te_case_2= " << special_te_case_2
-                  << " elems_tet_local.size= " << elems_tet_local.size()
-                  << " elems_pyr_local.size= " << elems_pyr_local.size()
-                  << " elems_wedge_local.size= " << elems_wedge_local.size()
-          //<< " Q_CENTROID_N_EV = " << Q_CENTROID_N_EV
-                  << " new_sub_entity_nodes[m_primaryEntityRank].size()= "
-                  << new_sub_entity_nodes[m_primaryEntityRank].size()
-                  << " " << (new_sub_entity_nodes[m_primaryEntityRank].size() ?
-                       (new_sub_entity_nodes[m_primaryEntityRank][0].size() ?
-                        new_sub_entity_nodes[m_primaryEntityRank][0][0] : 123456 ) : 1234567)
-                  << std::endl;
 
       std::vector<stk::mesh::Entity> new_nodes;
       bool useAltNode = false;
@@ -935,20 +797,7 @@ namespace percept {
               hw[ii] = Q_CV_EV(ee);
             }
           elems_wedge[ielem] = hw;
-
-          if (LOCAL_DEBUG)
-            std::cout << "tmp srk wedge ielem= " << ielem << " num_new_elems= " << num_new_elems << " elems_local= " << elems_wedge_local[ielem]
-                      << " new_sub_entity_nodes[elem_rank].size= " << new_sub_entity_nodes[m_primaryEntityRank].size()
-                      << " new_sub_entity_nodes[elem_rank][0].size= " << new_sub_entity_nodes[m_primaryEntityRank][0].size()
-                      << " m_primaryEntityRank= " << m_primaryEntityRank << " useAltNode= " << useAltNode
-                      << "\n elem= " << elems_wedge[ielem]
-                      << std::endl;
         }
-
-      if (LOCAL_DEBUG)
-        std::cout << "tmp WedgeWedgePartial::num_edges_marked= " << num_edges_marked
-                  << " num_new_elems= " << num_new_elems
-                  << std::endl;
 
       for (unsigned ielem=0; ielem < elems_wedge.size(); ielem++)
         {
@@ -1075,14 +924,6 @@ namespace percept {
       m_bp_exported.push_back(m_bp[3]);
       m_bp_exported.push_back(m_bp[4]);
       m_bp_exported.push_back(m_bp[5]);
-      // m_bp.push_back(new FaceBreaker(eMesh, block_names));
-      // m_bp.push_back(new TriFaceBreakerType(eMesh, block_names));
-
-      if (LOCAL_DEBUG_PP)
-        {
-          std::cout << "tmp Wedge____ printParts this= \n" ;
-          printParts(this);
-        }
 
       m_face_breaker =  new FaceBreaker(eMesh, block_names) ;
     }
@@ -1203,8 +1044,5 @@ namespace percept {
 #undef Q_CENTROID_N
 #undef Q_CENTROID_N_EV
 #undef Q_CV_EV
-
-#undef LOCAL_DEBUG
-#undef LOCAL_DEBUG_PP
 
 #endif

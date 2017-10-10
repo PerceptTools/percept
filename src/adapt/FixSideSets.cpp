@@ -15,6 +15,7 @@
 #endif
 
 #include <percept/Percept.hpp>
+#include <percept/PerceptUtils.hpp>
 
 #include <adapt/Refiner.hpp>
 #include <adapt/RefinerUtil.hpp>
@@ -924,7 +925,7 @@ namespace percept {
         }
     }
 
-  void FixSideSets::doProgressPrint(PerceptMesh& eMesh, const std::string& msg)
+    void FixSideSets::doProgressPrint(PerceptMesh& eMesh, const std::string& msg)
     {
       if (m_doProgress && eMesh.get_rank() == 0)
         {
@@ -934,6 +935,155 @@ namespace percept {
           std::cout << msg << " cpu: " << eMesh.cpu_time() << " [sec] mem= " << stk::human_bytes(now) << " [now_proc0] " << stk::human_bytes(hwm) << " [hwm_proc0]" << std::endl;
         }
     }
+
+    static void print_surface_blocks_map(PerceptMesh& m_eMesh)
+    {
+      std::vector<const stk::mesh::Part*> surfaces = m_eMesh.get_fem_meta_data()->get_surfaces_in_surface_to_block_map();
+      for (auto surface : surfaces)
+        {
+          std::vector<const stk::mesh::Part*> blocks = m_eMesh.get_fem_meta_data()->get_blocks_touching_surface(surface);
+          for (auto block : blocks)
+            {
+              std::cout << "print_surface_blocks_map: surface= " << surface->name() << " block= " << block->name() << std::endl;
+            }
+        }
+
+    }
+
+    /**
+     * 1. loop over sides - for each volume connected to side, find parts, find leaf surfaces it is in
+     * 2. if it is in one of the urpconv surfaces, remove it from there
+     * 3. add to parts as below
+     */
+
+    void FixSideSets::move_sides_to_correct_surfaces()
+    {
+      if (m_eMesh.get_spatial_dim() == 2)
+        return;
+
+      const std::string& append_conv_string = UniformRefinerPatternBase::getAppendConvertString();
+      (void)append_conv_string;
+
+      const bool debug = false;
+      if (debug)
+        {
+          print_surface_blocks_map(m_eMesh);
+        }
+
+      stk::mesh::PartVector pv = m_eMesh.get_fem_meta_data()->get_mesh_parts();
+      for (auto partp : pv)
+        {
+          if (debug) std::cout << "move_sides_to_correct_surfaces: processing surface= " << partp->name()
+                               << " topo= " << partp->topology() << " primary_entity_rank= " << partp->primary_entity_rank() << std::endl;
+
+          if (partp->topology() == stk::topology::INVALID_TOPOLOGY)
+            continue;
+          if (partp->primary_entity_rank() != m_eMesh.side_rank())
+            continue;
+
+          stk::mesh::EntityVector sides;
+          stk::mesh::Selector sel = stk::mesh::Selector(*partp) & m_eMesh.get_fem_meta_data()->locally_owned_part();
+          stk::mesh::get_selected_entities(sel , m_eMesh.get_bulk_data()->buckets(m_eMesh.side_rank()), sides);
+
+          for (auto side : sides)
+            {
+              MyPairIterRelation volumes(m_eMesh, side, m_eMesh.element_rank());
+              for (unsigned iv = 0; iv < volumes.size(); ++iv)
+                {
+                  move_side_to_correct_surface(*partp, side, volumes[iv].entity());
+                }
+            }
+        }
+    }
+
+    void FixSideSets::move_side_to_correct_surface(stk::mesh::Part& surface, stk::mesh::Entity side, stk::mesh::Entity volume)
+    {
+      const bool debug = false;
+      const std::string& append_conv_string = UniformRefinerPatternBase::getAppendConvertString();
+      (void)append_conv_string;
+
+      stk::topology side_topo = m_eMesh.get_bulk_data()->bucket(side).topology();
+      stk::topology elem_topo = m_eMesh.get_bulk_data()->bucket(volume).topology();
+
+      if (debug) std::cout << "side,elem topo = " << side_topo << "," << elem_topo << std::endl;
+
+      //std::string part_name = add_parts[0]->name(); // surface_hex8_quad4_1
+
+      std::vector<stk::mesh::Part*> add_parts(1, static_cast<stk::mesh::Part *>(0));
+      std::vector<stk::mesh::Part*> remove_parts(1, &surface);
+
+      std::string new_part_name;
+
+      std::vector<std::string> tokens;
+      stk::util::tokenize(surface.name(), "_", tokens);
+
+      // this can happen, eg. for generated meshes - with a surface name like surface_1_quad4
+      if (tokens.size() <= 3)
+        return;
+
+      if (debug) {
+          std::cout << "tokens = ";
+          for (unsigned i=0; i<tokens.size(); i++)
+              std::cout << tokens[i] << " ";
+          std::cout << std::endl;
+      }
+      unsigned dot_pos = tokens[3].find(".");
+      unsigned nl = tokens[3].length();
+      if (dot_pos != std::string::npos)
+        nl = dot_pos;
+
+      // FIXME: substr usage - only works for single digit
+
+      convert_stk_topology_to_ioss_name(elem_topo, tokens[1]);
+      convert_stk_topology_to_ioss_name(side_topo, tokens[2]);
+
+      tokens[3] = tokens[3].substr(0, nl);
+      new_part_name = tokens[0];
+      for (unsigned i = 1; i < 4; i++)
+        new_part_name += "_" + tokens[i];
+
+      if (debug)
+          std::cout << "new_part_name=" << new_part_name << std::endl;
+
+      add_parts[0] = m_eMesh.get_fem_meta_data()->get_part(new_part_name);
+      if (!add_parts[0])
+        {
+          if (debug) std::cout << " new part name not found, skipping" << std::endl;
+          //std::cout << "add_parts[0] = null, new_part_name= " << new_part_name << " elem_topo= " << elem_topo << " side_topo= " << side_topo << std::endl;
+          //VERIFY_MSG("bad add_parts");
+          return;
+        }
+
+      if (debug)
+        {
+          std::cout << "moving side= " << m_eMesh.id(side) << " side_topo= " << side_topo << " attached to vol= " << m_eMesh.id(volume)
+                    << " of topo= " << elem_topo << " from surface= " << surface.name() << " to: " << add_parts[0]->name() << " remove_parts.size= " << remove_parts.size()
+                    << std::endl;
+          std::cout << "before parts= " << m_eMesh.print_entity_parts_string(side, "\n") << std::endl;
+        }
+
+      stk::mesh::PartVector supersets = m_eMesh.bucket(side).supersets();
+      for (auto superset : supersets)
+        {
+
+          bool isConvertedPart = ( superset->name().find(append_conv_string) != std::string::npos);
+          if (isConvertedPart && superset->primary_entity_rank() == m_eMesh.side_rank())
+            {
+              remove_parts[0] = superset;
+            }
+        }
+
+      if (add_parts[0] == remove_parts[0])
+        remove_parts.resize(0);
+
+      if (debug && remove_parts.size()) std::cout << "found remove_parts = " << remove_parts[0]->name() << std::endl;
+
+      m_eMesh.get_bulk_data()->change_entity_parts( side, add_parts, remove_parts );
+
+      if (debug) std::cout << "after parts= " << m_eMesh.print_entity_parts_string(side, "\n") << std::endl;
+
+    }
+
 
     // fast reconnector
 
@@ -996,6 +1146,9 @@ namespace percept {
         }
 
       if (LTRACE) std::cout << m_eMesh.rank() << "tmp fix_side_sets_2 ...end from: " << m_eMesh.getProperty("FixSideSets::fix_side_sets_2") << std::endl;
+
+      end_begin(msg+"moveSides");
+      move_sides_to_correct_surfaces();
     }
 
 }

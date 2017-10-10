@@ -1890,7 +1890,7 @@ namespace percept {
 
   void FitGregoryPatches::parse(const std::string& file_name)
   {
-#if STK_ADAPT_HAVE_YAML_CPP
+#if defined(STK_ADAPT_HAVE_YAML_CPP)
     if (file_name == "sample.yaml")
       {
         std::ofstream file(file_name.c_str());
@@ -1948,7 +1948,7 @@ namespace percept {
 #endif
   }
 
-#if STK_ADAPT_HAVE_YAML_CPP
+#if defined(STK_ADAPT_HAVE_YAML_CPP)
   void FitGregoryPatches::emit(const YAML::Node& node)
     {
       if (m_eMesh.get_rank() != 0) return;

@@ -34,7 +34,6 @@
 #include <stk_mesh/base/BoundaryAnalysis.hpp>
 #include <stk_io/IossBridge.hpp>
 
-#include <percept/PerceptMesh.hpp>
 #include <stk_mesh/base/MeshUtils.hpp>
 
 #ifdef PERCEPT_QF_USE_COORD_GATHER_FIELD
@@ -55,6 +54,12 @@
 
       template<class Scalar, class Topology=shards::Quadrilateral<4> >
       class QuadFixture {
+
+          stk::mesh::EntityId exodus_side_id(stk::mesh::EntityId element_id, unsigned which_side_ord)
+          {
+            stk::mesh::EntityId id = 10ULL*element_id + which_side_ord + 1ULL;
+            return id;
+          }
 
       public:
         //  typedef int Scalar ;
@@ -442,7 +447,7 @@
                                 }
                               if (!debug_geom_side_sets_as_blocks)
                                 {
-                                  side_id = PerceptMesh::exodus_side_id(bulk_data.identifier(element) , j_side );
+                                  side_id = exodus_side_id(bulk_data.identifier(element) , j_side);
                                   bulk_data.declare_element_side(element, j_side, stk::mesh::PartVector{side_parts[i_side]});
                                 }
                               else
@@ -452,7 +457,7 @@
                                   elem_node[0] = bulk_data.identifier(nodes[j_side]);
                                   elem_node[1] = bulk_data.identifier(nodes[(j_side+1)%4]);
 
-                                  side_id = PerceptMesh::exodus_side_id(bulk_data.identifier(element) , j_side );
+                                  side_id = exodus_side_id(bulk_data.identifier(element) , j_side );
 
                                   stk::mesh::declare_element( bulk_data, *side_parts[i_side], side_id , elem_node);
 
@@ -469,19 +474,9 @@
                             {
                               ++side_id;
 
-                              if (0)
-                                {
-                                  std::cout << "P[" <<  bulk_data.parallel_rank() << "] name= " << side_parts[i_side]->name()
-                                            << " ix= " << ix
-                                            << " iy= " << iy
-                                            << " i_side= " << i_side
-                                            << " element= " << element
-                                            << std::endl;
-                                }
                               if (!debug_geom_side_sets_as_blocks)
                                 {
-                                  side_id = PerceptMesh::exodus_side_id(bulk_data.identifier(element) , j_side );
-
+                                  side_id = exodus_side_id(bulk_data.identifier(element) , j_side );
                                   bulk_data.declare_element_side(element, j_side, stk::mesh::PartVector{side_parts[i_side]});
                                 }
 

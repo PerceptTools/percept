@@ -11,11 +11,7 @@
 #include <percept/Percept.hpp>
 #if !defined(NO_GEOM_SUPPORT)
 
-// #if STK_PERCEPT_LITE
-// #include <percept/lite/PerceptMeshLite.hpp>
-// #else
 #include <percept/PerceptMesh.hpp>
-//#endif
 
   namespace percept {
 
@@ -31,12 +27,11 @@
       void compute_spacing_field();
 
       /// find spacing in unit vector dir direction (local computation - is rotationally invariant)
-      double spacing_at_node_in_direction(double dir[3], stk::mesh::Entity node, stk::mesh::Selector *element_selector=0);
+      double spacing_at_node_in_direction(const double dir[3], stk::mesh::Entity node, stk::mesh::Selector *element_selector=0);
 
     private:
       PerceptMesh& m_eMesh;
-      SpacingType m_type;
-
+      const SpacingType m_type;
     };
   }
 

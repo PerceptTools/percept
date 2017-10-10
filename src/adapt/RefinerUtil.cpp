@@ -823,7 +823,7 @@ namespace percept {
             {
               stk::mesh::Entity edge = bucket[i_edge];
               const percept::MyPairIterRelation edge_nodes (eMesh, edge, eMesh.node_rank());
-              SubDimCell2 subDimEntity(eMesh);
+              SubDimCell2 subDimEntity(&eMesh);
               subDimEntity.clear();
               subDimEntity.insert(edge_nodes[0].entity());
               subDimEntity.insert(edge_nodes[1].entity());
@@ -866,7 +866,7 @@ namespace percept {
                       {
                         unsigned in0 = cell_topo_data->edge[iedgeOrd].node[0];
                         unsigned in1 = cell_topo_data->edge[iedgeOrd].node[1];
-                        SubDimCell2 subDimEntity(eMesh);
+                        SubDimCell2 subDimEntity(&eMesh);
                         subDimEntity.clear();
                         subDimEntity.insert(elem_nodes[in0].entity());
                         subDimEntity.insert(elem_nodes[in1].entity());
@@ -992,13 +992,11 @@ namespace percept {
           }
       }
 
-    //for (stk::mesh::EntityRank rank = eMesh.element_rank(); rank <= eMesh.element_rank(); ++rank)
     for (stk::mesh::EntityRank rank = eMesh.side_rank(); rank <= eMesh.element_rank(); ++rank)
       {
         std::ostringstream orank;
         orank << rank;
         std::string srank = orank.str();
-        //int irank = (int)rank;
         std::vector<stk::mesh::Entity> ft_new_elements;
         const stk::mesh::EntityRank FAMILY_TREE_RANK = static_cast<stk::mesh::EntityRank>(stk::topology::ELEMENT_RANK + 1u);
 
@@ -1202,7 +1200,7 @@ namespace percept {
         stk::mesh::Selector sel = eMesh.get_fem_meta_data()->universal_part();
         stk::mesh::get_selected_entities(sel , eMesh.get_bulk_data()->buckets(eMesh.node_rank()), vec);
 
-        SubDimCell_SDCEntityType subDimEntity(eMesh);
+        SubDimCell_SDCEntityType subDimEntity(&eMesh);
 
         // FIXME
         for (size_t ii=0; ii < vec.size(); ++ii)
@@ -1256,7 +1254,7 @@ namespace percept {
 
         if (debug)
           {
-            SubDimCell_SDCEntityType subDimEntity1(eMesh);
+            SubDimCell_SDCEntityType subDimEntity1(&eMesh);
             nodeRegistry.getSubDimEntity(subDimEntity1, owningElement, static_cast<stk::mesh::EntityRank>(owningSubDimRank), static_cast<unsigned>(owningSubDimOrd));
             for (unsigned ii=0; ii < subDimEntity.size(); ++ii)
               {
@@ -1302,7 +1300,7 @@ namespace percept {
                           << std::endl;
                 if (1)
                   {
-                    SubDimCell_SDCEntityType subDimEntity1(eMesh);
+                    SubDimCell_SDCEntityType subDimEntity1(&eMesh);
 
                     stk::mesh::EntityId  owningElementId1 (  static_cast<stk::mesh::EntityId>(node_data[NR_FIELD_OWNING_ELEMENT_ID]) );
                     stk::mesh::EntityRank  owningElementRank1 (  static_cast<stk::mesh::EntityRank>(node_data[NR_FIELD_OWNING_ELEMENT_RANK]) );
@@ -1387,7 +1385,7 @@ namespace percept {
     stk::mesh::Selector sel = eMesh.get_fem_meta_data()->universal_part();
     stk::mesh::get_selected_entities(sel , eMesh.get_bulk_data()->buckets(eMesh.node_rank()), vec);
 
-    SubDimCell_SDCEntityType subDimEntity(eMesh);
+    SubDimCell_SDCEntityType subDimEntity(&eMesh);
 
     for (size_t inode=0; inode < vec.size(); ++inode)
       {

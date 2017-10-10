@@ -18,6 +18,7 @@
 #include <percept/math/Math.hpp>
 #include <percept/structured/BlockStructuredGrid.hpp>
 #include "SGridJacobianUtil.hpp"
+#include <percept/mesh/mod/smoother/sgrid_metric_helpers.hpp>
 
   namespace percept {
 
@@ -36,7 +37,10 @@
       SmootherMetricBase(PerceptMesh *eMesh) : m_topology_data(0), m_eMesh(eMesh), m_node(), m_is_nodal(false), m_combine(COP_SUM), m_debug(false) {}
 
       virtual double length_scaling_power() { return 1.0; }
+
+//KOKKOS_INLINE_FUNCTION
       virtual double metric(typename MeshType::MTElement element, bool& valid)=0;
+
       virtual double grad_metric(typename MeshType::MTElement element, bool& valid, double grad[8][4]) {
         throw std::runtime_error("not impl SmootherMetric::grad_metric");
         return 0.0;
@@ -182,6 +186,7 @@
         return mm;
       }
 
+//KOKKOS_INLINE_FUNCTION
       virtual double metric(stk::mesh::Entity element, bool& valid)
       {
 #if 0
@@ -212,7 +217,6 @@
       unsigned m_nnodes;
       unsigned m_ndim;
       unsigned m_ndof;
-      unsigned m_extraLambdaDof;
       stk::mesh::FieldBase *m_cg_lambda_field;
       stk::mesh::FieldBase *m_cg_normal_field;
       double macheps;
@@ -224,12 +228,6 @@
         m_is_nodal = false;
         m_ndim = unsigned(eMesh->get_spatial_dim());
         m_ndof = m_ndim;
-        m_extraLambdaDof = 0;
-        if (m_eMesh->get_smooth_surfaces() && m_eMesh->getProperty("ReferenceMeshSmootherNewton.use_lambda") == "true")
-          {
-            m_extraLambdaDof = 1;
-            m_ndof++;
-          }
         m_cg_lambda_field    = m_eMesh->get_field(stk::topology::NODE_RANK, "cg_lambda");
         m_cg_normal_field    = m_eMesh->get_field(stk::topology::NODE_RANK, "cg_normal");
 
@@ -345,6 +343,7 @@
           }
       }
 
+//KOKKOS_INLINE_FUNCTION
       virtual double metric(stk::mesh::Entity element, bool& valid)
       {
         return m_smoother->metric(element, valid);
@@ -605,49 +604,373 @@
     // std::string field_name<STKMesh>(typename STKMesh::MTField *field) {return field->name(); }
 
 
-    class SGridSmootherMetricUntangle
-    {
-    private:
-      StructuredGrid::MTField *m_coord_field_current;
-      StructuredGrid::MTField *m_coord_field_original;
+    class HexMeshSmootherMetric {
+    const double m_BETA_MULT;
+public:
+    bool m_use_ref_mesh;
+    bool m_untangling;
 
-      StructuredGrid::MTField::Array4D m_coords_current;
-      StructuredGrid::MTField::Array4D m_coords_original;
+    HexMeshSmootherMetric(PerceptMesh * eMesh/*only here to prevent build breaking. HMSM is used by SGridGenericAlgorithm_total_element_metric which can be templated on another metric that requires a  mesh as an argument*/) :
+            m_BETA_MULT(0.05),  m_use_ref_mesh(true), m_untangling(true) {}
+                                //boolean memebrs will get altered by smoother
+//private:
+public:
+    KOKKOS_INLINE_FUNCTION
+    Double metric(double v_i_current[8][3],
+    double v_i_org[8][3], bool& valid) const {
 
-      const double m_beta_mult;
-    public:
-      SGridSmootherMetricUntangle(PerceptMesh *eMesh) : m_beta_mult(0.05) {
-        std::shared_ptr<BlockStructuredGrid> bsg = eMesh->get_block_structured_grid();
-        m_coord_field_current  = bsg->m_fields["coordinates"].get();
-        m_coord_field_original = bsg->m_fields["coordinates_NM1"].get();
-        m_coords_current  = *m_coord_field_current->m_block_fields[0];
-        m_coords_original = *m_coord_field_original->m_block_fields[0];
-      }
-
-      double metric(typename StructuredGrid::MTElement element, bool& valid) const
-      {
         valid = true;
-
-        double A_ = 0.0, W_ = 0.0; // current and reference detJ
         double nodal_A[8], nodal_W[8];
-        SGridJacobianUtil(A_, nodal_A, m_coords_current, element);
-        SGridJacobianUtil(W_, nodal_W, m_coords_original, element);
-        double val_untangle=0.0;
+        Kokkos::Array<double[3][3], 8> J_A;
+        Kokkos::Array<double[3][3], 8> J_W;
 
-        for (int i=0; i < 8; i++)
-          {
-            double detAi = nodal_A[i];
-            double detWi = nodal_W[i];
-            
-            if (detAi <= 0.) valid = false;
-            
-            double vv = m_beta_mult*detWi - detAi;
-            vv = std::max(vv, 0.0);
-            val_untangle += vv*vv;
-          }
-        return val_untangle;
-      }
-    };
+        sGridJacobianUtil(nodal_A, v_i_current,
+                J_A);
+        sGridJacobianUtil(nodal_W, v_i_org,
+                J_W);
+
+        if (m_untangling) {
+            double val_untangle = 0.0;
+            for (int i = 0; i < 8; i++) {
+
+                double detAi = nodal_A[i];
+                double detWi = nodal_W[i];
+
+                if (detAi <= 0.)
+                    valid = false;
+
+                double vv = m_BETA_MULT * detWi - detAi;
+                (vv < 0.0 ? vv = 0.0 : vv);
+                val_untangle += vv * vv;
+            }
+            return val_untangle;
+        }
+
+        else{//smoothing
+            double val = 0.0, val_shape = 0.0;
+
+            double T[3][3];
+            double WI[3][3];
+
+            for (int i = 0; i < 8; i++) {
+                const double detAi = nodal_A[i];
+                double detWi = nodal_W[i];
+                const double detWiC = detWi;
+
+                if (detAi <= 0) {
+                    valid = false;
+                }
+
+                const double * W[3]=
+                        { J_W[i][0], J_W[i][1], J_W[i][2] };
+                const double * A[3]=
+                        { J_A[i][0], J_A[i][1], J_A[i][2] };
+
+                double shape_metric = 0.0;
+                if (detAi > 0.0) {
+
+                    if (m_use_ref_mesh) {
+                        matrix_inverse(W, detWi, WI);
+                        matrix_product(A, WI, T);
+                    } else {
+                        T[0][0] = A[0][0];
+                        T[0][1] = A[0][1];
+                        T[0][2] = A[0][2];
+
+                        T[1][0] = A[1][0];
+                        T[1][1] = A[1][1];
+                        T[1][2] = A[1][2];
+
+                        T[2][0] = A[2][0];
+                        T[2][1] = A[2][1];
+                        T[2][2] = A[2][2];
+
+                        //T *= 1.0/std::pow(detWi, 1./3.);
+                        detWi = 1.0;
+                    }
+                    double d = detAi / detWi;
+                    double f = matrix_sqr_Frobenius(T);
+
+                    // || T ||^3 / (3 sqrt(3) det(T)) - 1.0
+//                       if (spatialDim == 2)
+//                         {
+//                           // all our jacobians are 3D, with a 1 in the 3,3 slot for 2d, so we subtract it here
+//                           f = f - 1.0;
+//                           VERIFY_OP_ON(f, >, 0.0, "bad f");
+//                           f = std::sqrt(f);
+//                           double fac = 2.0;
+//                           double den = fac * d;
+//                           shape_metric = (f*f)/den - 1.0;
+//                           shape_metric = shape_metric*detWiC;
+//                           if (Base::m_debug)
+//                             {
+//                               std::cout << "nan: shape_metric= " << shape_metric << " f= " << f << " den= " << den << " detWi= " << detWi << " detAi= " << detAi << std::endl;
+//                             }
+//                         }
+//                       else
+                    {
+                        f = std::sqrt(f);
+                        const double fac = 3.0 * std::sqrt(3.0);
+                        double den = fac * d;
+                        shape_metric = (f * f * f) / den - 1.0;
+                        shape_metric = shape_metric * detWiC;
+                    }
+                }
+                val_shape += shape_metric;
+            }
+            val = val_shape;
+            return val;
+        }
+        return 0.0;
+    }//metric
+
+    KOKKOS_INLINE_FUNCTION
+    double grad_metric(  double v_i_current[8][3],
+            double v_i_org[8][3], bool& valid, double grad[8][4]) const
+    {
+        const unsigned locs_hex_dev[8][4] = { { 0, 1, 2, 4 }, { 1, 3, 0, 5 }, { 2, 0,
+                3, 6 }, { 3, 2, 1, 7 }, { 4, 6, 5, 0 }, { 5, 4, 7, 1 }, { 6, 7,
+                4, 2 }, { 7, 5, 6, 3 } };
+
+        valid = true;
+        double nodal_A[8], nodal_W[8];
+        Kokkos::Array<double[3][3], 8> J_A;
+        Kokkos::Array<double[3][3], 8> J_W;
+        double dMetric_dA[8][3][3];
+
+        sGridJacobianUtil(nodal_A, v_i_current,
+                J_A);
+        sGridJacobianUtil(nodal_W, v_i_org,
+                J_W);
+
+
+        if(m_untangling)
+        {
+            double val = 0.0;
+
+            for (int i=0; i < 8; i++)
+              {
+                double detAi = nodal_A[i];
+                double detWi = nodal_W[i];
+                if (detAi <= 0)
+                  {
+                    valid = false;
+                  }
+
+                double vv = m_BETA_MULT*detWi - detAi;
+                double vv1 = (vv>0.0 ? vv : 0);
+
+                if (vv > 0.0)
+                  {
+                    transpose_adj_dev(J_A[i],dMetric_dA[i],-2.0*vv);
+
+//                    if (Base::m_eMesh->get_spatial_dim() == 2)
+//                      {
+//                        for (unsigned ii=0; ii < 3; ++ii)
+//                          {
+//                            wrt_A(2,ii) = 0.0;
+//                            wrt_A(ii,2) = 0.0;
+//                          }
+//                      }
+                  }
+                else{
+                    for(int j=0;j<3;j++)
+                        for(int k=0;k<3;k++)
+                        dMetric_dA[i][j][k]=0.0;
+                }
+                val += vv1*vv1;
+              }
+
+
+            double grads_fld[8][8][3];
+            grad_metric_util(dMetric_dA,grads_fld ,locs_hex_dev);
+
+
+
+            // combine into total
+            for (unsigned i=0; i < 8; i++)
+              for (unsigned j = 0; j < 3; j++)
+                grad[i][j] = 0.0;
+
+            for (unsigned k=0; k < 8; k++)
+              for (unsigned i=0; i < 8; i++)
+                for (unsigned j = 0; j < 3; j++){
+                  grad[i][j] += grads_fld[k][i][j];
+
+                }
+
+            return val;
+        }//untangling
+
+        else{//SMOOTHING
+
+            double WIT[3][3];
+            double TAT[3][3];
+            double T[3][3];
+            double WI[3][3];
+
+            double val=0.0, val_shape=0.0;
+
+                   for (int i=0; i < 8; i++)
+                     {
+                       double detAi = nodal_A[i];
+                       double detWi = nodal_W[i];
+                       double detWiC = detWi;
+
+                       if (detAi <= 0)
+                         {
+                           valid = false;
+                         }
+                       const double * W[3]=
+                               { J_W[i][0], J_W[i][1], J_W[i][2] };
+
+                       const double * A[3]=
+                               { J_A[i][0], J_A[i][1], J_A[i][2] };
+
+                       // frob2 = h^2 + h^2 + 1
+                       // frob21 = 2 h^2
+                       // f = h sqrt(2)
+                       // det = h*h
+                       // met = f*f / (det*2) - 1
+                       // frob3 = 3 h^2
+                       // f = h sqrt(3)
+                       // det = h*h*h
+                       // met = f*f*f/(3^3/2 *det) - 1 = f*f*f/(3*sqrt(3)*det) - 1
+                       double shape_metric = 0.0;
+                       if (detAi > 0) //! 1.e-15)
+                         {
+                           if (m_use_ref_mesh)
+                             {
+                               matrix_inverse(W, detWi, WI);
+                               matrix_product(A, WI, T);
+                             }
+                           else
+                             {
+                               T[0][0] = A[0][0];
+                               T[0][1] = A[0][1];
+                               T[0][2] = A[0][2];
+
+                               T[1][0] = A[1][0];
+                               T[1][1] = A[1][1];
+                               T[1][2] = A[1][0];
+
+                               T[2][0] = A[2][0];
+                               T[2][1] = A[2][1];
+                               T[2][2] = A[2][2];
+                               detWi = 1.0;
+                               identity_dev(WI);
+                             }
+
+                           double d = detAi / detWi;
+                           double f = matrix_sqr_Frobenius(T);
+//                           double f0 = f;
+
+//                           if (spatialDim == 2)
+//                             {
+//                               // all our jacobians are 3D, with a 1 in the 3,3 slot for 2d, so we subtract it here
+//                               f = f - 1.0;
+//                               f = std::sqrt(f);
+//                               double fac = 2.0;
+//                               double den = fac * d;
+//                               shape_metric = (f*f)/den - 1.0;
+//                               DenseMatrix<3,3>& wrt_A = jacA.m_dMetric_dA[i];
+//                               {
+//                                 wrt_A = 0.5*(2.0*T  / d);
+//                                 wrt_A -= 0.5*(f0 - 1.0) / (d*d)   * transpose_adj(T);
+//
+//                                 // now convert to wrt_A
+//                                 if (m_use_ref_mesh)
+//                                   wrt_A = wrt_A * transpose(WI);
+//
+//                                 for (unsigned ii=0; ii < 3; ++ii)
+//                                   {
+//                                     wrt_A(2,ii) = 0.0;
+//                                     wrt_A(ii,2) = 0.0;
+//                                   }
+//
+//                                 wrt_A = wrt_A * detWiC;
+//                               }
+//                             }
+//                           else
+                             {
+                               f = std::sqrt(f);
+                               const double fac = 3.0*std::sqrt(3.0);
+                               double den = fac * d;
+                               shape_metric = (f*f*f)/den - 1.0;
+                               {
+                                 double norm = f;
+                                 double iden = 1.0/den;
+                                 //result = norm_cube * iden - 1.0;
+                                 // wrt_T...
+                                 dMetric_dA[i][0][0] = (3 * norm * iden)*T[0][0];
+                                 dMetric_dA[i][0][1] = (3 * norm * iden)*T[0][1];
+                                 dMetric_dA[i][0][2] = (3 * norm * iden)*T[0][2];
+
+                                 dMetric_dA[i][1][0] = (3 * norm * iden)*T[1][0];
+                                 dMetric_dA[i][1][1] = (3 * norm * iden)*T[1][1];
+                                 dMetric_dA[i][1][2] = (3 * norm * iden)*T[1][2];
+
+                                 dMetric_dA[i][2][0] = (3 * norm * iden)*T[2][0];
+                                 dMetric_dA[i][2][1] = (3 * norm * iden)*T[2][1];
+                                 dMetric_dA[i][2][2] = (3 * norm * iden)*T[2][2];
+
+                                 double norm_cube = norm*norm*norm;
+                                 transpose_adj_dev(T, TAT);
+                                 dMetric_dA[i][0][0] -= (norm_cube * iden/d) * TAT[0][0];
+                                 dMetric_dA[i][0][1] -= (norm_cube * iden/d) * TAT[0][1];
+                                 dMetric_dA[i][0][2] -= (norm_cube * iden/d) * TAT[0][2];
+
+                                 dMetric_dA[i][1][0] -= (norm_cube * iden/d) * TAT[1][0];
+                                 dMetric_dA[i][1][1] -= (norm_cube * iden/d) * TAT[1][1];
+                                 dMetric_dA[i][1][2] -= (norm_cube * iden/d) * TAT[1][2];
+
+                                 dMetric_dA[i][2][0] -= (norm_cube * iden/d) * TAT[2][0];
+                                 dMetric_dA[i][2][1] -= (norm_cube * iden/d) * TAT[2][1];
+                                 dMetric_dA[i][2][2] -= (norm_cube * iden/d) * TAT[2][2];
+
+                                 // now convert to dMetric_dA[i]
+                                 if (m_use_ref_mesh)
+                                   {
+                                     matrix_transpose(WI, WIT);
+                                     matrix_product_mutator(dMetric_dA[i],WIT);
+                                   }
+                                 dMetric_dA[i][0][0] = dMetric_dA[i][0][0] * detWiC;
+                                 dMetric_dA[i][0][1] = dMetric_dA[i][0][1] * detWiC;
+                                 dMetric_dA[i][0][2] = dMetric_dA[i][0][2] * detWiC;
+
+                                 dMetric_dA[i][1][0] = dMetric_dA[i][1][0] * detWiC;
+                                 dMetric_dA[i][1][1] = dMetric_dA[i][1][1] * detWiC;
+                                 dMetric_dA[i][1][2] = dMetric_dA[i][1][2] * detWiC;
+
+                                 dMetric_dA[i][2][0] = dMetric_dA[i][2][0] * detWiC;
+                                 dMetric_dA[i][2][1] = dMetric_dA[i][2][1] * detWiC;
+                                 dMetric_dA[i][2][2] = dMetric_dA[i][2][2] * detWiC;
+                               }
+                             }
+                         }//if (detAi > 0)
+                       val_shape += shape_metric;
+                     }//foreach node
+
+                   // compute grad for all nodes
+                   double grads_fld[8][8][3];
+                   grad_metric_util(dMetric_dA,grads_fld ,locs_hex_dev);
+
+                   // combine into total
+                   for (int i=0; i < 8; i++)
+                     for (int j = 0; j < 3; j++)
+                       grad[i][j] = 0.0;
+
+                   for (int k=0; k < 8; k++)
+                     for (int i=0; i < 8; i++)
+                       for (int j = 0; j < 3; j++)
+                         grad[i][j] += grads_fld[k][i][j];
+
+                   val = val_shape;
+                   return val;
+        }//SMOOTHING
+        return 0.0;
+    }
+};//HexMeshSmootherMetric
 
     template<typename MeshType>
     class SmootherMetricUntangleImpl : public SmootherMetricImpl<MeshType>
@@ -660,6 +983,7 @@
       StructuredGrid::MTField::Array4D m_coords_original;
 
     public:
+
       using Base = SmootherMetricImpl<MeshType>;
 
       SmootherMetricUntangleImpl(PerceptMesh *eMesh);
@@ -668,6 +992,7 @@
 
       virtual double length_scaling_power() { return 3.0; }
 
+//KOKKOS_INLINE_FUNCTION
       virtual double metric(typename MeshType::MTElement element, bool& valid);
 
       /// computes metric and its gradient - see Mesquite::TShapeB1, TQualityMetric, TargetMetricUtil
@@ -737,6 +1062,8 @@
     public:
       SmootherMetricShapeSizeOrient(PerceptMesh *eMesh) : SmootherMetric(eMesh) {}
       virtual double length_scaling_power() { return 1.0; }
+
+//KOKKOS_INLINE_FUNCTION
       virtual double metric(stk::mesh::Entity element, bool& valid)
       {
         valid = true;
@@ -783,6 +1110,7 @@
       { m_is_nodal=true; m_combine=COP_MAX; }
       virtual double length_scaling_power() { return 1.0; }
 
+//KOKKOS_INLINE_FUNCTION
       virtual double metric(stk::mesh::Entity element, bool& valid)
       {
         VERIFY_OP_ON(m_node, !=, stk::mesh::Entity(), "must set a node");
@@ -916,8 +1244,8 @@
             double detWi = jacW.m_detJ[i];
             VERIFY_OP_ON(detWi, >, 0.0, "bad reference mesh");
             const double detWiC = detWi;
-            bool isNaN = false;
-            bool isInf = false;
+//            bool isNaN = false;
+//            bool isInf = false;
             if (detAi <= 0)
               {
                 valid = false;
@@ -943,7 +1271,7 @@
             // det = h*h*h
             // met = f*f*f/(3^3/2 *det) - 1 = f*f*f/(3*sqrt(3)*det) - 1
             double shape_metric = 0.0;
-            if (detAi > 0.0 && !isNaN && !isInf)
+            if (detAi > 0.0 /*&& !isNaN && !isInf*/)
               {
 
                 if (m_use_ref_mesh)
@@ -993,7 +1321,7 @@
           }
         val = val_shape;
         return val;
-      }
+      }//metric
 
       /// computes metric and its gradient - see Mesquite::TShapeB1, TQualityMetric, TargetMetricUtil
       virtual double grad_metric(typename MeshType::MTElement element, bool& valid, double grad[8][4])
@@ -1011,6 +1339,7 @@
             double detAi = jacA.m_detJ[i];
             double detWi = jacW.m_detJ[i];
             double detWiC = detWi;
+
             if (detAi <= 0)
               {
                 valid = false;
@@ -1142,6 +1471,7 @@
       virtual bool has_gradient() { return true; }
 
       virtual double length_scaling_power() { return 1.0; }
+//KOKKOS_INLINE_FUNCTION
       virtual double metric(stk::mesh::Entity element, bool& valid)
       {
         valid = true;
@@ -1349,6 +1679,7 @@
       SmootherMetricShapeSizeOrientB1(PerceptMesh *eMesh) : SmootherMetric(eMesh) {}
 
       virtual double length_scaling_power() { return 1.0; }
+//KOKKOS_INLINE_FUNCTION
       virtual double metric(stk::mesh::Entity element, bool& valid)
       {
         valid = true;
@@ -1415,6 +1746,7 @@
       SmootherMetricShapeC1(PerceptMesh *eMesh) : SmootherMetric(eMesh) {}
 
       virtual double length_scaling_power() { return 1.0; }
+//KOKKOS_INLINE_FUNCTION
       virtual double metric(stk::mesh::Entity element, bool& valid)
       {
         valid = true;
@@ -1495,6 +1827,7 @@
       SmootherMetricLaplace(PerceptMesh *eMesh) : SmootherMetric(eMesh) {}
 
       virtual double length_scaling_power() { return 2.0; }
+//KOKKOS_INLINE_FUNCTION
       virtual double metric(stk::mesh::Entity element, bool& valid)
       {
         valid = true;
@@ -1531,6 +1864,7 @@
       SmootherMetricLaplaceInverseVolumeWeighted(PerceptMesh *eMesh) : SmootherMetric(eMesh) {}
 
       virtual double length_scaling_power() { return 2.0; }
+//KOKKOS_INLINE_FUNCTION
       virtual double metric(stk::mesh::Entity element, bool& valid)
       {
         valid = true;
@@ -1568,6 +1902,7 @@
       SmootherMetricVolumetricEnergy(PerceptMesh *eMesh) : SmootherMetric(eMesh) {}
 
       virtual double length_scaling_power() { return 6.0; }
+//KOKKOS_INLINE_FUNCTION
       virtual double metric(stk::mesh::Entity element, bool& valid)
       {
         valid = true;
@@ -1611,6 +1946,7 @@
       virtual bool has_gradient() { return false; }
 
       virtual double length_scaling_power() { return 1.0; }
+//KOKKOS_INLINE_FUNCTION
       virtual double metric(stk::mesh::Entity element, bool& valid)
       {
         valid = true;
@@ -1673,8 +2009,101 @@
 
     };
 
+/////////////////////////////////////
+//mesh specific implementations
+/////////////////////////////////////
+//    template<>
+//    SmootherMetricUntangleImpl<STKMesh>::
+//    SmootherMetricUntangleImpl(PerceptMesh *eMesh) : SmootherMetricImpl<STKMesh>(eMesh) {
+//        m_beta_mult = 0.05;
+//    }
+//
+//    template<>
+//    SmootherMetricUntangleImpl<StructuredGrid>::
+//    SmootherMetricUntangleImpl(PerceptMesh *eMesh) : SmootherMetricImpl<StructuredGrid>(eMesh) {
+//        std::shared_ptr<BlockStructuredGrid> bsg = eMesh->get_block_structured_grid();
+//        m_beta_mult = 0.05;
+//        StructuredGrid::MTField *m_coord_field_current  = bsg->m_fields["coordinates"].get();
+//        StructuredGrid::MTField *m_coord_field_original = bsg->m_fields["coordinates_NM1"].get();
+//        m_coords_current  = *m_coord_field_current->m_block_fields[0];
+//        m_coords_original = *m_coord_field_original->m_block_fields[0];
+//    }
+//
+//    // ETI
+//    template
+//    SmootherMetricUntangleImpl<STKMesh>::
+//    SmootherMetricUntangleImpl(PerceptMesh *eMesh);
+//
+//    template
+//    SmootherMetricUntangleImpl<StructuredGrid>::
+//    SmootherMetricUntangleImpl(PerceptMesh *eMesh);
+//
+//
+//    template<>
+//    double SmootherMetricUntangleImpl<STKMesh>::
+//    metric(typename STKMesh::MTElement element, bool& valid)
+//    {
+//        valid = true;
+//
+//        JacobianUtilImpl<STKMesh> jacA, jacW;
+//
+//        double A_ = 0.0, W_ = 0.0; // current and reference detJ
+//        jacA(A_, *Base::m_eMesh, element, Base::m_coord_field_current, Base::m_topology_data);
+//        jacW(W_, *Base::m_eMesh, element, Base::m_coord_field_original, Base::m_topology_data);
+//        double val_untangle=0.0;
+//
+//        for (int i=0; i < jacA.m_num_nodes; i++)
+//        {
+//            double detAi = jacA.m_detJ[i];
+//            double detWi = jacW.m_detJ[i];
+//
+//            if (detAi <= 0.) valid = false;
+//
+//            double vv = m_beta_mult*detWi - detAi;
+//            vv = std::max(vv, 0.0);
+//            val_untangle += vv*vv;
+//        }
+//        return val_untangle;
+//    }
+//
+//    template<>
+//    double SmootherMetricUntangleImpl<StructuredGrid>::
+//    metric(typename StructuredGrid::MTElement element, bool& valid)
+//    {
+//        valid = true;
+//
+//        //SGridJacobianUtilImpl jacA, jacW;
+//
+//        double A_ = 0.0, W_ = 0.0; // current and reference detJ
+//        double nodal_A[8], nodal_W[8];
+//        SGridJacobianUtil(A_, nodal_A, m_coords_current, element);
+//        SGridJacobianUtil(W_, nodal_W, m_coords_original, element);
+//        double val_untangle=0.0;
+//
+//        for (int i=0; i < 8; i++)
+//        {
+//            double detAi = nodal_A[i];
+//            double detWi = nodal_W[i];
+//
+//            if (detAi <= 0.) valid = false;
+//
+//            double vv = m_beta_mult*detWi - detAi;
+//            vv = std::max(vv, 0.0);
+//            val_untangle += vv*vv;
+//        }
+//        return val_untangle;
+//    }
+//
+//    // ETI
+//    template
+//    double SmootherMetricUntangleImpl<STKMesh>::
+//    metric(typename STKMesh::MTElement element, bool& valid);
+//
+//    template
+//    double SmootherMetricUntangleImpl<StructuredGrid>::
+//    metric(typename StructuredGrid::MTElement element, bool& valid);
 
-  }
+  }//percept
 
 #endif
 #endif

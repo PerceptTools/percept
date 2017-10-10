@@ -17,11 +17,12 @@ namespace percept {
   class FindValidCentroid {
   public:
     PerceptMesh& m_eMesh;
-    int ndiv;
-    bool m_debug;
+    const int ndiv;
+    const bool m_debug;
     bool m_use_finite_volume;
-    FindValidCentroid(PerceptMesh& eM, int nd=5, bool deb=false, bool use_finite_volume=false) : m_eMesh(eM), ndiv(nd), m_debug(deb), m_use_finite_volume(use_finite_volume) {
-      //std::cout << "m_debug= " << m_debug << std::endl;
+    FindValidCentroid(PerceptMesh& eM, int nd=5, bool deb=false, bool use_finite_volume=false) :
+        m_eMesh(eM), ndiv(nd), m_debug(deb), m_use_finite_volume(use_finite_volume)
+    {
       if (eM.getProperty("FindValidCentroid_use_finite_volume") == "true")
         m_use_finite_volume = true;
     }

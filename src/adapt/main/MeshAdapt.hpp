@@ -56,7 +56,6 @@
 #include <Ioss_Utils.h>
 #include <Ioss_SerializeIO.h>
 
-#include <adapt/SerializeNodeRegistry.hpp>
 #include <adapt/AdaptedMeshVerifier.hpp>
 
 #include <percept/mesh/mod/smoother/SpacingFieldUtil.hpp>
@@ -197,7 +196,6 @@ namespace percept {
     int adapt_main(int argc, char **argv);
     int adapt_main_full_options(int argc, char **argv);
     int adapt_main_full_options_normal(int argc, char **argv);
-    int adapt_main_full_options_streaming(int argc, char **argv);
     int main(int argc, char **argv);
 
     // member variable initialization (c++11) start

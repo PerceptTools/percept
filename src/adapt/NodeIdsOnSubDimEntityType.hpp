@@ -24,33 +24,25 @@
 
 #include <percept/PerceptBoostArray.hpp>
 #include <adapt/SubDimCell.hpp>
-#include <adapt/NIDQuantum.hpp>
 
   namespace percept {
 
-
-    // type defining what is stored on the edge
-    typedef stk::mesh::Entity NodeIdsOnSubDimEntityTypeQuantum;
-    //typedef NIDQuantum NodeIdsOnSubDimEntityTypeQuantum;
-
     /// data on a sub-dim entity (global node ids on the entity, the owning element's id)
     // FIXME - don't inherit from vector
-    struct NodeIdsOnSubDimEntityType : public std::vector<NodeIdsOnSubDimEntityTypeQuantum>
+    struct NodeIdsOnSubDimEntityType : public std::vector<stk::mesh::Entity>
     {
-      typedef std::vector<NodeIdsOnSubDimEntityTypeQuantum> base_type;
-      typedef std::vector<stk::mesh::EntityId> entity_id_vector_type;
-      entity_id_vector_type m_entity_id_vector;
+      std::vector<stk::mesh::EntityId> m_entity_id_vector;
       unsigned m_mark;
       int m_owner_rank;  // not communicated, local only: used for choosing proc ownership of this data
 
-      NodeIdsOnSubDimEntityType(unsigned sz=1, NodeIdsOnSubDimEntityTypeQuantum allValues = NodeIdsOnSubDimEntityTypeQuantum(),
-                                unsigned mark=0u) : base_type(sz,allValues),
+      NodeIdsOnSubDimEntityType(unsigned sz=1, stk::mesh::Entity allValues = stk::mesh::Entity(),
+                                unsigned mark=0u) : std::vector<stk::mesh::Entity>(sz,allValues),
                                                   m_entity_id_vector(sz,0u),
                                                   m_mark(mark),m_owner_rank(-1)  {}
       void resize(size_t sz)
       {
         m_entity_id_vector.resize(sz);
-        base_type::resize(sz);
+        std::vector<stk::mesh::Entity>::resize(sz);
       }
 
       void pack(percept::PerceptMesh& eMesh, stk::CommBuffer& buff)
@@ -82,6 +74,15 @@
           }
       }
     };
+
+    inline std::ostream &operator<<(std::ostream& out, const NodeIdsOnSubDimEntityType nids)
+    {
+        for(unsigned iEnt=0;iEnt<nids.m_entity_id_vector.size();iEnt++)
+            out << nids.m_entity_id_vector[iEnt] << " ";
+        out << "m_mark : " << nids.m_mark << " ";
+        out << "m_owner_rank : " << nids.m_owner_rank << " ";
+        return out;
+    }
 
   }
 

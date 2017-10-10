@@ -11,7 +11,7 @@
 #include <percept/mesh/mod/smoother/SmootherMetric.hpp>
 
 namespace percept {
-
+//madbrew: putting everything into header file for kokkkos inlining
 template<>
 SmootherMetricUntangleImpl<STKMesh>::
 SmootherMetricUntangleImpl(PerceptMesh *eMesh) : SmootherMetricImpl<STKMesh>(eMesh) {

@@ -449,7 +449,7 @@
         is_marked = false;
         is_not_marked = false;
 
-        SubDimCell_SDCEntityType subDimEntity(m_eMesh);
+        SubDimCell_SDCEntityType subDimEntity(&m_eMesh);
         getNodeRegistry().getSubDimEntity(subDimEntity, element, needed_entity_rank, iSubDimOrd);
 
         static SubDimCellData new_SubDimCellData;

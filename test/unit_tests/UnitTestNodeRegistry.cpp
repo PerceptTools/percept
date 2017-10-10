@@ -248,7 +248,7 @@ TEST(nodeRegistry, test_parallel_0)
     stk::mesh::EntityRank needed_entity_rank = stk_mesh_Edge;
     for (unsigned iSubDimOrd = 0; iSubDimOrd < 12; iSubDimOrd++)
     {
-      SubDimCell_SDCEntityType subDimEntity(eMesh);
+      SubDimCell_SDCEntityType subDimEntity(&eMesh);
       nodeRegistry.getSubDimEntity(subDimEntity, element_local, needed_entity_rank, iSubDimOrd);
       std::cout << "P[" << p_rank << "] element_local edge " << iSubDimOrd << " = " << subDimEntity << std::endl;
     }
@@ -389,10 +389,6 @@ TEST(nodeRegistry, test_parallel_1_0)
 
     dw() << "P["<<p_rank<<"] nodeRegistry size       = " << nodeRegistry.total_size() << DWENDL;
     dw() << "P["<<p_rank<<"] nodeRegistry lsize      = " << nodeRegistry.local_size() << DWENDL;
-
-    // could do local create of elements here
-    nodeRegistry.beginLocalMeshMods();
-    nodeRegistry.endLocalMeshMods();
 
     // check if the newly requested nodes are local or remote
     nodeRegistry.beginCheckForRemote();
@@ -640,10 +636,6 @@ TEST(nodeRegistry, test_serial_hex8_tet4_24_1)
 
     dw() << "P["<<p_rank<<"] nodeRegistry size       = " << nodeRegistry.total_size() << DWENDL;
     dw() << "P["<<p_rank<<"] nodeRegistry lsize      = " << nodeRegistry.local_size() << DWENDL;
-
-    // could do local create of elements here
-    nodeRegistry.beginLocalMeshMods();
-    nodeRegistry.endLocalMeshMods();
 
     // check if the newly requested nodes are local or remote
     nodeRegistry.beginCheckForRemote();

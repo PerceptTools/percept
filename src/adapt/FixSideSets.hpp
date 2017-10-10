@@ -82,6 +82,9 @@ namespace percept {
     void check_connect(SetOfEntities& side_set, SetOfEntities *avoid_elems);
     void end_begin(const std::string& msg="");
 
+    void move_sides_to_correct_surfaces();
+    void move_side_to_correct_surface(stk::mesh::Part& surface, stk::mesh::Entity side, stk::mesh::Entity volume);
+
     // fast reconnector
 
     void

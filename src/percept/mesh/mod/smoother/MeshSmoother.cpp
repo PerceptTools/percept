@@ -22,11 +22,13 @@ namespace std {
 
     template<>
     MeshSmootherImpl<STKMesh>::MeshSmootherImpl(PerceptMesh *eMesh,
-                   typename STKMesh::MTSelector *boundary_selector,
+//                   typename STKMesh::MTSelector *boundary_selector,
+                   STKMesh::MTSelector *stk_select,
+                   StructuredGrid::MTSelector *sgrid_select,
                    typename STKMesh::MTMeshGeometry *meshGeometry,
                    int innerIter, double gradNorm , int parallelIterations) :
         m_eMesh(eMesh), innerIter(innerIter), gradNorm(gradNorm), parallelIterations(parallelIterations),
-        m_boundarySelector(boundary_selector), m_meshGeometry(meshGeometry)
+        m_stk_boundarySelector(stk_select),m_sgrid_boundarySelector(sgrid_select), m_meshGeometry(meshGeometry)
       {
 #if defined(STK_PERCEPT_HAS_GEOMETRY)
         if (m_meshGeometry)
@@ -36,11 +38,13 @@ namespace std {
 
     template<>
     MeshSmootherImpl<StructuredGrid>::MeshSmootherImpl(PerceptMesh *eMesh,
-                   typename StructuredGrid::MTSelector *boundary_selector,
+//                   typename StructuredGrid::MTSelector *boundary_selector,
+                   STKMesh::MTSelector *stk_select,
+                   StructuredGrid::MTSelector *sgrid_select,
                    typename StructuredGrid::MTMeshGeometry *meshGeometry,
                    int innerIter, double gradNorm , int parallelIterations) :
         m_eMesh(eMesh), innerIter(innerIter), gradNorm(gradNorm), parallelIterations(parallelIterations),
-        m_boundarySelector(boundary_selector), m_meshGeometry(meshGeometry)
+        m_stk_boundarySelector(stk_select),m_sgrid_boundarySelector(sgrid_select), m_meshGeometry(meshGeometry)
       {
       }
 
@@ -138,8 +142,6 @@ namespace std {
         if (!valid)
           ++num_invalid;
       }
-
-
     };
 
     template<>
@@ -189,39 +191,46 @@ namespace std {
     template<typename MeshType>
     size_t MeshSmootherImpl<MeshType>::parallel_count_invalid_elements(PerceptMesh *eMesh)
     {
-      GenericAlgorithm_parallel_count_invalid_elements<MeshType> ga(eMesh);
-      ga.run();
+        size_t n_invalid=0;
 
-      stk::all_reduce( MPI_COMM_WORLD, stk::ReduceSum<1>( &ga.num_invalid ) );
+        if(eMesh->get_block_structured_grid())
+        {//currently this is a member on ReferencMeshSmootherConjugateGradientImpl. This should get consolidated
+            Double mtot=0;
 
-      if (0)
-        {
-          std::cout << "MeshSmootherImpl::parallel_count_invalid_elements: ga.num_invalid= " << ga.num_invalid << std::endl;
-        }
-      if (ga.get_mesh_diagnostics)
-        {
-          stk::all_reduce( MPI_COMM_WORLD, stk::ReduceMin<1>( &ga.detA_min ) );
-          stk::all_reduce( MPI_COMM_WORLD, stk::ReduceMin<1>( &ga.detW_min ) );
-          stk::all_reduce( MPI_COMM_WORLD, stk::ReduceMax<1>( &ga.shapeA_max ) );
-          stk::all_reduce( MPI_COMM_WORLD, stk::ReduceMax<1>( &ga.shapeW_max ) );
-          if (eMesh->get_rank() == 0)
-            {
-              std::cout << "P[0] detA_min= " << ga.detA_min << " detW_min= " << ga.detW_min
-                        << " shapeA_max= " << ga.shapeA_max << " shapeW_max= " << ga.shapeW_max << std::endl;
+            SGridGenericAlgorithm_total_element_metric< HexMeshSmootherMetric >  ga_tem(eMesh, mtot, n_invalid);
+            ga_tem.m_metric.m_untangling=true;
+
+            unsigned noBlocks =
+                    eMesh->get_block_structured_grid()->m_sblocks.size();
+            for (unsigned iBlock = 0; iBlock < noBlocks; iBlock++) {
+                ga_tem.run(iBlock);
+                mtot += ga_tem.mtot;
+                n_invalid += ga_tem.n_invalid;
             }
         }
-      return ga.num_invalid;
+
+        if(eMesh->get_bulk_data()){
+            GenericAlgorithm_parallel_count_invalid_elements<MeshType> ga(eMesh);
+            ga.run();
+
+            stk::all_reduce( MPI_COMM_WORLD, stk::ReduceSum<1>( &ga.num_invalid ) );
+
+            if (ga.get_mesh_diagnostics)
+            {
+                stk::all_reduce( MPI_COMM_WORLD, stk::ReduceMin<1>( &ga.detA_min ) );
+                stk::all_reduce( MPI_COMM_WORLD, stk::ReduceMin<1>( &ga.detW_min ) );
+                stk::all_reduce( MPI_COMM_WORLD, stk::ReduceMax<1>( &ga.shapeA_max ) );
+                stk::all_reduce( MPI_COMM_WORLD, stk::ReduceMax<1>( &ga.shapeW_max ) );
+                if (eMesh->get_rank() == 0)
+                {
+                    std::cout << "P[0] detA_min= " << ga.detA_min << " detW_min= " << ga.detW_min
+                            << " shapeA_max= " << ga.shapeA_max << " shapeW_max= " << ga.shapeW_max << std::endl;
+                }
+            }
+            n_invalid += ga.num_invalid;
+        }
+        return n_invalid;
     }
-
-    template<>
-    size_t MeshSmootherImpl<STKMesh>::count_invalid_elements()
-    {
-
-      size_t num_invalid = 0;
-      throw std::runtime_error("not implemented");
-      return num_invalid;
-    }
-
 
     template<>
 int MeshSmootherImpl<STKMesh>::
@@ -267,9 +276,9 @@ int MeshSmootherImpl<STKMesh>::
       // is on the boundary; otherwise, it isn't.
       bool& fixed = ret.first;
       int& type = ret.second;
-      if (m_boundarySelector)
+      if (m_stk_boundarySelector)
         {
-          if ((*m_boundarySelector)(m_eMesh->bucket(node_ptr)))
+          if ((*m_stk_boundarySelector)(m_eMesh->bucket(node_ptr)))
             {
               fixed=true;
               type=MS_ON_BOUNDARY;
@@ -342,9 +351,9 @@ int MeshSmootherImpl<STKMesh>::
       // is on the boundary; otherwise, it isn't.
       bool& fixed = ret.first;
       int& type = ret.second;
-      if (m_boundarySelector)
+      if (m_sgrid_boundarySelector)
         {
-          if ((*m_boundarySelector)(node_ptr))
+          if ((*m_sgrid_boundarySelector)(node_ptr))
             {
               fixed=true;
               type=MS_ON_BOUNDARY;
@@ -362,7 +371,6 @@ int MeshSmootherImpl<STKMesh>::
             {
               size_t curveOrSurfaceEvaluator;
               dof = m_meshGeometry->classify_node(node_ptr, curveOrSurfaceEvaluator);
-              //std::cout << "tmp srk classify node= " << node_ptr->identifier() << " dof= " << dof << std::endl;
               // vertex
               if (dof == 0)
                 {
@@ -384,7 +392,6 @@ int MeshSmootherImpl<STKMesh>::
                   if (m_eMesh->get_smooth_surfaces())
                     {
                       fixed = false;
-                      //std::cout << "tmp srk found surface node unfixed= " << m_m_eMesh->identifier(node_ptr) << std::endl;
                     }
                   type=MS_SURFACE;
                   if (DEBUG_PRINT) std::cout << "tmp srk found surface node unfixed= " << node_ptr << std::endl;
@@ -410,41 +417,14 @@ int MeshSmootherImpl<STKMesh>::
 
 
     template<typename MeshType>
-    void MeshSmootherImpl<MeshType>::run( bool always_smooth, int debug)
+    void MeshSmootherImpl<MeshType>::run()
     {
 #ifdef USE_CALLGRIND_MESH_SMOOTHER
       CALLGRIND_START_INSTRUMENTATION;
       CALLGRIND_TOGGLE_COLLECT;
 #endif
-      PerceptMesh *eMesh = m_eMesh;
 
-      size_t num_invalid = parallel_count_invalid_elements(eMesh);
-      if (!m_eMesh->get_rank())
-        std::cout << "\ntmp srk MeshSmootherImpl num_invalid before= " << num_invalid
-                      << (num_invalid ? " WARNING: invalid elements exist before  smoothing" :
-                          (!always_smooth ? "WARNING: no smoothing requested since always_smooth=false" : " "))
-                      << std::endl;
-      //if (num_invalid) throw std::runtime_error("MeshSmootherImpl can't start from invalid mesh...");
-
-      if (always_smooth)
-        {
-          //int  msq_debug             = debug; // 1,2,3 for more debug info
-
-          //bool do_untangle_only = false;
-          //std::cout << "\nP[" << m_eMesh->get_rank() << "] tmp srk innerIter= " << innerIter << " parallelIterations= " << parallelIterations << std::endl;
-          this->run_algorithm();
-
-          //if (!m_eMesh->get_rank())
-
-          num_invalid = parallel_count_invalid_elements(eMesh);
-          if (!m_eMesh->get_rank())
-            std::cout << "\nP[" << m_eMesh->get_rank() << "] tmp srk MeshSmootherImpl num_invalid after= " << num_invalid << " "
-                      << (num_invalid ? " ERROR still have invalid elements after smoothing" :
-                          " SUCCESS: smoothed and removed invalid elements ")
-                      << std::endl;
-          //std::cout << "\nP[" << m_eMesh->get_rank() << "] tmp srk after barrier" << std::endl;
-        }
-
+      this->run_algorithm();
 
 #ifdef USE_CALLGRIND_MESH_SMOOTHER
       CALLGRIND_TOGGLE_COLLECT;
@@ -566,28 +546,6 @@ int MeshSmootherImpl<STKMesh>::
       coordinate[1] = f_data[1];
       if (m_eMesh->get_spatial_dim() > 2)
         coordinate[2] = f_data[2];
-
-#if 0
-      if (m_eMesh->id(node_ptr) == 4224 || m_eMesh->id(node_ptr) == 5073)
-        {
-          std::cout << "tmp snap_to: node= " << m_eMesh->id(node_ptr) << " orig= "
-                    << f_data_save[0] << " "
-                    << f_data_save[1] << " "
-                    << f_data_save[2] << " "
-                    << " new= "
-                    << f_data[0] << " "
-                    << f_data[1] << " "
-                    << f_data[2] << " diff1= "
-                    << (std::fabs(f_data[0] - f_data_save[0])+
-                        std::fabs(f_data[1] - f_data_save[1])+
-                        std::fabs(f_data[2] - f_data_save[2]))
-                    << " diff= " 
-                    << f_data_save[0] - f_data[0] << " "
-                    << f_data_save[1] - f_data[1] << " "
-                    << f_data_save[2] - f_data[2] << " "
-                    << std::endl;
-        }
-#endif
 
       // reset the node
       if (reset)

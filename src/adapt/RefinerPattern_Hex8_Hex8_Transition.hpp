@@ -138,12 +138,6 @@
             genericRefine_createNewElements(eMesh, nodeRegistry,
                                             element, new_sub_entity_nodes, element_pool, ft_element_pool,
                                             proc_rank_field);
-#ifndef NDEBUG
-          if (1)
-            {
-              nodeRegistry.prolongateCoordsAllSubDims(element);
-            }
-#endif
           }
         else
           {

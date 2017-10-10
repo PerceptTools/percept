@@ -94,16 +94,8 @@ CPP11MVITYPE(std::string) property_map CPP11MVIEQ(= "");
 CPP11MVITYPE(std::string) memory_multipliers_file CPP11MVI("");
 CPP11MVITYPE(int) estimate_memory_usage CPP11MVIEQ(=0);
 CPP11MVITYPE(int) precheck_memory_usage CPP11MVIEQ(=0);
-CPP11MVITYPE(int) streaming_size CPP11MVIEQ(=0);
-CPP11MVITYPE(int) streaming_rank CPP11MVIEQ(=0);
-CPP11MVITYPE(int) streaming_pass_start CPP11MVIEQ(= -2);  // FIXME - change to not start from -1 below
-CPP11MVITYPE(int) streaming_pass_end CPP11MVIEQ(= -2);
-//std::string streaming_instruction CPP11MVIEQ(="");
-CPP11MVITYPE(int) streaming_W CPP11MVIEQ(= 0);
-CPP11MVITYPE(int) streaming_iW CPP11MVIEQ(= 0);
 CPP11MVITYPE(std::string) compute_hmesh CPP11MVI( "");
 CPP11MVITYPE(int) print_hmesh_surface_normal CPP11MVIEQ(= 0);
-CPP11MVITYPE(int) save_internal_fields CPP11MVIEQ(= 0);
 
 CPP11MVITYPE(int) use_side_map CPP11MVIEQ(= 0); // experimental
 

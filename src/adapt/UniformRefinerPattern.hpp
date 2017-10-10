@@ -83,7 +83,7 @@
     typedef std::vector<std::vector<std::string> > BlockNamesType;
     typedef std::map<std::string, std::string> StringStringMap;
 
-    typedef vector<vector<vector<stk::mesh::EntityId> > > NewSubEntityNodesType;
+    typedef std::vector<std::vector<std::vector<stk::mesh::EntityId> > > NewSubEntityNodesType;
     typedef Elem::StdMeshObjTopologies::RefTopoX RefTopoX;
 
     typedef Elem::StdMeshObjTopologies::RefinementTopologyExtraEntry *RefTopoX_arr;
@@ -215,7 +215,7 @@
 
       stk::mesh::PartVector m_fromParts;
       stk::mesh::PartVector m_toParts;
-      const std::string m_appendConvertString; //="_urpconv_"
+      static const std::string m_appendConvertString; //="_urpconv_"
       const std::string m_convertSeparatorString; // temporarily use "#" then rename parts to use m_convertSeparatorFinalString
       const std::string m_convertSeparatorFinalString; // "_"
       const std::string m_appendOriginalString; //="_uo_1000"
@@ -249,7 +249,7 @@
 
       //typedef ToTopology TTopo;
 
-      UniformRefinerPatternBase() : m_appendConvertString("_urpconv"),
+      UniformRefinerPatternBase() : //m_appendConvertString("_urpconv"),
                                     m_convertSeparatorString("."),
                                     m_convertSeparatorFinalString("_"),
                                     m_appendOriginalString(percept::PerceptMesh::s_omit_part+"_1000"),  // _100000
@@ -285,10 +285,11 @@
       ///
       void addToBreakPatternList(std::set<UniformRefinerPatternBase *>& list, PerceptMesh& eMesh);
 
-      virtual void setNeededParts(percept::PerceptMesh& eMesh, BlockNamesType block_names_ranks,
+      virtual void setNeededParts(PerceptMesh& eMesh, BlockNamesType block_names_ranks,
                                   bool sameTopology=true, bool skipConvertedParts=true);
 
-      void fixSubsets(percept::PerceptMesh& eMesh, bool sameTopology);
+      void fixSubsets(PerceptMesh& eMesh);
+      void addExtraSurfaceParts(PerceptMesh& eMesh);
 
       void
       genericRefine_createNewElementsBase(percept::PerceptMesh& eMesh, NodeRegistry& nodeRegistry,
@@ -413,7 +414,7 @@
 
       stk::mesh::PartVector& getToParts() { return m_toParts; }
       stk::mesh::PartVector& getFromParts() { return m_fromParts; }
-      const std::string& getAppendConvertString() { return m_appendConvertString; }
+      static const std::string& getAppendConvertString() { return m_appendConvertString; }
       const std::string& getConvertSeparatorString() { return m_convertSeparatorString; }
       const std::string& getConvertSeparatorFinalString() { return m_convertSeparatorFinalString; }
       const std::string& getAppendOriginalString() { return m_appendOriginalString; }
@@ -449,6 +450,7 @@
           		bool found_include_only_block, std::vector<std::string>& block_names_include, stk::mesh::Part *  part);
       void setNeededParts_debug1(percept::PerceptMesh& eMesh);
       void setNeededParts_debug2();
+      void updateSurfaceBlockMap(percept::PerceptMesh& eMesh, stk::mesh::Part* part, stk::mesh::Part* part_to);
     };
     /// Utility intermediate base class providing more support for standard refinement operations
     /// ------------------------------------------------------------------------------------------------------------------------
@@ -545,7 +547,7 @@
         RefTopoX& ref_topo_x_in = Elem::StdMeshObjTopologies::RefinementTopologyExtra< FromTopology > ::refinement_topology;
         const CellTopologyData * const cell_topo_data_toTopo_in = shards::getCellTopologyData< ToTopology >();
 
-        static vector< vector<stk::mesh::EntityId> > elems;
+        static std::vector<std::vector<stk::mesh::EntityId> > elems;
         if (elems.size()==0)
           {
             elems.resize(getNumNewElemPerElem());

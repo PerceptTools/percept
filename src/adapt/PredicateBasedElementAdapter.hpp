@@ -109,15 +109,8 @@
         const CellTopologyData * const cell_topo_data = m_eMesh.get_cell_topology(element);
 
         CellTopology cell_topo(cell_topo_data);
-        //const percept::MyPairIterRelation elem_nodes (m_eMesh, element, stk::topology::NODE_RANK);
-
-        //CoordinatesFieldType* coordField = m_eMesh.get_coordinates_field();
 
         bool markInfo = (m_predicate_refine(element) & DO_REFINE);
-        if (0)
-          {
-            std::cout << "PredicateBasedElementAdapter:: elemface= " << m_eMesh.print_entity_faces(element, true) << " markInfo= " << markInfo << std::endl;
-          }
 
         for (unsigned ineed_ent=0; ineed_ent < needed_entity_ranks.size(); ineed_ent++)
           {
@@ -144,17 +137,9 @@
 
             // setup to mark all edges
             std::vector<bool> markInfoVec(numSubDimNeededEntities, markInfo1);
-            if (0)
-              {
-                std::cout << "PredicateBasedElementAdapter:: elemface= " << m_eMesh.print_entity_faces(element, true) << " markInfo1= " << markInfo1 << " needed_entity_rank= " << needed_entity_rank << std::endl;
-              }
 
             // allow for overload here for special cases
             modify_marks(element, needed_entity_rank, markInfoVec, markInfo1);
-
-            // if (needed_entity_rank == m_eMesh.face_rank())
-            //   {
-            //     std::cout << numSubDimNeededEntities = cell_topo_data->side_count;
 
             if (needed_entity_ranks[ineed_ent].third.size())
               {
@@ -178,7 +163,7 @@
         is_marked = false;
         is_not_marked = false;
 
-        SubDimCell_SDCEntityType subDimEntity(m_eMesh);
+        SubDimCell_SDCEntityType subDimEntity(&m_eMesh);
         getNodeRegistry().getSubDimEntity(subDimEntity, element, needed_entity_rank, iSubDimOrd);
 
         static SubDimCellData new_SubDimCellData;

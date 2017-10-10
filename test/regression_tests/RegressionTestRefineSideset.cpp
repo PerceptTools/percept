@@ -60,7 +60,7 @@
 #include <adapt/UniformRefinerPattern_def.hpp>
 #include <stk_mesh/base/MeshUtils.hpp>
 #include <stk_mesh/base/FEMHelpers.hpp>
-#include <stk_unit_test_utils/ReadWriteSidesetTester.hpp>
+#include "stk_unit_test_utils/ReadWriteSidesetTester.hpp"
 
 
   namespace percept

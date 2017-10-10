@@ -23,7 +23,7 @@
 #ifdef USE_CALLGRIND_MESH_SMOOTHER
 #include "/usr/netpub/valgrind-3.8.1/include/valgrind/callgrind.h"
 #endif
-
+#include <percept/mesh/mod/smoother/GenericAlgorithm_total_element_metric.hpp>
 
 
   namespace percept {
@@ -31,19 +31,6 @@
 #if !defined(STK_PERCEPT_HAS_GEOMETRY)
     class MeshGeometry {};
 #endif
-
-    const double PS_DEF_UNT_BETA = 1e-8;
-    const double PS_DEF_SUC_EPS = 1e-4;
-
-
-    enum NodeClassifyType {
-      MS_VERTEX,
-      MS_CURVE,
-      MS_SURFACE,
-      MS_VOLUME,
-      MS_ON_BOUNDARY,
-      MS_NOT_ON_BOUNDARY
-    };
 
     /// Abstract base class smoother
     template<typename MeshType>
@@ -55,25 +42,30 @@
       int innerIter;
       double gradNorm;
       int parallelIterations;
-      typename MeshType::MTSelector *m_boundarySelector;
+//      typename MeshType::MTSelector *m_boundarySelector;
+      STKMesh::MTSelector *m_stk_boundarySelector;
+      StructuredGrid::MTSelector *m_sgrid_boundarySelector;
     public:
       typename MeshType::MTMeshGeometry *m_meshGeometry;
 
     public:
 
       MeshSmootherImpl(PerceptMesh *eMesh,
-                   typename MeshType::MTSelector *boundary_selector=0,
+//                   typename MeshType::MTSelector *boundary_selector=0,
+                   STKMesh::MTSelector *stk_select=0,
+                   StructuredGrid::MTSelector *sgrid_select=0,
                    typename MeshType::MTMeshGeometry *meshGeometry=0,
                        int innerIter=100, double gradNorm = 1.e-8, int parallelIterations=20);
 
-      /// @deprecated
-      static size_t count_invalid_elements();
+      StructuredGrid::MTSelector * get_sgrid_select()const {return m_sgrid_boundarySelector;}
+      STKMesh::MTSelector * get_stkmesh_select() const {return m_stk_boundarySelector;}
+
+      virtual ~MeshSmootherImpl() {}
 
       static size_t parallel_count_invalid_elements(PerceptMesh *eMesh);
 
-      void run( bool always_smooth=true, int debug=0);
+      void run();
       virtual void run_algorithm() = 0;
-
 
       static bool select_bucket(typename MeshType::MTBucket& bucket, PerceptMesh *eMesh);
       std::pair<bool,int> get_fixed_flag(typename MeshType::MTNode node_ptr);
@@ -84,10 +76,7 @@
       /// if reset is true, don't actually modify the node's coordinates and only
       /// return the snapped position in @param coordinate
       void snap_to(typename MeshType::MTNode node_ptr,  double *coordinate, bool reset=false) const;
-
-
     };
-
 
     using MeshSmoother = MeshSmootherImpl<STKMesh>;
   }

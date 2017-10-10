@@ -56,7 +56,6 @@
 
       static double pressure_value = 123.4;
 
-#if 1
       //======================================================================================================================
       //======================================================================================================================
       //======================================================================================================================
@@ -139,8 +138,6 @@
 
       }
 
-#endif
-
       //======================================================================================================================
       //======================================================================================================================
       //======================================================================================================================
@@ -194,25 +191,6 @@
 
       }
 
-#define EXPECT_CATCH(expression, name)                                  \
-      {                                                                 \
-        bool didCatch_ ## name = false;                                 \
-        try {                                                           \
-          expression ;                                                  \
-        }                                                               \
-        catch ( const std::exception & X ) {                            \
-          std::cout << # name << "  expected to catch this exception: " << X.what() << std::endl; \
-          didCatch_ ## name = true;                                     \
-        }                                                               \
-        catch( ... ) {                                                  \
-          std::cout << " Caught unknown exception"                      \
-                    << std::endl ;                                      \
-          std::cout.flush();                                            \
-          didCatch_ ## name = false;                                    \
-        }                                                               \
-        EXPECT_TRUE(didCatch_ ## name);                                 \
-      }
-
       //======================================================================================================================
       //======================================================================================================================
       //======================================================================================================================
@@ -232,7 +210,7 @@
 
         eMesh.commit();
 
-        EXPECT_CATCH( eMesh.commit() , commit_again);
+        EXPECT_ANY_THROW( eMesh.commit() );
 
         // create a field function from the new pressure field
         FieldFunction ff_pressure("ff_pressure", pressure_field, eMesh, 3, 1);
@@ -245,7 +223,7 @@
         eMesh.save_as(output_files_loc+"cube_with_pressure_3.e");
         eMesh.close();
 
-        EXPECT_CATCH( eMesh.print_info("bad", 1) , mesh_closed_try_print);
+        EXPECT_ANY_THROW( eMesh.print_info("bad", 1) );
 
         // end_demo
 
@@ -363,7 +341,6 @@
                 eMesh1.open_read_only("input_files._.hex-7block_R2.g");
                 eMesh1.print_all();
                 eMesh1.delete_side_sets();
-                eMesh1.renumber_sides_for_exodus();
               }
 
             // end_demo

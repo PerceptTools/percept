@@ -135,7 +135,18 @@ namespace percept {
         eMesh.commit();
 
         bool debug=true;
-        std::string input = "{file: rar_input.yaml}";
+        std::string input = "{error_indicator_field: myError, "
+        		"extra_output: yes, "
+        		"family_tree_extension: ft, "
+        		"marker: {refine_fraction: 0.2, type: fraction, unrefine_fraction: 0.2}, "
+        		"max_number_elements_fraction: 0.2, "
+        		"max_refinement_level: 3, "
+        		"new_nodes_field: new_nodes, "
+        		"parent_element_field: parent_element, "
+        		"refine_field: refine_field, "
+        		"refine_level_field: refine_level, "
+        		"transition_element_field: transition_element, "
+        		"wedge_boundary_layer_special_refinement: {activate: yes, enable_special_patterns: false, allow_unrefine: true}}";
         std::string output = "rar1.yaml";
         percept::RunAdaptRunInfo rar(eMesh, input, output, debug);
         rar.create();
@@ -239,8 +250,7 @@ namespace percept {
             elementOpLoop(*eMesh.get_bulk_data(), set_err_field, error_field);
             rar.m_marker->mark();
 
-            bool enforce_what[3] = {false, true, false};
-            breaker.refine( enforce_what);
+            breaker.refine();
             std::cout << "tet_transition number elements after pass " << iref << " = " << eMesh.get_number_elements() << std::endl;
             if (1)
               {
@@ -346,8 +356,7 @@ namespace percept {
               if (iref == 0)
                 eMesh.save_as(type+"-rar-anim-ft.e");
 
-              bool enforce_what[3] = {false, true, false};
-              breaker.refine( enforce_what);
+              breaker.refine();
               std::cout << "tet_transition number elements after pass " << iref << " = " << eMesh.get_number_elements() << std::endl;
               if (1)
                 {
@@ -499,8 +508,7 @@ namespace percept {
 
       rar.m_marker->mark();
 
-      bool enforce_what[3] = {false, true, false};
-      breaker.refine( enforce_what);
+      breaker.refine();
 
       eMesh.output_active_children_only(false);
       eMesh.save_as(output_ft);

@@ -44,7 +44,7 @@ namespace percept {
     }
     std::cout << stk::parallel_machine_rank(m_comm) << " nblocks= " << m_sblocks.size() << std::endl;
   }
-  
+
 
   void BlockStructuredGrid::register_field(const std::string& field, unsigned fourth_dim)
   {
@@ -241,34 +241,78 @@ namespace percept {
       }
   }
 
-  void BlockStructuredGrid::get_elements(std::vector<StructuredCellIndex>& elements)
-  {
-    get_nodes(elements,  1);
-  }
+void BlockStructuredGrid::get_elements(
+        std::vector<StructuredCellIndex>& elements) { //writes all the elements of a structured block at certain index inside m-sblocks to an std::vector
+    get_nodes(elements, 1);
+}
+
+void BlockStructuredGrid::get_nodes_of_sb(
+        std::vector<StructuredCellIndex>& nodes, unsigned iBlock,
+        unsigned offset) { //writes all the ijkb components of the nodes or elements of a structured block at certain index inside m_sblocks to an std::vector of SCell indices
+    if (iBlock > m_sblocks.size()) {
+        std::cout << "Block index out of range, exiting get_nodes_of_sb"
+                << std::endl;
+        return;
+    }
+
+    std::shared_ptr<StructuredBlock> sgrid = m_sblocks[iBlock];
+    const unsigned L0 = sgrid->m_loop_ordering[0], L1 =
+            sgrid->m_loop_ordering[1], L2 = sgrid->m_loop_ordering[2];
+
+    if (sgrid->is_empty()) {
+        std::cout << "Block is empty, exiting get_nodes_of_sb" << std::endl;
+        return;
+    }
+
+    unsigned sizes[3] = { sgrid->m_sizes.node_size[0] - offset,
+            sgrid->m_sizes.node_size[1] - offset, sgrid->m_sizes.node_size[2]
+                    - offset };
+
+    unsigned total_entities = sizes[0] * sizes[1] * sizes[2];
+
+    nodes.resize(total_entities);
+
+    unsigned indx[3] { 0, 0, 0 };
+
+    unsigned iEnt = 0;
+
+    for (indx[L2] = 0; indx[L2] < sizes[L2]; ++indx[L2]) {
+        for (indx[L1] = 0; indx[L1] < sizes[L1]; ++indx[L1]) {
+            for (indx[L0] = 0; indx[L0] < sizes[L0]; ++indx[L0]) {
+                StructuredCellIndex node { { indx[0], indx[1], indx[2], iBlock } };
+                nodes[iEnt][0] = node[0];
+                nodes[iEnt][1] = node[1];
+                nodes[iEnt][2] = node[2];
+                nodes[iEnt][3] = node[3];
+                iEnt++;
+            }
+        }
+    }
+} //get_nodes_sb
+
+
+
+void BlockStructuredGrid::get_elements_of_sb(
+        std::vector<StructuredCellIndex>&elements, unsigned iBlock) { //writes all the ijkb components of the elements of a structured block at certain index inside m_sblocks to an std::vector
+    get_nodes_of_sb(elements, iBlock, 1);
+}
 
   struct SB_copy_field {
-    Array4D& m_field_dest;
-    const Array4D& m_field_src;
+    Array4D m_field_dest;
+    const Array4D m_field_src;
 
-    SB_copy_field(Array4D& field_dest, const Array4D& field_src) : m_field_dest(field_dest), m_field_src(field_src) {}
+    SB_copy_field(Array4D field_dest, const Array4D field_src) : m_field_dest(field_dest), m_field_src(field_src) {}
 
     void run()
     {
-      int64_t sz = m_field_dest.size();
-      VERIFY_OP_ON(sz, ==, (int64_t)m_field_src.size(), "bad size");
-      for (int64_t index = 0; index < sz; ++index)
-        {
-          (*this)(index);
-        }
+        unsigned sz = m_field_dest.size();
+        VERIFY_OP_ON(sz, ==, (unsigned)m_field_src.size(), "bad size");
+        Kokkos::parallel_for(Kokkos::RangePolicy<ExecSpace>(0,(unsigned)sz),*this);
     }
 
-    void operator()(int64_t& index) const
-    {
-      const_cast<SB_copy_field *>(this)->operator()(index);
-    }
-
-    void operator()(int64_t& index)
-    {
+    KOKKOS_INLINE_FUNCTION
+    void operator()(unsigned index) const
+    { //madbrew: faster but doesn't leverage kokkos to full advantage; it ignores layout
       m_field_dest.data()[index] = m_field_src.data()[index];
     }
   };
@@ -280,8 +324,8 @@ namespace percept {
         std::shared_ptr<StructuredBlock> sgrid = m_sblocks[iblock];
         if (sgrid->is_empty())
           continue;
-        Array4D& dest = (*field_dest->m_block_fields[iblock]);
-        Array4D& src = (*field_src->m_block_fields[iblock]);
+        Array4D dest = (*field_dest->m_block_fields[iblock]);
+        Array4D src = (*field_src->m_block_fields[iblock]);
         SB_copy_field cf(dest, src);
         cf.run();
       }
@@ -291,33 +335,25 @@ namespace percept {
   /// axpbypgz calculates: z = alpha*x + beta*y + gamma*z
   struct SB_nodal_field_axpbypgz {
     const double m_alpha, m_beta, m_gamma;
-    const Array4D& m_field_x;
-    const Array4D& m_field_y;
-    Array4D& m_field_z;
+    const Array4D m_field_x;
+    const Array4D m_field_y;
+    Array4D m_field_z;
 
-    SB_nodal_field_axpbypgz(double alp, const Array4D& field_x,
-                            double bet, const Array4D& field_y,
-                            double gam,  Array4D& field_z) :
+    SB_nodal_field_axpbypgz(double alp, const Array4D field_x,
+                            double bet, const Array4D field_y,
+                            double gam,  Array4D field_z) :
       m_alpha(alp), m_beta(bet), m_gamma(gam),
       m_field_x(field_x), m_field_y(field_y), m_field_z(field_z) {}
 
     void run()
     {
-      int64_t sz = m_field_x.size();
-      VERIFY_OP_ON(sz, ==, (int64_t)m_field_y.size(), "bad size");
-      VERIFY_OP_ON(sz, ==, (int64_t)m_field_z.size(), "bad size");
-      for (int64_t index = 0; index < sz; ++index)
-        {
-          (*this)(index);
-        }
+      unsigned sz = m_field_x.size();
+      VERIFY_OP_ON(sz, ==, (unsigned)m_field_y.size(), "bad size");
+      VERIFY_OP_ON(sz, ==, (unsigned)m_field_z.size(), "bad size");
+      Kokkos::parallel_for(Kokkos::RangePolicy<ExecSpace>(0,sz),*this);
     }
-
-    void operator()(int64_t& index) const
-    {
-      const_cast<SB_nodal_field_axpbypgz *>(this)->operator()(index);
-    }
-
-    void operator()(int64_t& index)
+    KOKKOS_INLINE_FUNCTION
+    void operator()(const unsigned& index) const
     {
       m_field_z.data()[index] = m_alpha*m_field_x.data()[index] + m_beta*m_field_y.data()[index] + m_gamma*m_field_z.data()[index];
     }
@@ -332,9 +368,9 @@ namespace percept {
         std::shared_ptr<StructuredBlock> sgrid = m_sblocks[iblock];
         if (sgrid->is_empty())
           continue;
-        Array4D& fx = (*field_x->m_block_fields[iblock]);
-        Array4D& fy = (*field_y->m_block_fields[iblock]);
-        Array4D& fz = (*field_z->m_block_fields[iblock]);
+        Array4D fx = (*field_x->m_block_fields[iblock]);
+        Array4D fy = (*field_y->m_block_fields[iblock]);
+        Array4D fz = (*field_z->m_block_fields[iblock]);
         SB_nodal_field_axpbypgz na(alpha, fx,
                                    beta,  fy,
                                    gamma, fz);
@@ -345,30 +381,23 @@ namespace percept {
   /// axpby calculates: y = alpha*x + beta*y
   struct SB_nodal_field_axpby {
     const double m_alpha, m_beta;
-    const Array4D& m_field_x;
-    Array4D& m_field_y;
+    const Array4D m_field_x;
+    Array4D m_field_y;
 
-    SB_nodal_field_axpby(double alp, const Array4D& field_x,
-                         double bet, Array4D& field_y) :
+    SB_nodal_field_axpby(double alp, const Array4D field_x,
+                         double bet, Array4D field_y) :
       m_alpha(alp), m_beta(bet),
       m_field_x(field_x), m_field_y(field_y) {}
 
     void run()
     {
-      int64_t sz = m_field_x.size();
-      VERIFY_OP_ON(sz, ==, (int64_t)m_field_y.size(), "bad size");
-      for (int64_t index = 0; index < sz; ++index)
-        {
-          (*this)(index);
-        }
+      unsigned sz = m_field_x.size();
+      VERIFY_OP_ON(sz, ==, (unsigned)m_field_y.size(), "bad size");
+      Kokkos::parallel_for(Kokkos::RangePolicy<ExecSpace>(0,sz),*this);
     }
 
-    void operator()(int64_t& index) const
-    {
-      const_cast<SB_nodal_field_axpby *>(this)->operator()(index);
-    }
-
-    void operator()(int64_t& index)
+    KOKKOS_INLINE_FUNCTION
+    void operator()(const unsigned& index) const
     {
       m_field_y.data()[index] = m_alpha*m_field_x.data()[index] + m_beta*m_field_y.data()[index];
     }
@@ -381,8 +410,8 @@ namespace percept {
         std::shared_ptr<StructuredBlock> sgrid = m_sblocks[iblock];
         if (sgrid->is_empty())
           continue;
-        Array4D& fx = (*field_x->m_block_fields[iblock]);
-        Array4D& fy = (*field_y->m_block_fields[iblock]);
+        Array4D fx = (*field_x->m_block_fields[iblock]);
+        Array4D fy = (*field_y->m_block_fields[iblock]);
         SB_nodal_field_axpby na(alpha, fx, beta, fy);
         na.run();
       }
@@ -390,47 +419,117 @@ namespace percept {
 
 
   struct SB_nodal_field_dot {
-    long double m_sum;
-    const Array4D& m_field_x;
-    const Array4D& m_field_y;
+    DeviceSafeSGridBoundaryNotInterfaceSelector boundSelector;
+    DetermineIfLowestRankedOwner rank_determinator;
 
-    SB_nodal_field_dot(const Array4D& field_x,
-                       const Array4D& field_y) :
-      m_sum(0.0),
-      m_field_x(field_x), m_field_y(field_y) {}
+    unsigned spatialDim;
+
+    Double m_sum;
+    const Array4D m_field_x;
+    const Array4D m_field_y;
+    SGridSizes m_sizes;
+    Kokkos::Array<unsigned int, 3> loop_orderings;
+
+    SB_nodal_field_dot(const Array4D field_x,
+                       const Array4D field_y,
+                       std::shared_ptr<StructuredBlock> sgrid) :
+                           boundSelector(sgrid), rank_determinator(sgrid),
+                           m_sum(0.0),
+                           m_field_x(field_x), m_field_y(field_y)
+    {
+        m_sizes = sgrid->m_sizes;
+        for(unsigned ijk=0;ijk<3;ijk++)
+            loop_orderings[ijk]=sgrid->m_loop_ordering[ijk];
+
+        spatialDim = 3;
+    }
 
     void run()
     {
-      int64_t sz = m_field_x.size();
-      VERIFY_OP_ON(sz, ==, (int64_t)m_field_y.size(), "bad size");
-      for (int64_t index = 0; index < sz; ++index)
-        {
-          (*this)(index);
-        }
+        Double tot=0;
+        unsigned sz = m_sizes.node_size[0]*m_sizes.node_size[1]*m_sizes.node_size[2];
+        Kokkos::parallel_reduce(Kokkos::RangePolicy<ExecSpace>(0,sz),*this,tot);
+        m_sum+=tot;
     }
 
-    void operator()(int64_t& index) const
+    KOKKOS_INLINE_FUNCTION
+    void operator()(const unsigned& iNode, Double& loc_sum) const
     {
-      const_cast<SB_nodal_field_dot *>(this)->operator()(index);
+        Kokkos::Array<unsigned, 3> ijk;
+        sgrid_multi_dim_indices_from_index_node(m_sizes,loop_orderings,iNode,ijk);
+        if(    !(ijk[0] == 0 || ijk[0] == m_sizes.node_size[0]-1 ||
+                ijk[1] == 0 || ijk[1] == m_sizes.node_size[1]-1 ||
+                ijk[2] == 0 || ijk[2] == m_sizes.node_size[2]-1 ) //if the node is purely interior
+                || boundSelector(ijk) //or if it is on a boundary and not on an interface
+                || rank_determinator(ijk) ) //or if it is on an interface and this block is the lowest ranking block sharing that node
+            for(unsigned iDim=0;iDim<spatialDim;iDim++)
+                loc_sum += m_field_x(ijk[0],ijk[1],ijk[2],iDim)*m_field_y(ijk[0],ijk[1],ijk[2],iDim); //then dot it
     }
+  };
 
-    void operator()(int64_t& index)
-    {
-      m_sum += m_field_x.data()[index]*m_field_y.data()[index];
-    }
+  struct SB_parallel_count_nodes
+  {
+      DeviceSafeSGridBoundaryNotInterfaceSelector boundSelector;
+      DetermineIfLowestRankedOwner rank_determinator;
+
+      unsigned spatialDim;
+
+      unsigned num_nodes;
+      const Array4D m_field;
+      SGridSizes m_sizes;
+      Kokkos::Array<unsigned int, 3> loop_orderings;
+
+      SB_parallel_count_nodes(const Array4D field,
+                         std::shared_ptr<StructuredBlock> sgrid) :
+                             boundSelector(sgrid), rank_determinator(sgrid),
+                             num_nodes(0.0),
+                             m_field(field)
+      {
+          m_sizes = sgrid->m_sizes;
+          for(unsigned ijk=0;ijk<3;ijk++)
+              loop_orderings[ijk]=sgrid->m_loop_ordering[ijk];
+
+          spatialDim = 3;
+      }
+
+      void run()
+      {
+          unsigned tot=0;
+          unsigned sz = m_sizes.node_size[0]*m_sizes.node_size[1]*m_sizes.node_size[2];//m_field_x.size();
+          Kokkos::parallel_reduce(Kokkos::RangePolicy<ExecSpace>(0,sz),*this,tot);
+          num_nodes+=tot;
+      }
+
+      KOKKOS_INLINE_FUNCTION
+      void operator()(const unsigned& iNode, unsigned& loc_sum) const
+      {
+          Kokkos::Array<unsigned, 3> ijk;
+          sgrid_multi_dim_indices_from_index_node(m_sizes,loop_orderings,iNode,ijk);
+          if(    !(ijk[0] == 0 || ijk[0] == m_sizes.node_size[0]-1 ||
+                  ijk[1] == 0 || ijk[1] == m_sizes.node_size[1]-1 ||
+                  ijk[2] == 0 || ijk[2] == m_sizes.node_size[2]-1 ) //if the node is purely interior
+                  || boundSelector(ijk) //or if it is on a boundary and not on an interface
+                  || rank_determinator(ijk) ) //or if it is on an interface and this block is the lowest ranking block sharing that node
+              loc_sum++;
+      }
   };
 
   long double BlockStructuredGrid::nodal_field_dot(typename StructuredGrid::MTField* field_x, typename StructuredGrid::MTField* field_y)
   {
-    long double sum=0.0;
+    Double sum=0.0;
     for (unsigned iblock=0; iblock < m_sblocks.size(); ++iblock)
       {
         std::shared_ptr<StructuredBlock> sgrid = m_sblocks[iblock];
         if (sgrid->is_empty())
           continue;
-        Array4D& fx = (*field_x->m_block_fields[iblock]);
-        Array4D& fy = (*field_y->m_block_fields[iblock]);
-        SB_nodal_field_dot na(fx, fy);
+        Array4D fx = (*field_x->m_block_fields[iblock]);
+        Array4D fy = (*field_y->m_block_fields[iblock]);
+
+        unsigned spatDim = fx.dimension_3();
+
+        SB_nodal_field_dot na(fx, fy, sgrid);
+        na.spatialDim = spatDim;
+
         na.run();
         sum += na.m_sum;
       }
@@ -439,31 +538,30 @@ namespace percept {
 
   /// set field to constant value
   struct SB_nodal_field_set_value {
-    long double m_value;
-    Array4D& m_field_x;
-
-    SB_nodal_field_set_value(double val, Array4D& field_x) :
-      m_value(val), m_field_x(field_x) {}
+    const Double m_value;
+    Array4D m_field_x;
+    SGridSizes m_block_sizes;
+   Kokkos::Array<unsigned int, 3> m_loop_orderings;
+    SB_nodal_field_set_value(Double val, Array4D field_x,SGridSizes block_sizes_in,
+            std::array<unsigned int, 3> loop_orderings_in) :
+      m_value(val), m_field_x(field_x) {m_block_sizes=block_sizes_in;
+                              m_loop_orderings[0]=loop_orderings_in[0];
+                              m_loop_orderings[1]=loop_orderings_in[1];
+                              m_loop_orderings[2]=loop_orderings_in[2];}
 
     void run()
     {
-      int64_t sz = m_field_x.size();
-      for (int64_t index = 0; index < sz; ++index)
-        {
-          (*this)(index);
-        }
+      unsigned sz =  m_field_x.size();
+      Kokkos::parallel_for(Kokkos::RangePolicy<ExecSpace>(0,(unsigned)sz),*this);
     }
 
-    void operator()(int64_t& index) const
-    {
-      const_cast<SB_nodal_field_set_value *>(this)->operator()(index);
-    }
-
-    void operator()(int64_t& index)
+    KOKKOS_INLINE_FUNCTION
+    void operator()(const unsigned& index) const
     {
       m_field_x.data()[index] = m_value;
     }
   };
+
 
   void BlockStructuredGrid::nodal_field_set_value(typename StructuredGrid::MTField* field_x, double value )
   {
@@ -472,8 +570,8 @@ namespace percept {
         std::shared_ptr<StructuredBlock> sgrid = m_sblocks[iblock];
         if (sgrid->is_empty())
           continue;
-        Array4D& fx = (*field_x->m_block_fields[iblock]);
-        SB_nodal_field_set_value na(value, fx);
+        Array4D fx = (*field_x->m_block_fields[iblock]);
+        SB_nodal_field_set_value na(value, fx,sgrid->m_sizes,sgrid->m_loop_ordering);
         na.run();
       }
   }
@@ -492,16 +590,34 @@ namespace percept {
       std::cout << "sum_fields not yet impl" << std::endl;
   }
 
+  size_t BlockStructuredGrid::parallel_count_nodes()
+  {
+      size_t sum = 0;
+      for (unsigned iblock=0; iblock < m_sblocks.size(); ++iblock)
+        {
+          std::shared_ptr<StructuredBlock> sgrid = m_sblocks[iblock];
+          if (sgrid->is_empty())
+            continue;
+          Array4D f = *(m_sblocks[iblock]->m_sgrid_coords_impl.get());
+
+          SB_parallel_count_nodes counter(f,  sgrid);
+
+          counter.run();
+          sum += counter.num_nodes;
+        }
+      return sum;
+  }
+
   std::shared_ptr<BlockStructuredGrid>   BlockStructuredGrid::
-  fixture_1(stk::ParallelMachine comm, std::array<unsigned,3> sizes)
+  fixture_1(stk::ParallelMachine comm, std::array<unsigned,3> sizes, std::array<double,3> dim_widths,std::array<double,3> dim_offsets)
   {
     std::shared_ptr<BlockStructuredGrid> bsg(new BlockStructuredGrid(comm,0));
-    std::shared_ptr<StructuredBlock> sbi = StructuredBlock::fixture_1(comm, sizes, 0, 0, 0, bsg.get() );
+    std::shared_ptr<StructuredBlock> sbi = StructuredBlock::fixture_1(comm, sizes, 0, 0, 0, bsg.get(), dim_widths ,dim_offsets);
     bsg->m_sblocks.push_back(sbi);
     // FIXME - make this automatic, always have coordinates registered
     bsg->register_field("coordinates",3);
     return bsg;
   }
 
-}
+}//percept
 

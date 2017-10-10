@@ -101,7 +101,7 @@ namespace percept {
 
   // static
   std::shared_ptr<StructuredBlock>
-  StructuredBlock::fixture_1(stk::ParallelMachine comm, std::array<unsigned,3> sizes, unsigned iblock, int base, int zone, BlockStructuredGrid *bsg)
+  StructuredBlock::fixture_1(stk::ParallelMachine comm, std::array<unsigned,3> sizes, unsigned iblock, int base, int zone, BlockStructuredGrid *bsg, std::array<double,3> dim_width,std::array<double,3> dim_offset)
   {
     std::array<unsigned,9> nijk{{sizes[0],sizes[1],sizes[2], 0,0,0, 0,0,0}};
     std::array<unsigned, 3> node_size_global{{sizes[0],sizes[1],sizes[2]}};
@@ -145,13 +145,13 @@ namespace percept {
             for (indx[L0] = 0; indx[L0] < sizes[L0]; ++indx[L0])
               {
                 //auto ilo = sgi->local_offset(indx[A0], indx[A1], indx[A2], &Asizes[0]);
-                double xyz[3] = {double(indx[A0])/double(sizes[A0]-1), double(indx[A1])/double(sizes[A1]-1), double(indx[A2])/double(sizes[A2]-1)};
+                double xyz[3] = {  ( double(indx[A0])/double(sizes[A0]-1) ), double(indx[A1])/double(sizes[A1]-1), double(indx[A2])/double(sizes[A2]-1)};
                 for (unsigned ic = 0; ic < 3; ++ic)
                   {
 #if defined(WITH_KOKKOS)
-                    interimNodes(indx[A0], indx[A1], indx[A2], ic) = xyz[ic];
+                    interimNodes(indx[A0], indx[A1], indx[A2], ic) = dim_width[ic]*xyz[ic] + dim_offset[ic];
 #else
-                    sgi->m_sgrid_coords(indx[A0], indx[A1], indx[A2], ic) = xyz[ic];
+                    sgi->m_sgrid_coords(indx[A0], indx[A1], indx[A2], ic) = dim_width[ic]*xyz[ic] + dim_offset[ic];
 #endif
                   }
               }
@@ -163,13 +163,13 @@ namespace percept {
 
     // bc's
     int isize[3] = {(int)sizes[0], (int)sizes[1], (int)sizes[2]};
-
-    sgi->m_boundaryConditions.emplace_back("BCInflow",  Ioss::IJK_t({{0,                   0,          0}}), Ioss::IJK_t({{0,          isize[1]-1, isize[2]-1}}) );
-    sgi->m_boundaryConditions.emplace_back("BCOutflow", Ioss::IJK_t({{isize[0]-1,          0,          0}}), Ioss::IJK_t({{isize[0]-1, isize[1]-1, isize[2]-1}}) );
-    sgi->m_boundaryConditions.emplace_back("BCWall",    Ioss::IJK_t({{0,                   0,          0}}), Ioss::IJK_t({{isize[0]-1,          0, isize[2]-1}}) );
-    sgi->m_boundaryConditions.emplace_back("BCWall",    Ioss::IJK_t({{0,          isize[1]-1,          0}}), Ioss::IJK_t({{isize[0]-1, isize[1]-1, isize[2]-1}}) );
-    sgi->m_boundaryConditions.emplace_back("BCWall",    Ioss::IJK_t({{0,          0,                   0}}), Ioss::IJK_t({{isize[0]-1, isize[1]-1,          0}}) );
-    sgi->m_boundaryConditions.emplace_back("BCWall",    Ioss::IJK_t({{0,          0,          isize[2]-1}}), Ioss::IJK_t({{isize[0]-1, isize[1]-1, isize[2]-1}}) );
+    //madbrew: this was inconsistent with imported cgns meshes (which are 1 based indexing) so I switched from 0 based to be consistent
+    sgi->m_boundaryConditions.emplace_back("BCInflow",  Ioss::IJK_t({{1,                   1,          1}}), Ioss::IJK_t({{1,          isize[1], isize[2]}}) );
+    sgi->m_boundaryConditions.emplace_back("BCOutflow", Ioss::IJK_t({{isize[0],          1,          1}}), Ioss::IJK_t({{isize[0], isize[1], isize[2]}}) );
+    sgi->m_boundaryConditions.emplace_back("BCWall",    Ioss::IJK_t({{1,                   1,          1}}), Ioss::IJK_t({{isize[0],          1, isize[2]}}) );
+    sgi->m_boundaryConditions.emplace_back("BCWall",    Ioss::IJK_t({{1,          isize[1],          1}}), Ioss::IJK_t({{isize[0], isize[1], isize[2]}}) );
+    sgi->m_boundaryConditions.emplace_back("BCWall",    Ioss::IJK_t({{1,          1,                   1}}), Ioss::IJK_t({{isize[0], isize[1],          1}}) );
+    sgi->m_boundaryConditions.emplace_back("BCWall",    Ioss::IJK_t({{1,          1,          isize[2]}}), Ioss::IJK_t({{isize[0], isize[1], isize[2]}}) );
 
     sgi->m_bc_types.push_back(CGNS_ENUMV( BCInflow ));
     sgi->m_bc_types.push_back(CGNS_ENUMV( BCOutflow ));
@@ -456,7 +456,7 @@ namespace percept {
       "  </Piece>\n"
       "  </StructuredGrid>\n"
       "</VTKFile>\n" << std::endl;
-  }
+  }//dump_vtk
 
 }
 

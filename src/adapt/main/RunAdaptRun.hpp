@@ -530,7 +530,7 @@ static void copy_error_indicator(PerceptMesh& eMesh_no_ft,PerceptMesh& eMesh,
         }
 
       if (DO_MEMORY && printMemory) {
-        std::string hwm = eMesh.print_memory_both();
+        std::string hwm = print_memory_both(eMesh.parallel());
         if (!p_rank) std::cout << "Memory usage: " << hwm << " before open meshes."  << std::endl;
       }
 
@@ -572,7 +572,7 @@ static void copy_error_indicator(PerceptMesh& eMesh_no_ft,PerceptMesh& eMesh,
 
 
       if (DO_MEMORY && printMemory) {
-        std::string hwm = eMesh.print_memory_both();
+        std::string hwm = print_memory_both(eMesh.parallel());
         if (!p_rank) std::cout << "Memory usage: " << hwm << " after commit mesh."  << std::endl;
       }
 
@@ -603,14 +603,14 @@ static void copy_error_indicator(PerceptMesh& eMesh_no_ft,PerceptMesh& eMesh,
         eMesh_error.read_database_at_step(eMesh_error.get_database_time_step_count());
 
         if (DO_MEMORY && printMemory) {
-          std::string hwm = eMesh.print_memory_both();
+          std::string hwm = print_memory_both(eMesh.parallel());
           if (!p_rank) std::cout << "Memory usage: " << hwm << " before copy_error_indicator (xfer)"  << std::endl;
         }
 
         copy_error_indicator(eMesh_error,eMesh,from_error_field,error_field);
 
         if (DO_MEMORY && printMemory) {
-          std::string hwm = eMesh.print_memory_both();
+          std::string hwm = print_memory_both(eMesh.parallel());
           if (!p_rank) std::cout << "Memory usage: " << hwm << " after copy_error_indicator (xfer)"  << std::endl;
         }
 
@@ -629,7 +629,7 @@ static void copy_error_indicator(PerceptMesh& eMesh_no_ft,PerceptMesh& eMesh,
       if (!p_rank) std::cout << "Error indicator read from file."  << std::endl;
 
       if (DO_MEMORY && printMemory) {
-        std::string hwm = eMesh.print_memory_both();
+        std::string hwm = print_memory_both(eMesh.parallel());
         if (!p_rank) std::cout << "Memory usage: " << hwm << " after open eMesh_error, read DB."  << std::endl;
       }
 
@@ -698,7 +698,7 @@ static void copy_error_indicator(PerceptMesh& eMesh_no_ft,PerceptMesh& eMesh,
       breaker->setAlwaysInitializeNodeRegistry(false);
 
       if (DO_MEMORY && printMemory) {
-        std::string hwm = eMesh.print_memory_both();
+        std::string hwm = print_memory_both(eMesh.parallel());
         if (!p_rank) std::cout << "Memory usage: " << hwm << " before rebuild_family_tree."  << std::endl;
       }
 
@@ -718,7 +718,7 @@ static void copy_error_indicator(PerceptMesh& eMesh_no_ft,PerceptMesh& eMesh,
       erp.setMarkNone(false);
 
       if (DO_MEMORY && printMemory) {
-        std::string hwm = eMesh.print_memory_both();
+        std::string hwm = print_memory_both(eMesh.parallel());
         if (!p_rank) std::cout << "Memory usage: " << hwm << " after initializeDB."  << std::endl;
       }
 
@@ -732,19 +732,18 @@ static void copy_error_indicator(PerceptMesh& eMesh_no_ft,PerceptMesh& eMesh,
       if (!p_rank) std::cout << "Marking complete.  Beginning refinement."  << std::endl;
 
       if (DO_MEMORY && printMemory) {
-        std::string hwm = eMesh.print_memory_both();
+        std::string hwm = print_memory_both(eMesh.parallel());
         if (!p_rank) std::cout << "Memory usage: " << hwm << " before refine."  << std::endl;
       }
 
-      bool enforce_what[3] = {false, true, false};
-      breaker->refine( enforce_what);
+      breaker->refine();
       if (rar.m_debug)
         eMesh.save_as("rar-refined.e");
 
       if (!p_rank) std::cout << "Refinement complete."  << std::endl;
 
       if (DO_MEMORY && printMemory) {
-        std::string hwm = eMesh.print_memory_both();
+        std::string hwm = print_memory_both(eMesh.parallel());
         if (!p_rank) std::cout << "Memory usage: " << hwm << " after refine."  << std::endl;
       }
 

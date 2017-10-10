@@ -117,7 +117,7 @@ protected:
 
   bool in_surface_sets(const std::string& partToTest);
 
-#if STK_ADAPT_HAVE_YAML_CPP
+#if defined(STK_ADAPT_HAVE_YAML_CPP)
   void parse(const YAML::Node& node);
   void emit(const YAML::Node& node);
 #endif
@@ -262,7 +262,7 @@ private:
   AngleMap m_angleMap;
   double m_globalAngleCriterion;
   bool m_debug;
-#if STK_ADAPT_HAVE_YAML_CPP
+#if defined(STK_ADAPT_HAVE_YAML_CPP)
   YAML::Node m_node, m_node1;
   //YAML::Node *m_node_ptr;
 #endif

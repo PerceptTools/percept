@@ -28,9 +28,9 @@ namespace percept {
     Algorithm m_alg;
 
     // allowing for future 1-based indexing
-    const unsigned m_index_base = 0;
+    const unsigned m_index_base = 1;//0;
 
-    void do_refine_structured();
+    unsigned do_refine_structured();
 
   public:
     std::shared_ptr<BlockStructuredGrid> m_input, m_output;
@@ -43,7 +43,7 @@ namespace percept {
       m_output.reset(new BlockStructuredGrid(input->m_comm, 0));
     }
 
-    void do_refine();
+    unsigned do_refine();
 
     void print(std::ostream& out = std::cout, int level=0);
 

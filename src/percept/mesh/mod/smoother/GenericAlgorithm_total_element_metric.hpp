@@ -9,8 +9,16 @@
 #define GenericAlgorithm_total_element_metric_hpp
 
 #include <percept/MeshType.hpp>
+//#include <percept/structured/StructuredGridRefinerDef.hpp>
+#include <percept/structured/StructuredBlock.hpp>
+#include <Kokkos_Vector.hpp>
+
+#include <percept/PerceptMesh.hpp>
+#include <percept/structured/BlockStructuredGrid.hpp>
+
 
 namespace percept {
+
 
 template<typename MeshType>
 class SmootherMetricImpl;
@@ -20,21 +28,35 @@ class PerceptMesh;
 
     template<typename MetricType>
     struct SGridGenericAlgorithm_total_element_metric
-    {
+    {//computes total metric of a structured mesh on a per block basis
       mutable MetricType m_metric;
 
-      std::vector<typename StructuredGrid::MTElement> elements;
-      Kokkos::View<int*, DataLayout , MemSpace > element_invalid_flags;
+      std::vector< Kokkos::View<int*, DataLayout , MemSpace > > element_invalid_flags_per_block;
+      Kokkos::View<int*, DataLayout , MemSpace > flags_iterator;
 
-      long double& mtot;
-      size_t& n_invalid;
+      StructuredGrid::MTField *m_coord_field_current;
+      StructuredGrid::MTField *m_coord_field_original;
 
-      SGridGenericAlgorithm_total_element_metric(PerceptMesh *eMesh, long double& mtot_in, size_t& n_invalid_in);
+      StructuredGrid::MTField::Array4D m_coords_current_iterator;
+      StructuredGrid::MTField::Array4D m_coords_original_iterator;
 
-      void run();
+
+      Double mtot;
+      size_t n_invalid;
+      bool valid;
+      unsigned m_iBlock;
+
+      std::vector<SGridSizes> block_sizes;
+      std::vector<std::array<unsigned int,3>> loop_orderings;
+      SGridSizes block_sizes_iterator;
+      Kokkos::Array<unsigned int,3> loop_orderings_iterator;
+
+      SGridGenericAlgorithm_total_element_metric(PerceptMesh *eMesh, Double mtot_in, size_t n_invalid_in);
+
+      void run(unsigned iBlock);
 
       KOKKOS_INLINE_FUNCTION
-      void operator()(const unsigned& index, long double& mtot_loc) const;
+      void operator()(const unsigned& index, Double& mtot_loc) const;
     };
 
     ///////////////////////////////////////////////////////////////////////
@@ -42,7 +64,6 @@ class PerceptMesh;
     template<typename MeshType>
     struct GenericAlgorithm_total_element_metric
     {
-      typedef long double Double;
       using This = GenericAlgorithm_total_element_metric<MeshType>;
 
       SmootherMetricImpl<MeshType> *m_metric;
@@ -59,16 +80,19 @@ class PerceptMesh;
       typename MeshType::MTField *cg_s_field;
 
       std::vector<typename MeshType::MTElement> elements;
-      Kokkos::View<int*, DataLayout , MemSpace > element_invalid_flags;
+      Kokkos::View<int*, SecondaryDataLayout , SecondaryMemSpace > element_invalid_flags;
       std::vector<const typename MeshType::MTCellTopology *> topos;
-      bool& valid;
-      size_t *num_invalid;
-      Double& mtot;
-      size_t& n_invalid;
+      bool valid;
+      size_t * num_invalid;
+      Double mtot;
+      size_t n_invalid;
 
-      GenericAlgorithm_total_element_metric(SmootherMetricImpl<MeshType> *metric, PerceptMesh *eMesh, bool& valid_in, size_t *num_invalid_in, Double& mtot_in, size_t& n_invalid_in);
+      GenericAlgorithm_total_element_metric(SmootherMetricImpl<MeshType> *metric, PerceptMesh *eMesh, bool valid_in, size_t *num_invalid_in, Double mtot_in, size_t n_invalid_in);
 
-      void run();
+      void run(unsigned iBlock);
+
+      void updateState(SmootherMetricImpl<MeshType> *metric, PerceptMesh *eMesh, bool valid_in, size_t *num_invalid_in, Double mtot_in, size_t n_invalid_in)
+      {m_metric = metric; m_eMesh = eMesh; valid = valid_in; num_invalid = num_invalid_in; mtot = mtot_in; n_invalid = n_invalid_in;}
 
       KOKKOS_INLINE_FUNCTION
       void operator()(const unsigned& index, Double& mtot_loc) const
@@ -78,8 +102,42 @@ class PerceptMesh;
 
       KOKKOS_INLINE_FUNCTION
       void operator()(const unsigned& index, Double& mtot_loc);
+
     };
+
+	struct element_invalid_flags_reducer
+	{
+    	Kokkos::View<int*, DataLayout , MemSpace > flags;
+		unsigned n_invalid;
+
+		void reduce()
+		{
+			if(!flags.size())
+			{
+				printf("flag view is empty, aborting reduction\n");
+				return;
+			}
+
+			unsigned local = n_invalid;
+			Kokkos::parallel_reduce(Kokkos::RangePolicy<ExecSpace>(0,flags.size()),*this,local);
+			n_invalid = local;
+		}
+
+
+	    KOKKOS_INLINE_FUNCTION
+	    void operator()(const unsigned& index, unsigned& local_n_invalid) const
+	    {
+	      const_cast<element_invalid_flags_reducer *>(this)->operator()(index, local_n_invalid);
+	    }
+
+	    KOKKOS_INLINE_FUNCTION
+	    void operator()(const unsigned& index, unsigned& local_n_invalid)
+	    {
+	    	local_n_invalid += flags(index);
+	    }
+	};
 
 } // namespace percept
 
 #endif
+

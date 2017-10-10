@@ -7,7 +7,7 @@
 
 #ifndef ReferenceMeshSmootherBase_hpp
 #define ReferenceMeshSmootherBase_hpp
-
+#include <percept/MeshType.hpp>
 #include <percept/Percept.hpp>
 #if !defined(NO_GEOM_SUPPORT)
 
@@ -30,15 +30,18 @@ public:
 
 	using Base = MeshSmootherImpl<MeshType>;
 
-	typedef std::vector<double> Vector;
-	typedef boost::unordered_map<typename MeshType::MTNode , Vector  > NodeMap;
+	typedef boost::unordered_map<typename MeshType::MTNode , std::vector<double> > NodeMap;
 
 	ReferenceMeshSmootherBaseImpl(PerceptMesh *eMesh,
-			typename MeshType::MTSelector *boundary_selector=0,
+//			typename MeshType::MTSelector *boundary_selector=0,
+            STKMesh::MTSelector *stk_select=0,
+            StructuredGrid::MTSelector *sgrid_select=0,
 			typename MeshType::MTMeshGeometry *meshGeometry=0,
 			int inner_iterations = 100,
 			double grad_norm =1.e-8,
 			int parallel_iterations = 20);
+
+	virtual ~ReferenceMeshSmootherBaseImpl();
 
 protected:
 
@@ -49,7 +52,6 @@ protected:
 	void sync_fields(int iter=0);
 	virtual bool check_convergence();
 
-	void project_all_delta_to_tangent_plane(typename MeshType::MTField *field);
 	void check_project_all_delta_to_tangent_plane(typename MeshType::MTField *field);
 
 	template<typename T>
@@ -62,6 +64,9 @@ protected:
 		VERIFY_OP_ON( global_min, ==, val , "bad parallel val");
 		VERIFY_OP_ON( global_max, ==, global_min , "bad parallel val");
 	}
+	void set_local_field_ptrs(PerceptMesh *eMesh);
+    void print_iteration_status(const int num_invalid_0);
+    std::ofstream myFile;
 
 public:
 	NodeMap m_current_position;
@@ -70,7 +75,7 @@ public:
 	NodeMap m_nweight;
 
 	double m_scale;
-	typedef long double Double;
+
 	Double m_dmax;
 	Double m_dmax_relative;
 	Double m_dnew, m_dold, m_d0, m_dmid, m_dd, m_alpha, m_alpha_0, m_grad_norm, m_grad_norm_scaled;
@@ -79,6 +84,7 @@ public:
 	double m_omega;
 	double m_omega_prev;
 	int m_iter;
+    int m_anim_step;
 
 	size_t m_num_invalid;
 	Double m_global_metric;

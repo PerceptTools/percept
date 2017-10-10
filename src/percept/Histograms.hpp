@@ -126,7 +126,7 @@
 
     };
 
-#if STK_ADAPT_HAVE_YAML_CPP
+#if defined(STK_ADAPT_HAVE_YAML_CPP)
 
     template<typename T>
     class HistogramsParser

@@ -53,7 +53,8 @@ then
   ./gtest-release.config
   make clean
   make
-  make -k install
+  cp *.a $percept_build_dir/install/lib/
+  cp -r ../include/gtest $percept_build_dir/install/include/
 
 fi
 

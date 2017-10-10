@@ -285,6 +285,20 @@
       bool include_side_bucket(stk::mesh::Bucket& side_bucket, stk::mesh::Selector *excludeSelector);
 
     protected:
+      void collectElemsToRefine(const unsigned irank, stk::mesh::EntityRank rank, const unsigned elementType,
+                  std::vector<stk::mesh::Entity>& elems, int& jele);
+
+      void debug_invalid_node_createNewNeededNodeIds(NodeIdsOnSubDimEntityType &nodeIds_onSE, const stk::mesh::Entity element,
+              NeededEntityType& needed_entity_type, unsigned iSubDimOrd);
+
+      void debug_excess_new_nodes_createNewNeededNodeIds(const unsigned num_new_nodes_needed, NodeIdsOnSubDimEntityType &nodeIds_onSE, const stk::mesh::Entity element,
+              NeededEntityType& needed_entity_type, unsigned numSubDimNeededEntities, unsigned iSubDimOrd, const percept::MyPairIterRelation &elem_nodes);
+
+      void debug_zero_length_id_vector_createNewNeededNodeIds(NodeIdsOnSubDimEntityType &nodeIds_onSE, const stk::mesh::Entity element,
+              NeededEntityType& needed_entity_type, unsigned iSubDimOrd);
+
+      void debug_print_memory_doRefine(const unsigned num_elem_needed, const unsigned irank);
+
       void fillElementRankTypeInfo(std::vector<stk::mesh::EntityRank>& ranks);
 
       void getRefinementInfo(std::vector<stk::mesh::EntityRank>& ranks);
@@ -357,6 +371,9 @@
       /**  Overrides start =======>
        */
 
+      unsigned
+	  countAndGatherAllElements(unsigned irank, stk::mesh::EntityRank rank, unsigned elementType, std::vector<stk::mesh::Entity> &elements);
+
       /** Overrides
        *   m_nodeRegistry data member.  The same loop should be executed every time this method is called (i.e. the same elements should be visited).  Also, there
        *   is policy associated with the @param only_count and @param doAllElements inputs.  If doAllElements==true, then ghost elements should not be skipped.
@@ -373,7 +390,7 @@
                        stk::mesh::EntityRank rank, NodeRegistry::ElementFunctionPrototype function,
                        unsigned elementType,
                        vector<NeededEntityType>& needed_entity_ranks,
-                       bool only_count=false, bool doAllElements=true) ;
+                       bool doAllElements=true) ;
 
       /** Create a list of nodes from the new nodes that can be easily deciphered by the UniformRefinerPattern.
        *

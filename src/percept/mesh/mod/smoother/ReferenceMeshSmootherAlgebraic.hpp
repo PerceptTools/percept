@@ -25,14 +25,15 @@
       /// A drop-off function is used to ensure interior nodes don't move if they
       ///   are too far from the boundary
       ReferenceMeshSmootherAlgebraic(PerceptMesh *eMesh,
-                            stk::mesh::Selector *boundary_selector=0,
+                            stk::mesh::Selector *stk_select=0,
+                            StructuredGrid::MTSelector *sgrid_select=0,
                             MeshGeometry *meshGeometry=0,
                             int inner_iterations = 100,
                             double grad_norm =1.e-8,
                              double *drop_off_coeffs = 0,
                              int nlayers_drop_off = 0,
                             int parallel_iterations = 20)
-        : ReferenceMeshSmootherConjugateGradientImpl<STKMesh>(eMesh, boundary_selector, meshGeometry, inner_iterations, grad_norm, parallel_iterations),
+        : ReferenceMeshSmootherConjugateGradientImpl<STKMesh>(eMesh, stk_select, sgrid_select, meshGeometry, inner_iterations, grad_norm, parallel_iterations),
           m_drop_off_coeffs(drop_off_coeffs), m_nlayers_drop_off(nlayers_drop_off)
       {
         //std::cout << "ReferenceMeshSmootherAlgebraic: m_nlayers_drop_off= " << m_nlayers_drop_off << std::endl;

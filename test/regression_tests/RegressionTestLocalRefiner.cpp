@@ -42,6 +42,7 @@
 #include <percept/function/FieldFunction.hpp>
 #include <percept/function/ConstantFunction.hpp>
 #include <percept/PerceptMesh.hpp>
+#include <percept/PerceptUtils.hpp>
 
 #include <percept/norm/Norm.hpp>
 #include <percept/RebalanceMesh.hpp>
@@ -94,8 +95,6 @@
 #include <adapt/UniformRefinerPattern_Tri3_Tri3_4_sierra.hpp>
 #include <adapt/UniformRefinerPattern_def.hpp>
 
-//#include "RegressionTestLocalRefiner.hpp"
-
   namespace percept
   {
     namespace regression_tests
@@ -132,7 +131,7 @@
         eMesh.set_do_print_memory(true);
         eMesh.commit();
 
-        std::string hwm = eMesh.print_memory_high_water_mark();
+        std::string hwm = print_memory_high_water_mark(eMesh.parallel());
         std::cout << "initial hwm= " << hwm << std::endl;
         size_t nums[] = { 4189200,
                           1745500,
@@ -146,8 +145,8 @@
             size_t dhwm_max=0, dhwm_min=0, dhwm_avg=0, dhwm_sum=0;
 
             if (DO_MEMORY && eMesh.get_do_print_memory()) {
-              eMesh.get_memory_high_water_mark_across_processors(eMesh.parallel(), hwm_max, hwm_min, hwm_avg, hwm_sum);
-              hwm = eMesh.print_memory_high_water_mark();
+              get_memory_high_water_mark_across_processors(eMesh.parallel(), hwm_max, hwm_min, hwm_avg, hwm_sum);
+              hwm = print_memory_high_water_mark(eMesh.parallel());
               if (!eMesh.get_rank()) std::cout << "MEM: " << hwm << " before createEntities= " << std::endl;
             }
 
@@ -156,13 +155,13 @@
             eMesh.createEntities( eMesh.element_rank(), num_elem_needed, new_elements);
 
             if (DO_MEMORY && eMesh.get_do_print_memory()) {
-              eMesh.get_memory_high_water_mark_across_processors(eMesh.parallel(), dhwm_max, dhwm_min, dhwm_avg, dhwm_sum);
+              get_memory_high_water_mark_across_processors(eMesh.parallel(), dhwm_max, dhwm_min, dhwm_avg, dhwm_sum);
               dhwm_max -= hwm_max;
               dhwm_min -= hwm_min;
               dhwm_avg -= hwm_avg;
               dhwm_sum -= hwm_sum;
               size_t dhwm_tot = dhwm_sum;
-              hwm = eMesh.print_memory_high_water_mark();
+              hwm = print_memory_high_water_mark(eMesh.parallel());
               size_t num_elem_needed_tot = num_elem_needed;
               stk::all_reduce( eMesh.parallel(), stk::ReduceSum<1>( &num_elem_needed_tot ) );
 
@@ -769,8 +768,7 @@
                     //std::cout << "P[" << eMesh.get_rank() << "] found element = " << eMesh.identifier(element) << std::endl;
                   }
 
-                bool enforce_what[3] = {false, true, false};
-                breaker.refine( enforce_what);
+                breaker.refine();
                 eMesh.save_as("tet.e-s000"+toString(iref+1));
                 VERIFY_OP_ON(amv.isValid(eMesh, false), ==, true, "Invalid refined mesh at step: "+toString(iref));
                 std::cout << "tet_transition number elements after pass " << iref << " = " << eMesh.get_number_elements() << std::endl;
@@ -791,8 +789,7 @@
               {
                 elementOpLoop(*eMesh.get_bulk_data(), set_ref_field_val_unref_all, refine_field);
                 std::cout << "P[" << eMesh.get_rank() << "] iunrefAll_pass= " << iunref <<  std::endl;
-                bool enforce_what[3] = {false, true, false};
-                breaker.unrefine( enforce_what);
+                breaker.unrefine();
 
                 eMesh.save_as("tet.e-s000"+toString(nref+iunref+1));
                 VERIFY_OP_ON(amv.isValid(eMesh, false), ==, true, "Invalid unrefined mesh at step: "+toString(iunref));
@@ -808,138 +805,6 @@
       {
         PerceptMesh eMesh(3);
         tet_transition(eMesh);
-      }
-
-      TEST(regr_localRefiner, tet_transition_1)
-      {
-        if (1) return;
-
-        /*
-        stk::ParallelMachine pm = MPI_COMM_WORLD ;
-        PerceptMesh eMesh(3);
-        // 121
-        std::string filename = "mock_aff_1.g";
-
-        const unsigned p_size = stk::parallel_machine_size( pm );
-        if (p_size!=1 && p_size != 8)
-          return;
-
-        eMesh.open(input_files_loc+filename);
-        eMesh.output_active_children_only(true);
-
-        if (p_size==1 || p_size == 8)
-          {
-            Local_Tet4_Tet4_N_HangingNode localBreakPattern(eMesh);
-            int scalarDimension = 0; // a scalar
-            stk::mesh::FieldBase* proc_rank_field    = eMesh.add_field("proc_rank", stk::topology::ELEMENT_RANK, scalarDimension);
-            RefineFieldType *refine_field       = dynamic_cast<RefineFieldType *>(eMesh.add_field_int("refine_field", stk::topology::ELEMENT_RANK, scalarDimension));
-
-            // for plotting, use doubles, for internal use, use int
-            RefineLevelType& refine_level       = eMesh.get_fem_meta_data()->declare_field<RefineLevelType>(stk::topology::ELEMENT_RANK, "refine_level");
-            stk::mesh::put_field( refine_level , eMesh.get_fem_meta_data()->universal_part());
-            stk::io::set_field_role(refine_level, Ioss::Field::TRANSIENT);
-
-            {
-              TransitionElementType& transition_element       = eMesh.get_fem_meta_data()->declare_field<TransitionElementType>(stk::topology::ELEMENT_RANK, "transition_element_3");
-              stk::mesh::put_field( transition_element , eMesh.get_fem_meta_data()->universal_part());
-              stk::io::set_field_role(transition_element, Ioss::Field::TRANSIENT);
-            }
-            {
-              TransitionElementType& transition_element       = eMesh.get_fem_meta_data()->declare_field<TransitionElementType>(stk::topology::FACE_RANK, "transition_element");
-              stk::mesh::put_field( transition_element , eMesh.get_fem_meta_data()->universal_part());
-              stk::io::set_field_role(transition_element, Ioss::Field::TRANSIENT);
-            }
-
-            eMesh.commit();
-            if (eMesh.get_rank()==0) std::cout << "tet_transition number elements after pass " << -1 << " = " << eMesh.get_number_elements() << std::endl;
-
-            eMesh.save_as( output_files_loc+"tet_"+post_fix(p_size)+".0.e");
-            eMesh.save_as("tet.e");
-
-            AdaptedMeshVerifier amv(0);
-            VERIFY_OP_ON(amv.isValid(eMesh, true), ==, true, "Invalid initial mesh");
-
-            stk::mesh::Selector univ_selector(eMesh.get_fem_meta_data()->universal_part());
-
-            ElementRefinePredicate erp(eMesh, &univ_selector, refine_field, 0.0);
-            TransitionElementAdapter<ElementRefinePredicate> breaker(erp, eMesh, localBreakPattern, proc_rank_field);
-
-            // special for local adaptivity
-            breaker.setRemoveOldElements(false);
-            breaker.setAlwaysInitializeNodeRegistry(false);
-
-
-            //stk::mesh::Entity element = eMesh.get_bulk_data()->get_entity(eMesh.element_rank(), 121);
-            int nref=8;
-            for (int iref=0; iref < nref; ++iref)
-              {
-                //stk::mesh::Entity element = eMesh.get_element(-.25, -.6, .98);
-                stk::mesh::Entity element = eMesh.get_element(.1139, 0.07, -.136);
-                RefineFieldType_type *e_data = 0;
-                if (eMesh.is_valid(element))
-                  {
-                    e_data = stk::mesh::field_data(*refine_field, element);
-                    e_data[0] = 1.0;
-
-                    int nedn=0;
-                    if (!eMesh.isGhostElement(element))
-                      {
-                        LocalSetType neighbors;
-                        breaker.get_node_neighbors(element, neighbors);
-
-                        std::set<stk::mesh::Entity> lset;
-                        lset.insert(element);
-                        eMesh.dump_vtk("out-A-"+toString(iref)+".vtk", false, &lset);
-                        for (LocalSetType::iterator it = neighbors.begin(); it != neighbors.end(); ++it)
-                          {
-                            stk::mesh::Entity neigh = *it;
-                            //bool isNParent = (eMesh.hasFamilyTree(neigh) && eMesh.isParentElement(neigh));
-                            if (eMesh.is_edge_neighbor(element, neigh, 0, 0, 0))
-                              {
-                                ++nedn;
-                                lset.insert(neigh);
-                              }
-                          }
-                        eMesh.dump_vtk("out-"+toString(iref)+".vtk", false, &lset);
-                      }
-
-                    std::cout << "P[" << eMesh.get_rank() << "] found element = " << eMesh.identifier(element)
-                              << " num edge neigh= " << nedn
-                              << std::endl;
-                  }
-
-                bool enforce_what[3] = {false, true, false};
-                breaker.refine( enforce_what);
-                eMesh.save_as("tet.e-s000"+toString(iref+1));
-                VERIFY_OP_ON(amv.isValid(eMesh, false), ==, true, "Invalid refined mesh at step: "+toString(iref));
-                if (eMesh.get_rank()==0) std::cout << "tet_transition number elements after pass " << iref << " = " << eMesh.get_number_elements() << std::endl;
-
-                if (1)
-                  {
-                    SetElementRefineFieldValue srf(eMesh, 0);
-                    elementOpLoop(*eMesh.get_bulk_data(), srf, refine_field);
-
-                  }
-              }
-
-            SetElementRefineFieldValue set_ref_field_val_unref_all(eMesh, -1);
-
-            for (int iunref=0; iunref < 4; iunref++)
-              {
-                elementOpLoop(*eMesh.get_bulk_data(), set_ref_field_val_unref_all, refine_field);
-                std::cout << "P[" << eMesh.get_rank() << "] iunrefAll_pass= " << iunref <<  std::endl;
-                bool enforce_what[3] = {false, true, false};
-                breaker.unrefine( enforce_what);
-
-                eMesh.save_as("tet.e-s000"+toString(nref+iunref+1));
-                VERIFY_OP_ON(amv.isValid(eMesh, false), ==, true, "Invalid unrefined mesh at step: "+toString(iunref));
-
-                std::cout << "P[" << eMesh.get_rank() << "] done... iunrefAll_pass= " << iunref
-                          << " tet_local number elements= " << eMesh.get_number_elements() << std::endl;
-              }
-
-          }
-        */
       }
 
       TEST(regr_localRefiner, tet_elem_based)
@@ -1011,8 +876,6 @@
                     //std::cout << "P[" << eMesh.get_rank() << "] found element = " << eMesh.identifier(element) << std::endl;
                   }
 
-                // bool enforce_what[3] = {false, false, true};
-                // breaker.refine( enforce_what);
                 breaker.doBreak();
                 eMesh.save_as("tet.e-s000"+toString(iref+1));
                 VERIFY_OP_ON(amv.isValid(eMesh, false), ==, true, "Invalid refined mesh at step: "+toString(iref));
@@ -1032,8 +895,7 @@
               {
                 elementOpLoop(*eMesh.get_bulk_data(), set_ref_field_val_unref_all, refine_field);
                 std::cout << "P[" << eMesh.get_rank() << "] iunrefAll_pass= " << iunref <<  std::endl;
-                bool enforce_what[3] = {false, false, true};
-                breaker.unrefine( enforce_what);
+                breaker.unrefine();
 
                 eMesh.save_as("tet.e-s000"+toString(nref+iunref+1));
                 VERIFY_OP_ON(amv.isValid(eMesh, false), ==, true, "Invalid unrefined mesh at step: "+toString(iunref));
@@ -1723,75 +1585,6 @@
         eMesh.close();
       }
 
-      void set_refine_field_to_value(PerceptMesh &eMesh, std::vector<stk::mesh::EntityId> entity_list, const int refine_value)
-      {
-        RefineFieldType *refine_field = eMesh.m_refine_field;
-
-        for (unsigned i=0; i<entity_list.size(); i++) {
-          stk::mesh::Entity entity = eMesh.get_bulk_data()->get_entity(stk::topology::ELEMENT_RANK, 
-                                                                       stk::mesh::EntityId(entity_list[i]));
-        
-          if (!eMesh.is_valid(entity)) {
-            std::cout << "cannot set value on entity ID " << entity_list[i] << std::endl;
-            continue;
-          }
-          
-          int *val= stk::mesh::field_data(*refine_field, entity);
-
-          *val = refine_value;
-        }
-      }
-
-      TEST(regr_localRefiner, two_tri)
-      {
-        stk::ParallelMachine pm = MPI_COMM_WORLD ;
-
-        const unsigned p_size = stk::parallel_machine_size( pm );
-        if (p_size!=1 /*&& p_size != 2*/) return;
-
-        PerceptMesh eMesh;
-        eMesh.open(input_files_loc+"two_tri3.g");
-
-        Local_Tri3_Tri3_N break_tri_to_tri_N(eMesh);
-
-        eMesh.register_and_set_refine_fields();
-
-        Teuchos::RCP<UniformRefinerPatternBase> localBreakPattern = make_local_break_pattern(eMesh);
-        
-        eMesh.commit();
-
-        eMesh.save_as("two_tri3_post_commit.g");
-
-        set_refine_field_to_value(eMesh, {1}, 1);
-
-        eMesh.save_as("two_tri3_pre_refine.g");
-
-        // set up for TEA refine/unrefine
-        stk::mesh::Selector univ_selector(eMesh.get_fem_meta_data()->universal_part());
-        ElementRefinePredicate erp(eMesh, &univ_selector, eMesh.m_refine_field, 0.0);
-
-        TransitionElementAdapter<ElementRefinePredicate> breaker(erp, eMesh, *localBreakPattern, 0, false);
-
-        breaker.setRemoveOldElements(false);
-        breaker.setAlwaysInitializeNodeRegistry(false);
-        breaker.initializeRefine();
-
-        bool enforce_what[3] = {false, true, false};
-        breaker.refine( enforce_what);
-
-        eMesh.save_as("two_tri3_post_refine.g");
-
-        // set unrefine field on fully refined elements
-        set_refine_field_to_value(eMesh, {3,4,5,6}, -1);
-
-        eMesh.save_as("two_tri3_pre_unrefine.g");
-
-        // unrefine
-        breaker.unrefine(enforce_what);
-        
-        eMesh.save_as("two_tri3_post_unrefine.g");
-      }
-
       TEST(regr_localRefiner, point_source_tri)
       {
         if (1)
@@ -2221,18 +2014,9 @@
 
                 if (do_anim) eMesh.save_as(output_files_loc+"quad_anim_set_field_"+post_fix(p_size)+".e.s-"+toString(ipass+1));
 
-                bool enforce_what[3] = {false, false, true};
-                breaker.refine( enforce_what);
+                breaker.refine();
 
                 MPI_Barrier( MPI_COMM_WORLD );
-                //VERIFY_OP_ON(true,==,false,"here");
-                bool check_what[3] = {false, false, true};
-                bool is_valid_2_to_1 = breaker.check_two_to_one(check_what);
-                bool check_what_1[3] = {true, false, false};
-                bool is_valid_2_to_1_1 = breaker.check_two_to_one(check_what_1);
-                std::cout << "P[" << eMesh.get_rank() << "] done... ipass= " << ipass << " quad_local number elements= "
-                          << eMesh.get_number_elements() << " check_two_to_one= " << is_valid_2_to_1
-                          << " node check_two_to_one= " << is_valid_2_to_1_1 << std::endl;
 
                 //breaker.deleteParentElements();
                 //eMesh.save_as("square_anim."+toString(ipass+1)+".e");
@@ -2265,8 +2049,7 @@
               {
                 elementOpLoop(*eMesh.get_bulk_data(), set_ref_field, refine_field);
 
-                bool enforce_what[3] = {false, false, true};
-                breaker.unrefine(enforce_what);
+                breaker.unrefine();
                 std::cout << "P[" << eMesh.get_rank() << "] done... iunref_pass= " << iunref_pass << " quad_local number elements= " << eMesh.get_number_elements() << std::endl;
                 if (do_anim)
                   {
@@ -2290,8 +2073,7 @@
               {
                 elementOpLoop(*eMesh.get_bulk_data(), set_ref_field_val_unref_all, refine_field);
                 std::cout << "P[" << eMesh.get_rank() << "] iunrefAll_pass= " << iunref <<  std::endl;
-                bool enforce_what[3] = {false, false, true};
-                breaker.unrefine( enforce_what);
+                breaker.unrefine();
 
                 if (do_anim)
                   {
@@ -2576,8 +2358,7 @@
                 e_data[0] = 1.0;
               }
 
-            bool enforce_what[3] = {false, false, true};
-            breaker.refine( enforce_what);
+            breaker.refine();
             eMesh.save_as("tri.e-s0001");
             VERIFY_OP_ON(amv.isValid(eMesh, false), ==, true, "Invalid refined mesh at step: 0");
 
@@ -2604,8 +2385,7 @@
                       }
                   }
 
-                bool enforce_what2[3] = {false, false, true};
-                breaker.refine( enforce_what2);
+                breaker.refine();
                 eMesh.save_as("tri.e-s0002");
                 VERIFY_OP_ON(amv.isValid(eMesh, false), ==, true, "Invalid refined mesh at step: 1");
               }
@@ -2626,8 +2406,7 @@
                       }
                   }
 
-                bool enforce_what2[3] = {false, false, true};
-                breaker.refine( enforce_what2);
+                breaker.refine();
                 eMesh.save_as("tri.e-s0003");
                 VERIFY_OP_ON(amv.isValid(eMesh, false), ==, true, "Invalid refined mesh at step: 3");
               }
@@ -2721,8 +2500,7 @@
                 e_data[0] = 1.0;
               }
 
-            bool enforce_what[3] = {false, false, true};
-            breaker.refine( enforce_what);
+            breaker.refine();
             eMesh.save_as("tri.e-s0001");
             VERIFY_OP_ON(amv.isValid(eMesh, false), ==, true, "Invalid refined mesh at step: 0");
 
@@ -2752,8 +2530,7 @@
                       }
                   }
 
-                bool enforce_what2[3] = {false, false, true};
-                breaker.refine( enforce_what2);
+                breaker.refine();
                 eMesh.save_as("tri.e-s0002");
                 VERIFY_OP_ON(amv.isValid(eMesh, false), ==, true, "Invalid refined mesh at step: 1");
               }
@@ -2832,8 +2609,7 @@
 
                 //eMesh.save_as(output_files_loc+"quad_anim_set_field_"+post_fix(p_size)+".e.s-"+toString(ipass+1));
 
-                bool enforce_what[3] = {false, true, false};
-                breaker.refine( enforce_what);
+                breaker.refine();
 
                 if (1)
                   {
@@ -2851,8 +2627,7 @@
               {
                 elementOpLoop(*eMesh.get_bulk_data(), set_ref_field, refine_field);
 
-                bool enforce_what[3] = {false, true, false};
-                breaker.unrefine(enforce_what);
+                breaker.unrefine();
                 std::cout << "P[" << eMesh.get_rank() << "] done... iunref_pass= " << iunref_pass << " quad_local number elements= " << eMesh.get_number_elements() << std::endl;
                 if (1)
                   {
@@ -2876,8 +2651,7 @@
               {
                 elementOpLoop(*eMesh.get_bulk_data(), set_ref_field_val_unref_all, refine_field);
                 std::cout << "P[" << eMesh.get_rank() << "] iunrefAll_pass= " << iunref <<  std::endl;
-                bool enforce_what[3] = {false, true, false};
-                breaker.unrefine( enforce_what);
+                breaker.unrefine();
 
                 if (1)
                   {
@@ -2967,11 +2741,9 @@
 
             ElementRefinePredicate erp(eMesh, &univ_selector, refine_field, 0.0);
             HangingNodeAdapter<ElementRefinePredicate> *breaker = 0;
-            bool enforce_what[3] = {false, true, true};
             if (typeid(LocalBreakPattern) == typeid(Local_Hex8_Hex8_N_Transition) || typeid(LocalBreakPattern) == typeid(Local_Hybrid_3D))
               {
                 breaker = new TransitionElementAdapter<ElementRefinePredicate>(erp, eMesh, break_hex_to_hex_N, proc_rank_field);
-                enforce_what[2] = false;
               }
             else
               breaker = new HangingNodeAdapter<ElementRefinePredicate>(erp, eMesh, break_hex_to_hex_N, proc_rank_field);
@@ -3029,7 +2801,7 @@
                   }
 
                 // {node-, edge-, face-neighors}
-                breaker->refine( enforce_what);
+                breaker->refine();
                 //breaker.doBreak();
 
                 MPI_Barrier( MPI_COMM_WORLD );
@@ -3054,7 +2826,7 @@
               {
                 elementOpLoop(*eMesh.get_bulk_data(), *set_ref_field, refine_field);
 
-                breaker->unrefine( enforce_what);
+                breaker->unrefine();
                 std::cout << "P[" << eMesh.get_rank() << "] done... iunref_pass= " << iunref_pass << " hex_local number elements= " << eMesh.get_number_elements() << std::endl;
                 if (do_anim)
                   {
@@ -3078,7 +2850,7 @@
               {
                 elementOpLoop(*eMesh.get_bulk_data(), set_ref_field_val_unref_all, refine_field);
                 std::cout << "P[" << eMesh.get_rank() << "] iunrefAll_pass= " << iunref <<  std::endl;
-                breaker->unrefine( enforce_what);
+                breaker->unrefine();
 
                 if (do_anim)
                   {
@@ -3415,7 +3187,6 @@
             stk::mesh::Selector univ_selector(eMesh.get_fem_meta_data()->universal_part());
 
             ElementRefinePredicate erp(eMesh, &univ_selector, refine_field, 0.0);
-            bool enforce_what[3] = {false, true, false};
             TransitionElementAdapter<ElementRefinePredicate> *breaker_p;
             stk::mesh::Selector wedge_selector;
             if (do_wedge_bl.size())
@@ -3479,7 +3250,7 @@
                   }
 
                 // {node-, edge-, face-neighors}
-                breaker.refine( enforce_what);
+                breaker.refine();
 
                 //eMesh.print_info("refined", 2);
 
@@ -3502,7 +3273,7 @@
               {
                 elementOpLoop(*eMesh.get_bulk_data(), set_ref_field, refine_field);
 
-                breaker.unrefine( enforce_what);
+                breaker.unrefine();
                 int nel = eMesh.get_number_elements();
                 if (eMesh.get_rank() == 0)
                   std::cout << "P[" << eMesh.get_rank() << "] done... iunref_pass= " << iunref_pass << " local number elements= " << nel << std::endl;
@@ -3527,7 +3298,7 @@
                 elementOpLoop(*eMesh.get_bulk_data(), set_ref_field_val_unref_all, refine_field);
                 if (eMesh.get_rank() == 0)
                   std::cout << "P[" << eMesh.get_rank() << "] iunrefAll_pass= " << iunref <<  std::endl;
-                breaker.unrefine( enforce_what);
+                breaker.unrefine();
 
                 if (1)
                   {
@@ -3586,7 +3357,6 @@
             stk::mesh::Selector univ_selector(eMesh.get_fem_meta_data()->universal_part());
 
             ElementRefinePredicate erp(eMesh, &univ_selector, refine_field, 0.0);
-            bool enforce_what[3] = {false, true, false};
             TransitionElementAdapter<ElementRefinePredicate> *breaker_p;
             breaker_p = new TransitionElementAdapter<ElementRefinePredicate>(erp, eMesh, break_het_to_het_N, proc_rank_field);
             TransitionElementAdapter<ElementRefinePredicate>& breaker = *breaker_p;
@@ -3620,7 +3390,7 @@
                 ref_field[0] = 1;
 
                 // {node-, edge-, face-neighors}
-                breaker.refine( enforce_what);
+                breaker.refine();
 
                 if (1)
                   {
@@ -4990,9 +4760,8 @@
 #if DO_UMR
 	    breaker.doBreak();
 #else
-	    bool enforce_what[3] = {false, true, false};
-	    breaker.refine( enforce_what);
-	    breaker.unrefine( enforce_what);
+	    breaker.refine();
+	    breaker.unrefine();
 #endif
 
 	    ff_scalar.interpolateFrom(sf_scalar);

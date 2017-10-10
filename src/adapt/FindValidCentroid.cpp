@@ -23,27 +23,11 @@ namespace percept {
       return element_volume;
     std::vector<stk::mesh::Entity> children;
     m_eMesh.getChildren(element, children, false, false);
-    volumes.resize(children.size());
+    volumes.resize(children.size(), 0.0);
     for (unsigned ii=0; ii < children.size(); ++ii)
       {
         const CellTopologyData *cell_topo_data = m_eMesh.get_cell_topology(children[ii]);
         volumes[ii] = m_eMesh.volume(children[ii], m_eMesh.get_coordinates_field(), cell_topo_data);
-        if (m_debug) std::cout << "ii= " << ii << " child= " << m_eMesh.print_entity_compact(children[ii]) << " volume= " << volumes[ii] << std::endl;
-        if (0)
-          {
-            volumes[ii] = std::numeric_limits<double>::max();
-            VolumeUtil jacA;
-            shards::CellTopology cell_topo(cell_topo_data);
-            double volScale = jacA.getJacobianToVolumeScale(cell_topo);
-            double jacobian = 0.0;
-            jacA(jacobian, m_eMesh, children[ii], m_eMesh.get_coordinates_field(), cell_topo_data);
-            double cellVol = jacobian*volScale;
-            for (int in=0; in < jacA.m_num_nodes; ++in)
-              {
-                if (m_debug) std::cout << "ii= " << ii << " in= " << in << " v[in]= " << jacA.m_detJ[in] << " cellVol= " << cellVol << std::endl;
-                volumes[ii] = std::min(volumes[ii], jacA.m_detJ[in]*volScale);
-              }
-          }
 #if defined(STK_BUILT_IN_SIERRA) && !STK_PERCEPT_LITE
         if (m_use_finite_volume)
           {
@@ -61,7 +45,6 @@ namespace percept {
               }
             for (unsigned in=0; in < numNodes; ++in)
               {
-                if (m_debug) std::cout << "ii= " << ii << " in= " << in << " v[in]= " << sc_volume[in] << " cellVol= " << cellVol << std::endl;
                 volumes[ii] = std::min(volumes[ii], sc_volume[in]);
               }
           }
@@ -98,21 +81,10 @@ namespace percept {
   bool FindValidCentroid::findCentroid(stk::mesh::Entity element, double *c_p, std::vector<stk::mesh::Entity>& nodes, stk::mesh::Entity c_node)
   {
     // only for coordinate field
-    int fieldDim = 3;
+    const int fieldDim = 3;
     stk::mesh::FieldBase *field = m_eMesh.get_coordinates_field();
     unsigned nsz = nodes.size();
     double *c_node_p = (double *)stk::mesh::field_data(*field, c_node);
-    double c_p_save[3] = {c_p[0], c_p[1], c_p[2]};
-    if (0)
-      for (int isp = 0; isp < fieldDim; isp++)
-        {
-          c_node_p[isp] = c_p[isp];
-        }
-    if (m_debug) std::cout << "element= " << m_eMesh.print_entity_compact(element) << std::endl;
-
-
-    double c_node_p_save[3] = {c_node_p[0], c_node_p[1], c_node_p[2]};
-    (void)c_node_p_save;
 
     // check volumes
     stk::topology topo = m_eMesh.topology(element);
@@ -120,20 +92,10 @@ namespace percept {
       {
         std::vector<double> volumes;
         bool foundBad = false;
-        double element_volume = getVolumes(volumes, element);
-        (void)element_volume;
+        getVolumes(volumes, element);
         double met = metric(volumes, foundBad);
-        if (m_debug) std::cout << "element= " << m_eMesh.print_entity_compact(element) << " initial met= " << met << " foundBad= " << foundBad << " element_volume= " << element_volume << std::endl;
         if (!foundBad)
-          {
-            if (0)
-              for (int isp = 0; isp < fieldDim; isp++)
-                {
-                  c_p[isp] = c_node_p[isp];
-                }
             return false;
-          }
-        if (m_debug) std::cout << "element= " << m_eMesh.print_entity_compact(element) << " initial met= " << met << " foundBad= " << foundBad << " element_volume= " << element_volume << std::endl;
 
         double metMin = std::numeric_limits<double>::max();
         double c_p_min[3] = {0,0,0};
@@ -208,9 +170,8 @@ namespace percept {
                       }
 
                     foundBad = false;
-                    element_volume = getVolumes(volumes, element);
+                    getVolumes(volumes, element);
                     met = metric(volumes, foundBad);
-                    if (m_debug) std::cout << "ix,y,z= " << ix << " " << iy << " " << iz << " xi= " << xi << " " << eta << " " << zeta << " met= " << met << " foundBad= " << foundBad << std::endl;
                     if (!foundBad)
                       {
                         foundGood = true;
@@ -235,30 +196,11 @@ namespace percept {
                 c_node_p[isp] = c_p_min[isp];
                 c_p[isp] = c_p_min[isp];
               }
-            if (m_debug)
-              {
-                foundBad = false;
-                element_volume = getVolumes(volumes, element);
-                met = metric(volumes, foundBad);
-                std::cout << "foundGood c_node= " << m_eMesh.print_entity_compact(c_node) << " element= " << m_eMesh.id(element) << " met= " << met << " foundBad= " << foundBad << std::endl;
-                VERIFY_OP_ON(foundBad, ==, false, "bad foundBad 2");
-              }
           }
-        else
+        else // output_debug_data function here
           {
             std::ostringstream str;
-            if (0 && !m_debug)
-              {
-                for (int isp = 0; isp < fieldDim; isp++)
-                  {
-                    c_node_p[isp] = c_node_p_save[isp];
-                    c_p[isp] = c_p_save[isp];
-                  }
-                m_debug = true;
-                findCentroid(element, c_p, nodes, c_node);
-              }
-            m_debug = true;
-            element_volume = getVolumes(volumes, element);
+            getVolumes(volumes, element);
             str << "negative volumes in refined mesh - couldn't find centroid, m_use_finite_volume= " << m_use_finite_volume << " parent topo= " << topo << " element= " << m_eMesh.print_entity_compact(element);
 
             if (1)

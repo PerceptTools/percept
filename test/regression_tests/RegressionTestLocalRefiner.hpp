@@ -114,19 +114,6 @@
       }
 
 
-#if 0
-      static void project_point_to_plane(double plane_point[3], double plane_normal[3], double point[3], double projected_point[3])
-      {
-        double normal[3]={0,0,0};
-        normalize(plane_normal, normal);
-        double dot = plane_dot_product(plane_point, plane_normal, point);
-        for (int i = 0; i < 3; i++)
-          {
-            projected_point[i] = plane_point[i] + (point[i] - dot*normal[i]);
-          }
-      }
-#endif
-
       class SetElementRefineFieldValue : public percept::ElementOp
       {
         RefineFieldType_type m_val;
@@ -317,13 +304,6 @@
         shock.setCurrentPlanePoint(shock_displacement);
         double *plane_point = shock.plane_point;
         double *plane_normal = shock.plane_normal;
-
-#if 0
-        double proj_pt_0[3]={0,0,0};
-        double proj_pt_1[3]={0,0,0};
-        project_point_to_plane(plane_point, plane_normal, coord0, proj_pt_0);
-        project_point_to_plane(plane_point, plane_normal, coord1, proj_pt_1);
-#endif
 
         double dot_0 = plane_dot_product(plane_point, plane_normal, coord0);
         double dot_1 = plane_dot_product(plane_point, plane_normal, coord1);

@@ -272,7 +272,7 @@
         return false;
       }
 
-      bool process_element(bool enforce_what[3], stk::mesh::Entity element, bool& did_change, int& nchange_1, int& nchange_2,
+      bool process_element(stk::mesh::Entity element, bool& did_change, int& nchange_1, int& nchange_2,
                            LocalSetType& selected_neighbors, bool check_only=false)
       {
         PerceptMesh& eMesh = Base::m_eMesh;
@@ -302,8 +302,6 @@
             bool isNParent = eMesh.hasFamilyTree(neigh) && eMesh.isParentElement(neigh, true);
             int *refine_field_neigh = stk::mesh::field_data( *m_refine_field , neigh );
             int *refine_field_elem = stk::mesh::field_data( *m_refine_field , element );
-
-            // now see if it's a real neighbor according to enforce_what
 
             if (refine_field_neigh[0] >= 1 )
               {
@@ -369,113 +367,99 @@
         return ret_val;
       }
 
-      bool enforce_transition_element_consistency(bool enforce_what[3], int iter)
+      void communicate_field_data(std::vector< const stk::mesh::FieldBase *> fields)
+      {
+          stk::mesh::communicate_field_data(Base::m_eMesh.get_bulk_data()->aura_ghosting(), fields);
+      }
+
+      void downgrade_marked_transition_elements_and_upgrade_parents(std::vector<stk::mesh::Entity>& vec, int &nchange_1, bool &did_change)
+      {
+          PerceptMesh& eMesh = Base::m_eMesh;
+          std::vector<stk::mesh::Entity> children;
+
+          // First loop over all locally owned elements
+          // downgrade any TE's marked for refine (but upgrade parents to be refined isotropically)
+          for (unsigned iElement = 0; iElement < vec.size(); iElement++) {
+              stk::mesh::Entity element = vec[iElement];
+
+              int *transition_element = stk::mesh::field_data(
+                      *m_transition_element_field, element);
+              int *refine_field_elem = stk::mesh::field_data(*m_refine_field,
+                      element);
+              if (transition_element[0] && refine_field_elem[0] >= 1) {
+                  refine_field_elem[0] = 0;
+
+                  stk::mesh::Entity parent = stk::mesh::Entity();
+                  if (eMesh.hasFamilyTree(element))
+                      parent = eMesh.getParent(element, true);
+
+                  VERIFY_OP_ON(eMesh.is_valid(parent), ==, true, "valid");
+                  VERIFY_OP_ON(eMesh.isGhostElement(parent), ==, false,
+                          "bad parent 1");
+
+                  int *refine_field_parent = stk::mesh::field_data(
+                          *m_refine_field, parent);
+
+                  if (0 <= refine_field_parent[0] && refine_field_parent[0] < 2) {
+                      refine_field_parent[0] = 2;
+                      refine_field_elem[0] = 0;
+
+                      eMesh.getChildren(parent, children, true, false);
+                      for (unsigned ii = 0; ii < children.size(); ++ii) {
+                          int *refine_field_child = stk::mesh::field_data(
+                                  *m_refine_field, children[ii]);
+                          refine_field_child[0] = 0;
+                      }
+
+                      ++nchange_1;
+                      did_change = true;
+                  }
+              }
+          }
+      }
+
+      void gather_transition_element_leaves(std::vector<stk::mesh::Entity>& vec, std::queue<stk::mesh::Entity> &elementQ)
+      {
+          PerceptMesh& eMesh = Base::m_eMesh;
+          for (unsigned iElement = 0; iElement < vec.size(); iElement++)
+          {
+              stk::mesh::Entity element = vec[iElement];
+
+              // only leaves
+              bool isParent = eMesh.hasFamilyTree(element) && eMesh.isParentElement(element, true);
+              if (isParent) continue;
+
+              int *transition_element = stk::mesh::field_data( *m_transition_element_field , element );
+              if (transition_element[0])
+                  elementQ.push(element);
+          }
+      }
+
+
+      bool enforce_transition_element_consistency(int iter)
       {
         // todo: sum values of fields before/after comm field data, check they are the same for locally owned...
         // double-check locally owned
 
-        PerceptMesh& eMesh = Base::m_eMesh;
-        stk::ParallelMachine pm = eMesh.get_bulk_data()->parallel();
+    	PerceptMesh& eMesh = Base::m_eMesh;
         bool did_change = false;
         int nchange_1 = 0, nchange_2 = 0;
-        RefineFieldType *refine_field = eMesh.get_fem_meta_data()-> template get_field<RefineFieldType>(stk::topology::ELEMENT_RANK, "refine_field");
-        if (!refine_field)
-          {
-            throw std::logic_error("must have refine_field field for hanging-node refinement");
-          }
 
-        TransitionElementType *transition_element_field = m_transition_element_field;
-        {
-          std::vector< const stk::mesh::FieldBase *> fields;
-          fields.push_back(refine_field);
-          fields.push_back(transition_element_field);
-          stk::mesh::communicate_field_data(eMesh.get_bulk_data()->aura_ghosting(), fields);
-        }
+        communicate_field_data({m_refine_field, m_transition_element_field});
 
-        LocalSetType selected_neighbors;
         std::vector<stk::mesh::Entity> vec;
         stk::mesh::Selector on_locally_owned_part =  ( eMesh.get_fem_meta_data()->locally_owned_part() );
         stk::mesh::get_selected_entities(on_locally_owned_part, eMesh.get_bulk_data()->buckets(eMesh.element_rank()), vec);
 
-        // downgrade any TE's marked for refine (but upgrade parents to be refined isotropically)
-        for (unsigned iElement = 0; iElement < vec.size(); iElement++)
-          {
-            stk::mesh::Entity element = vec[iElement];
+        downgrade_marked_transition_elements_and_upgrade_parents(vec, nchange_1, did_change);
 
-            int *transition_element = stk::mesh::field_data( *transition_element_field , element );
-            //if (refine_field && refine_field->entity_rank() == eMesh.entity_rank(element))
-            int *refine_field_elem = stk::mesh::field_data( *refine_field , element );
-            if (transition_element[0] && refine_field_elem[0] >= 1)
-              {
-                refine_field_elem[0] = 0;
-#if 1
-                stk::mesh::Entity parent = stk::mesh::Entity();
-                if (eMesh.hasFamilyTree(element))
-                  parent = eMesh.getParent(element, true);
-
-                VERIFY_OP_ON(eMesh.is_valid(parent), ==, true, "valid");
-                VERIFY_OP_ON(eMesh.isGhostElement(parent), ==, false, "bad parent 1");
-
-                int *refine_field_parent = stk::mesh::field_data( *refine_field , parent );
-
-                //if (refine_field_parent[0] < 1.9)
-                if (refine_field_parent[0] >= 0 && refine_field_parent[0] < 2)
-                  {
-                    refine_field_parent[0] = 2;
-                    refine_field_elem[0] = 0;
-
-                    static std::vector<stk::mesh::Entity> children;
-                    //stk::mesh::Entity parent = eMesh.getParent(element, true);
-                    eMesh.getChildren(parent, children, true, false);
-                    for (unsigned ii=0; ii < children.size(); ++ii)
-                      {
-                        int *refine_field_child = stk::mesh::field_data( *refine_field , children[ii] );
-                        refine_field_child[0] = 0;
-                      }
-
-                    ++nchange_1;
-                    did_change = true;
-                  }
-#endif
-              }
-          }
-
-        {
-          std::vector< const stk::mesh::FieldBase *> fields;
-          fields.push_back(refine_field);
-          fields.push_back(transition_element_field);
-
-          stk::mesh::communicate_field_data(eMesh.get_bulk_data()->aura_ghosting(), fields);
-        }
+        communicate_field_data({m_refine_field, m_transition_element_field});
 
         std::queue<stk::mesh::Entity> elementQ;
-
-        for (unsigned iElement = 0; iElement < vec.size(); iElement++)
-          {
-            stk::mesh::Entity element = vec[iElement];
-            bool isParent = eMesh.hasFamilyTree(element) && eMesh.isParentElement(element, true);
-
-            // only leaves
-            if (isParent)
-              continue;
-
-            int *transition_element = stk::mesh::field_data( *transition_element_field , element );
-            //double *refine_field_elem = stk::mesh::field_data( *refine_field , element );
-
-            // only transition elements
-            if (!transition_element[0])
-              continue;
-
-            elementQ.push(element);
-          }
+        gather_transition_element_leaves(vec, elementQ);
 
         // now enforce no neighbors of TEs are marked without marking TE parents
-        selected_neighbors.clear();
-        size_t qsize= elementQ.size();
-        size_t nele=0;
-
-        if (m_debug && eMesh.get_rank() == 0)
-          std::cout << "initial Q size= " << qsize << " nele= " << nele << std::endl;
+        SetOfEntities selected_neighbors;
 
         while(elementQ.size())
           {
@@ -483,28 +467,24 @@
             elementQ.pop();
 
             int *refine_field_elem = stk::mesh::field_data( *m_refine_field , element );
-            if (refine_field_elem[0] > 1)
+            if (refine_field_elem[0] > 1)  // bcarnes: what would it mean for a TE leaf element to have a value > 1?
               continue;
 
-            ++nele;
-
-            bool changed = process_element(enforce_what, element, did_change, nchange_1, nchange_2, selected_neighbors);
+            bool changed = process_element(element, did_change, nchange_1, nchange_2, selected_neighbors);
             if (changed)
               {
                 // FIXME for edge neigh...
 
                 // for all node neighbors that are leaves and TE's and not yet marked, put on queue
-                LocalSetType::iterator neighbor_begin = selected_neighbors.begin();
-                LocalSetType::iterator neighbor_end = selected_neighbors.end();
-                for (LocalSetType::iterator neighbor = neighbor_begin;
-                     neighbor != neighbor_end; ++neighbor)
+                for (SetOfEntities::iterator neighbor  = selected_neighbors.begin();
+                                             neighbor != selected_neighbors.end(); ++neighbor)
                   {
                     stk::mesh::Entity neigh = *neighbor;
                     if (neigh == element) continue;
                     if (eMesh.isGhostElement(neigh)) continue;
                     bool isNParent = eMesh.hasFamilyTree(neigh) && eMesh.isParentElement(neigh, true);
                     if (isNParent) continue;
-                    int *transition_element_neigh = stk::mesh::field_data( *transition_element_field , neigh );
+                    int *transition_element_neigh = stk::mesh::field_data( *m_transition_element_field , neigh );
                     if (!transition_element_neigh[0]) continue;
                     int *refine_field_neigh = stk::mesh::field_data( *m_refine_field , neigh );
                     if (refine_field_neigh[0] < 2 )
@@ -514,27 +494,10 @@
                   }
               }
           }
-        if (m_debug && eMesh.get_rank() == 0)
-          std::cout << "initial Q size= " << qsize << " nele= " << nele << std::endl;
 
-        {
-          std::vector< const stk::mesh::FieldBase *> fields;
-          fields.push_back(refine_field);
-          fields.push_back(transition_element_field);
+        communicate_field_data({m_refine_field, m_transition_element_field});
 
-          stk::mesh::communicate_field_data(eMesh.get_bulk_data()->aura_ghosting(), fields);
-        }
-
-        stk::all_reduce( pm, stk::ReduceMax<1>( &did_change ) );
-
-        if (m_debug)
-          {
-            stk::all_reduce( pm, stk::ReduceSum<1>( &nchange_1 ));
-            stk::all_reduce( pm, stk::ReduceSum<1>( &nchange_2 ));
-            if (eMesh.get_rank() == 0)
-              std::cout << "P[" << eMesh.get_rank() << "] did_change = "
-                        << did_change << " nchange_1 = " << nchange_1 << " nchange_2= " << nchange_2 << std::endl;
-          }
+        stk::all_reduce( eMesh.get_bulk_data()->parallel(), stk::ReduceMax<1>( &did_change ) );
 
         void *data = &did_change;
         this->special_processing("tea_after_single_pass_enforce_te", data);
@@ -542,7 +505,7 @@
         return did_change;
       }
 
-      void clearTERefineField()
+      void clearMarkedParentRefineField()
       {
         PerceptMesh& eMesh = Base::m_eMesh;
 
@@ -554,19 +517,10 @@
             for (unsigned ientity = 0; ientity < num_entity_in_bucket; ientity++)
               {
                 stk::mesh::Entity element = bucket[ientity];
-                int *transition_element = stk::mesh::field_data( *m_transition_element_field , element );
                 int *refine_field = stk::mesh::field_data( *m_refine_field , element );
 
                 if (refine_field[0] == 2)
                   refine_field[0] = 0;
-
-                if (transition_element[0])
-                  {
-                    // refine_field[0] = 0.0;
-                    // stk::mesh::Entity parent = eMesh.getParent(element, true);
-                    // double *refine_field_parent = stk::mesh::field_data( *m_refine_field , parent );
-                    // refine_field_parent[0] = 0.0;
-                  }
               }
           }
       }
@@ -606,23 +560,7 @@
 #endif
       }
 
-      void check_enforce_what_values( bool enforce_2_to_1_what[3])
-      {
-        PerceptMesh& eMesh = Base::m_eMesh;
-        if (enforce_2_to_1_what[0] || !enforce_2_to_1_what[1] || enforce_2_to_1_what[2])
-          {
-            if (eMesh.get_rank() == 0)
-              {
-                std::cout << "WARNING: TransitionElementAdapter passed incompatible values of enforce_what parameter.\n"
-                  "   Note: the current version of TransitionElementAdapter requires this parameter to be:\n"
-                  "     bool enforce_what[3] = {false, true, false}; \n"
-                  "   thus enforcing edge-neighbors only.  Please change client code to avoid this message."
-                          << std::endl;
-              }
-          }
-      }
-
-      virtual void refine( bool enforce_2_to_1_what[3])
+      virtual void refine()
       {
 #if USE_ADAPT_PERFORMANCE_TESTING_CALLGRIND
   CALLGRIND_START_INSTRUMENTATION;
@@ -691,7 +629,6 @@
             eMesh.get_load_factor(load_factor, true, "before refine");
           }
 
-        check_enforce_what_values(enforce_2_to_1_what);
         save("before-refine");
 
         printGeometryStats("refine start");
@@ -737,7 +674,7 @@
         // ensure no remaining marks from prior run
         {
           TIMER2(TER_clearTEField,Refine_);
-          clearTERefineField();
+          clearMarkedParentRefineField();
         }
 
         this->special_processing("tea_before_enforce_te_consistency");
@@ -751,7 +688,7 @@
               int max_iter=100;
               int iter=0;
               bool did_change=false;
-              while ((iter++ < max_iter) && (did_change = this->enforce_transition_element_consistency(enforce_2_to_1_what, iter)) )
+              while ((iter++ < max_iter) && (did_change = this->enforce_transition_element_consistency(iter)) )
                 {
                   if (m_debug && eMesh.get_rank()==0)
                     std::cout << "P[" << Base::m_eMesh.get_rank() << " iter= " << iter << " did_change= " << did_change
@@ -770,7 +707,7 @@
               if (m_debug)
                 {
                   TIMER2(TER_checkTE,Refine_);
-                  bool vv = checkTransitionElementsAfterEnforce(enforce_2_to_1_what);
+                  bool vv = checkTransitionElementsAfterEnforce();
                   if (eMesh.get_rank() == 0)
                     std::cout << "checkTransitionElements after enforce = " << vv << std::endl;
                   VERIFY_OP_ON(vv,==,true,"checkTransitionElements after enforce");
@@ -850,7 +787,7 @@
               {
                 TIMER3(TEA_Refine1,Refine_);
                 START_TIMER(0TER_Refine1);
-                clearTERefineField();
+                clearMarkedParentRefineField();
                 Base::m_removeFromNewNodesPart = true;
                 TEA_SelectIfRefined tea_sr(Base::m_eMesh);
                 if (do_filter)
@@ -881,7 +818,7 @@
               {
                 TIMER2(TER_checkTE,Refine_);
                 START_TIMER(0TER_checkTE);
-                bool vv = checkTransitionElements(enforce_2_to_1_what);
+                bool vv = checkTransitionElements();
                 if (eMesh.get_rank() == 0)
                   std::cout << "checkTransitionElements after ute = " << vv << std::endl;
                 VERIFY_OP_ON(vv,==,true,"checkTransitionElements after ute");
@@ -911,7 +848,7 @@
           {
             TIMER2(TER_checkTE,Refine_);
             START_TIMER(0TER_checkTE);
-            bool vv = checkTransitionElements(enforce_2_to_1_what, true);
+            bool vv = checkTransitionElements(true);
             if (m_debug && eMesh.get_rank() == 0)
               std::cout << "checkTransitionElements after ute converged = " << vv << std::endl;
             if (!vv)
@@ -982,7 +919,7 @@
             Base::check_sides_on_same_proc_as_owned_element("TEA:end refine", true);
           }
 
-        if (1 || m_debug)
+        if (m_debug)
           {
             stk::ParallelMachine pm = Base::m_eMesh.get_bulk_data()->parallel();
 
@@ -992,7 +929,7 @@
                 stk::all_reduce( pm, stk::ReduceSum<1>( &it->second ));
               }
 
-            if ((1 || m_debug) && eMesh.get_rank() == 0)
+            if (eMesh.get_rank() == 0)
               {
                 std::cout << "\nTransitionElementAdapter::refine timing info: " << std::endl;
                 double time_main = timers_["Refine"];
@@ -1053,7 +990,7 @@
         return nmod_elements;
       }
 
-      virtual void unrefine( bool enforce_2_to_1_what[3]) {
+      virtual void unrefine() {
 
 #if DO_TIMING
         stk::diag::Timer timerUnrefine_("TE_UnRef", Base::rootTimer());
@@ -1068,8 +1005,6 @@
         save1("before-unrefine","0before-unref.e");
 
         this->special_processing("tea_pre_unrefine");
-
-        check_enforce_what_values(enforce_2_to_1_what);
 
         printGeometryStats("unrefine start");
 
@@ -1119,17 +1054,63 @@
       virtual void
       doBreak(int num_registration_loops=1)
       {
-        //throw std::runtime_error("TransitionElementAdapter::doBreak shouldn't call this");
-        bool enforce_2_to_1_what[3] = { false, true, false };
-        refine( enforce_2_to_1_what);
+        refine();
       }
 
       virtual void
       unrefineTheseElements(ElementUnrefineCollection& elements_to_unref)
       {
         Base::unrefineTheseElements(elements_to_unref);
-        //bool enforce_2_to_1_what[3] = { false, true, false };
-        //unrefine( enforce_2_to_1_what);
+      }
+
+      void reportParentTransitionElementErrors(stk::mesh::Entity element, const std::string& msg)
+      {
+          PerceptMesh& eMesh = Base::m_eMesh;
+
+          const bool check_for_family_tree = false;
+          bool isParent = eMesh.isParentElement(element, check_for_family_tree);
+
+          if (!isParent) return;
+
+          std::cout << "P[" << eMesh.get_rank() << "] <" << msg << "> found bad element - transition_element found that is a parent "
+                    << eMesh.identifier(element)
+                    << " isParent= " << isParent
+                    << " isGhostElement = " << eMesh.isGhostElement(element)
+                    << "\n Note: This may be due to not marking all elements including ghosts - check stk::mesh::Selector usage.\n"
+                    << std::endl;
+          eMesh.print(element);
+          {
+            std::string file = "te.err.dat."+toString(eMesh.get_bulk_data()->parallel_size()) + "."+toString(eMesh.get_rank())+".vtk";
+            std::set<stk::mesh::Entity> elem_set_debug;
+            static std::vector<stk::mesh::Entity> children;
+            elem_set_debug.insert(element);
+            stk::mesh::Entity parentOfElem = eMesh.getParent(element, true);
+            if (eMesh.is_valid(parentOfElem))
+              {
+                std::cout << "P[" << eMesh.get_rank() << "] parentOfElem is:  " << std::endl;
+                eMesh.print(parentOfElem);
+                std::cout << "P[" << eMesh.get_rank() << "] my siblings= " << std::endl;
+                eMesh.getChildren(parentOfElem, children, true, false);
+                for (unsigned ich=0; ich < children.size(); ++ich)
+                  {
+                    eMesh.print(children[ich]);
+                    elem_set_debug.insert(children[ich]);
+                  }
+
+              }
+            else
+              std::cout << "P[" << eMesh.get_rank() << "] parentOfElem is null " << std::endl;
+            std::cout << "P[" << eMesh.get_rank() << "] children= " << std::endl;
+            eMesh.getChildren(element, children, true, false);
+            for (unsigned ich=0; ich < children.size(); ++ich)
+              {
+                eMesh.print(children[ich]);
+                elem_set_debug.insert(children[ich]);
+              }
+            eMesh.dump_vtk(file, false, &elem_set_debug);
+          }
+
+          throw std::runtime_error("bad element - transition_element found that is a parent");
       }
 
       void getOrCheckTransitionElementSet(const std::string& msg, ElementUnrefineCollection * elements_to_unref=0)
@@ -1145,58 +1126,15 @@
             for (unsigned ientity = 0; ientity < num_entity_in_bucket; ientity++)
               {
                 stk::mesh::Entity element = bucket[ientity];
-                const bool check_for_family_tree = false;
-                bool isParent = eMesh.isParentElement(element, check_for_family_tree);
 
-                //% ghost
                 int *transition_element = 0;
                 transition_element = stk::mesh::field_data( *transition_element_field , element );
 
                 if (transition_element[0])
                   {
-                    if (isParent)
-                      {
-                        std::cout << "P[" << eMesh.get_rank() << "] <" << msg << "> found bad element - transition_element found that is a parent "
-                                  << eMesh.identifier(element)
-                                  << " isParent= " << isParent
-                                  << " isGhostElement = " << eMesh.isGhostElement(element)
-                                  << "\n Note: This may be due to not marking all elements including ghosts - check stk::mesh::Selector usage.\n"
-                                  << std::endl;
-                        eMesh.print(element);
-                        {
-                          std::string file = "te.err.dat."+toString(eMesh.get_bulk_data()->parallel_size()) + "."+toString(eMesh.get_rank())+".vtk";
-                          std::set<stk::mesh::Entity> elem_set_debug;
-                          static std::vector<stk::mesh::Entity> children;
-                          elem_set_debug.insert(element);
-                          stk::mesh::Entity parentOfElem = eMesh.getParent(element, true);
-                          if (eMesh.is_valid(parentOfElem))
-                            {
-                              std::cout << "P[" << eMesh.get_rank() << "] parentOfElem is:  " << std::endl;
-                              eMesh.print(parentOfElem);
-                              std::cout << "P[" << eMesh.get_rank() << "] my siblings= " << std::endl;
-                              eMesh.getChildren(parentOfElem, children, true, false);
-                              for (unsigned ich=0; ich < children.size(); ++ich)
-                                {
-                                  eMesh.print(children[ich]);
-                                  elem_set_debug.insert(children[ich]);
-                                }
+                	reportParentTransitionElementErrors(element, msg);
 
-                            }
-                          else
-                            std::cout << "P[" << eMesh.get_rank() << "] parentOfElem is null " << std::endl;
-                          std::cout << "P[" << eMesh.get_rank() << "] children= " << std::endl;
-                          eMesh.getChildren(element, children, true, false);
-                          for (unsigned ich=0; ich < children.size(); ++ich)
-                            {
-                              eMesh.print(children[ich]);
-                              elem_set_debug.insert(children[ich]);
-                            }
-                          eMesh.dump_vtk(file, false, &elem_set_debug);
-                        }
-
-                        throw std::runtime_error("bad element - transition_element found that is a parent");
-                      }
-                    if (elements_to_unref) {
+                     if (elements_to_unref) {
                         elements_to_unref->insert(element);
                     }
                   }
@@ -1245,9 +1183,9 @@
           getOrCheckTransitionElementSet("end of unrefineTransitionElements");
       }
 
-      bool checkTransitionElements(bool enforce_what[3], bool checkMarks=false)
+      bool checkTransitionElements(bool checkMarks=false)
       {
-        bool val = checkTransitionElements1(enforce_what, checkMarks);
+        bool val = checkTransitionElements1(checkMarks);
 
         stk::ParallelMachine pm = Base::m_eMesh.get_bulk_data()->parallel();
         stk::all_reduce( pm, stk::ReduceMin<1>( &val ));
@@ -1255,11 +1193,11 @@
         return val;
       }
 
-      bool checkTransitionElements1(bool enforce_what[3], bool checkMarks=false)
+      bool checkTransitionElements1(bool checkMarks=false)
       {
         PerceptMesh& eMesh = Base::m_eMesh;
         bool val = true;
-        SubDimCell_SDCEntityType subDimEntity(eMesh);
+        SubDimCell_SDCEntityType subDimEntity(&eMesh);
 
         TransitionElementType *transition_element_field = m_transition_element_field;
 
@@ -1385,9 +1323,9 @@
         return val;
       }
 
-      bool checkTransitionElementsAfterEnforce(bool enforce_what[3], bool checkMarks=false)
+      bool checkTransitionElementsAfterEnforce(bool checkMarks=false)
       {
-        bool val = checkTransitionElementsAfterEnforce1(enforce_what, checkMarks);
+        bool val = checkTransitionElementsAfterEnforce1(checkMarks);
 
         stk::ParallelMachine pm = Base::m_eMesh.get_bulk_data()->parallel();
         stk::all_reduce( pm, stk::ReduceSum<1>( &val ));
@@ -1395,11 +1333,11 @@
         return val;
       }
 
-      bool checkTransitionElementsAfterEnforce1(bool enforce_what[3], bool checkMarks=false)
+      bool checkTransitionElementsAfterEnforce1(bool checkMarks=false)
       {
         PerceptMesh& eMesh = Base::m_eMesh;
         bool val = true;
-        SubDimCell_SDCEntityType subDimEntity(eMesh);
+        SubDimCell_SDCEntityType subDimEntity(&eMesh);
 
         TransitionElementType *transition_element_field = m_transition_element_field;
 
@@ -1489,7 +1427,7 @@
                                       LocalSetType selected_neighbors_1;
                                       bool did_change_1 = false;
                                       int nchange_1=0, nchange_2=0;
-                                      bool pe = process_element(enforce_what, element, did_change_1, nchange_1, nchange_2, selected_neighbors_1, true);
+                                      bool pe = process_element(element, did_change_1, nchange_1, nchange_2, selected_neighbors_1, true);
                                       if (0)
                                         std::cout << "bad element = " << eMesh.identifier(element) << " neigh = " << eMesh.identifier(neigh)
                                                   << " transition_element= " << transition_element[0]

@@ -613,7 +613,6 @@ namespace percept {
                                   "   use this option if you want to ensure output mesh has\n"
                                   "   the same block ids and names as the input mesh, which\n"
                                   "   only makes sense if in refine (not enrich or convert) mode");
-    clp.setOption("save_internal_fields"     , &save_internal_fields     , "save internally created fields to the output file");
 
 #if defined(STK_BUILT_IN_SIERRA)
     // Salinas
@@ -630,22 +629,6 @@ namespace percept {
     clp.setOption("test_memory_nodes"        , &test_memory_nodes        , " give a number of nodes");
 #endif
     clp.setOption("serialized_io_group_size" , &serialized_io_group_size , "[experimental] set to non-zero to use this many i/o groups to minimize disk contention");
-
-    clp.setOption("streaming_size"           , &streaming_size      ,
-                                  "INTERNAL use only by python script streaming refinement interface:\n"
-                                  "  run in streaming mode - this number specifies how many virtual procs the mesh is split into\n"
-                                  "    i.e. we expect to see files like file.e.N.iN where N = streaming_size iN=0..N");
-    clp.setOption("streaming_rank"           , &streaming_rank     ,
-                                  "INTERNAL use only by python script streaming refinement interface:\n"
-                                  "  run in streaming mode - this number specifies which virtual proc this is.");
-    clp.setOption("streaming_pass_start"     , &streaming_pass_start           ,
-                                  "INTERNAL use only by python script streaming refinement interface:");
-    clp.setOption("streaming_pass_end"       , &streaming_pass_end           ,
-                                  "INTERNAL use only by python script streaming refinement interface:");
-    clp.setOption("streaming_W"              , &streaming_W           ,
-                                  "INTERNAL use only by python script streaming refinement interface:");
-    clp.setOption("streaming_iW"             , &streaming_iW          ,
-                                  "INTERNAL use only by python script streaming refinement interface:");
 
     // Detailed doc
     std::string docString = s_docString;
@@ -1201,6 +1184,19 @@ namespace percept {
                 VERIFY_OP_ON ((bn[0] == '+' || bn[0] == '-'), ==, true, "bad block name: "+bn);
                 std::string bname = bn.substr(1);
                 stk::mesh::Part *part = eMeshP->get_fem_meta_data()->get_part(bname);
+
+                if (!part) {
+                    const std::string alias = eMeshP->get_ioss_mesh_data()->get_input_io_region()->get_alias(bname);
+
+                    if (debug && !eMeshP->get_rank())
+                      std::cout << "block= " << bname << " replaced with alias=" << alias << std::endl;
+
+                    part = eMeshP->get_fem_meta_data()->get_part(alias);
+
+                    const int mult = block_names_x_map[bname];
+                    block_names_x_map[alias] = mult;
+                }
+
                 VERIFY_OP_ON(part, !=, 0, "couldn't find part: "+bname);
 
                 if (bn[0] == '+')
@@ -1505,11 +1501,15 @@ namespace percept {
             pre_open();
             eMeshP->open(input_mesh);
 
-            if (smooth_geometry == 1) eMeshP->add_coordinate_state_fields();
+            if (smooth_geometry) {
+                const bool output = smooth_geometry > 1;
+                eMeshP->add_coordinate_state_fields(output);
+            }
 #if !defined(NO_GEOM_SUPPORT)
-            if (respect_spacing == 1) {
+            if (respect_spacing >= 1) {
+              const bool output = respect_spacing > 1;
               eMeshP->set_respect_spacing(true);
-              eMeshP->add_spacing_fields();
+              eMeshP->add_spacing_fields(output);
             }
 #endif
             if (smooth_surfaces == 1) eMeshP->set_smooth_surfaces(true);
@@ -1531,7 +1531,6 @@ namespace percept {
     if (load_balance)
       {
         throw std::runtime_error("deprecated - run decomp manually before running mesh_adapt, or, use the auto-decomp options");
-        if (streaming_size) throw std::runtime_error("can't load balance and stream");
       }
 
     if (ioss_read_options.length() || ioss_write_options.length())
@@ -1571,12 +1570,15 @@ namespace percept {
     }
     if (smooth_surfaces == 1) eMeshP->set_smooth_surfaces(true);
 
-    eMeshP->set_save_internal_fields(save_internal_fields);
-    if (smooth_geometry == 1) eMeshP->add_coordinate_state_fields();
+    if (smooth_geometry) {
+        const bool output = smooth_geometry > 1;
+        eMeshP->add_coordinate_state_fields(output);
+    }
 #if !defined(NO_GEOM_SUPPORT)
-    if (respect_spacing == 1) {
+    if (respect_spacing >= 1) {
+      const bool output = respect_spacing > 1;
       eMeshP->set_respect_spacing(true);
-      eMeshP->add_spacing_fields();
+      eMeshP->add_spacing_fields(output);
     }
 #endif
     if (sync_io_regions)
@@ -1644,7 +1646,7 @@ namespace percept {
       }
 
     if (DO_MEMORY) {
-      std::string hwm = eMeshP->print_memory_both();
+      std::string hwm = print_memory_both(eMeshP->parallel());
       if (!eMeshP->get_rank()) std::cout << "MEM: " << hwm << " initial memory after opening input mesh."  << std::endl;
     }
 
@@ -1726,7 +1728,7 @@ namespace percept {
 
         if (input_geometry != "") {
           refiner->setGeometryFile(input_geometry);
-          refiner->setSmoothGeometry(smooth_geometry == 1);
+          refiner->setSmoothGeometry(smooth_geometry);
           
           initialize_m2g_geometry(input_geometry);
         }
@@ -1826,7 +1828,7 @@ namespace percept {
               }
 
             if (DO_MEMORY) {
-              std::string hwm = eMeshP->print_memory_both();
+              std::string hwm = print_memory_both(eMeshP->parallel());
               if (!eMeshP->get_rank()) std::cout << "MEM: " << hwm << " memory after refining mesh for pass # " << iBreak  << std::endl;
             }
 
@@ -1837,49 +1839,28 @@ namespace percept {
         if (delete_parents)
           {
             if (DO_MEMORY) {
-              std::string hwm = eMeshP->print_memory_both();
+              std::string hwm = print_memory_both(eMeshP->parallel());
               if (!eMeshP->get_rank()) std::cout << "MEM: " << hwm << " memory before deleteParentElements" << std::endl;
             }
 
             refiner->deleteParentElements();
 
             if (DO_MEMORY) {
-              std::string hwm = eMeshP->print_memory_both();
+              std::string hwm = print_memory_both(eMeshP->parallel());
               if (!eMeshP->get_rank()) std::cout << "MEM: " << hwm << " memory after deleteParentElements"  << std::endl;
             }
           }
 
 
-        if (number_refines == 0 && (smooth_geometry == 1 || snap_geometry == 1))
+        if (number_refines == 0 && (smooth_geometry || snap_geometry))
           {
 #if defined(STK_PERCEPT_HAS_GEOMETRY)
-            refiner->setSmoothGeometry((smooth_geometry == 1));
+            refiner->setSmoothGeometry(smooth_geometry);
             refiner->snapAndSmooth((snap_geometry == 1), input_geometry, (smooth_use_reference_mesh == 1) );
 #elif defined(NO_GEOM_SUPPORT)
             std::ostringstream oss;
             oss << "\nERROR: Geometry and/or smoothing is not currently supported on this platform. Try running with geometry turned off.";
             throw std::runtime_error(oss.str());
-#endif
-          }
-
-        if (streaming_size)
-          {
-#if STK_ADAPT_HAVE_YAML_CPP
-            {
-              SerializeNodeRegistry snr(*eMeshP, &refiner->getNodeRegistry(), input_mesh, output_mesh, m_M, m_iM,  m_W, m_iW, m_M_0, m_M_1);
-              snr.pass(i_pass);
-            }
-
-            if (i_pass == 0)
-              {
-                NodeRegistry *some_nr = 0;
-                SerializeNodeRegistry snr(*eMeshP, some_nr, input_mesh, output_mesh, m_M, m_iM,  m_W, m_iW, m_M_0, m_M_1);
-                snr.getGlobalPartMap();
-                snr.passM1_mergeGlobalParts();
-                snr.setGlobalPartMap();
-              }
-#else
-            throw std::runtime_error("must have YAML for streaming refine");
 #endif
           }
 
@@ -1907,7 +1888,6 @@ namespace percept {
         if (DEBUG_ADAPT_MAIN || 0 == p_rank) {
           std::cout << "P[" << p_rank << "]  AdaptMain:: saving mesh... " << std::endl;
         }
-        //if (streaming_size) eMeshP->setStreamingSize(m_M); // FIXME
         if (remove_geometry_blocks) eMeshP->remove_geometry_blocks_on_output(input_geometry);
 
         {
@@ -1943,7 +1923,7 @@ namespace percept {
       }
 #endif
     if (DO_MEMORY) {
-      std::string hwm = eMeshP->print_memory_both();
+      std::string hwm = print_memory_both(eMeshP->parallel());
       if (!eMeshP->get_rank()) std::cout << "MEM: " << hwm << " final memory after refining mesh."  << std::endl;
     }
 
@@ -2081,326 +2061,8 @@ namespace percept {
 
     setup_options(clp, comm, argc, argv);
 
-    if (streaming_size)
-      return adapt_main_full_options_streaming(argc, argv);
-    else
-      return adapt_main_full_options_normal(argc, argv);
+    return adapt_main_full_options_normal(argc, argv);
   }
-
-  int MeshAdapt::adapt_main_full_options_streaming(int argc, char **argv)
-  {
-    t0   = 0.0;
-    t1   = 0.0;
-    cpu0 = 0.0;
-    cpu1 = 0.0;
-
-#if defined( STK_PERCEPT_HAS_GEOMETRY )
-    if (dump_geometry_file && input_geometry.find(".3dm") != std::string::npos)
-      {
-        GeometryKernelOpenNURBS gko;
-        gko.debug_dump_file(input_geometry);
-      }
-#endif
-
-    // ========================================================================================================================================================================================================
-    //    START
-    // ========================================================================================================================================================================================================
-    std::string input_mesh_save = input_mesh;
-    std::string output_mesh_save = output_mesh;
-
-    // streaming
-    m_M = 1;
-    m_W = 1;
-    m_iW = 0;
-    m_M_0 = 0;
-    m_M_1 = 0;
-#if STK_ADAPT_HAVE_YAML_CPP
-    if (streaming_size)
-      {
-        m_M = streaming_size;
-        m_W = streaming_W ? streaming_W : 1;
-        m_iW = streaming_W ? streaming_iW : 0;
-        SerializeNodeRegistry::getStreamingPiece(m_M, m_W, m_iW, m_M_0, m_M_1);
-      }
-    //std::cout << "tmp srk AdaptMain: " << PERCEPT_OUT(streaming_size) << PERCEPT_OUT(streaming_W) << PERCEPT_OUT(streaming_iW) << PERCEPT_OUT(m_M) << PERCEPT_OUT(m_W) << PERCEPT_OUT(m_iW) << PERCEPT_OUT(m_M_0) << PERCEPT_OUT(m_M_1) << std::endl;
-#endif
-
-    // FIXME - starting from -1 pass is bogus
-#if STK_ADAPT_HAVE_YAML_CPP
-    int remove_original_elements_save = remove_original_elements;
-    int delete_parents_save = delete_parents;
-
-    if ((streaming_pass_start == -2 && streaming_pass_end != -2) ||
-        (streaming_pass_start != -2 && streaming_pass_end == -2))
-      {
-        throw std::runtime_error("must specify both streaming_pass_start and streaming_pass_end");
-      }
-
-    if (streaming_pass_start != -2 && (streaming_pass_start < -1  || streaming_pass_start > SerializeNodeRegistry::MaxPass))
-      {
-        throw std::runtime_error("streaming_pass_start bad value");
-      }
-    if (streaming_pass_end != -2 && (streaming_pass_end < -1  || streaming_pass_end > SerializeNodeRegistry::MaxPass))
-      {
-        throw std::runtime_error("streaming_pass_end bad value");
-      }
-    if (streaming_pass_end != -2 && (streaming_pass_end < streaming_pass_start))
-      {
-        throw std::runtime_error("streaming_pass_start > streaming_pass_end");
-      }
-
-    if (streaming_pass_end != -2)
-      {
-        std::cout << "\n\nWARNING: running passes from command line: streaming_pass_start,end= [" << streaming_pass_start << ", " << streaming_pass_end << "]\n\n";
-      }
-
-    // allow for driving this from a script
-    if (streaming_pass_start == -2 && streaming_pass_end == -2)
-      {
-        streaming_pass_start = streaming_size ? -1 : 0;
-        streaming_pass_end = streaming_size ? SerializeNodeRegistry::MaxPass : 0;
-      }
-#else
-    streaming_pass_start = 0;
-    streaming_pass_end = 0;
-#endif
-
-    bool do_normal_pass = true;
-    if (m_W > 1 && (m_iW == -1 || m_iW == m_W))
-      {
-        do_normal_pass = false;
-      }
-
-    if (streaming_size && s_spatialDim == 0)
-      {
-        PerceptMesh eMesh;
-        std::string mesh_name = Ioss::Utils::decode_filename(input_mesh_save, 0, m_M);
-        eMesh.open(mesh_name);
-        if (smooth_geometry == 1) eMesh.add_coordinate_state_fields();
-#if !defined(NO_GEOM_SUPPORT)
-        if (respect_spacing == 1) {
-          eMesh.set_respect_spacing(true);
-          eMesh.add_spacing_fields();
-        }
-#endif
-        if (smooth_surfaces == 1) eMesh.set_smooth_surfaces(true);
-        s_spatialDim = eMesh.get_spatial_dim();
-        VERIFY_OP_ON(s_spatialDim, >=, 2, "AdaptMain bad spatial_dim");
-      }
-
-    for (i_pass=streaming_pass_start; i_pass <= streaming_pass_end; i_pass++)
-      {
-
-#if STK_ADAPT_HAVE_YAML_CPP
-        if (streaming_size)
-          {
-
-            // init pass
-            if (m_W > 1 && m_iW == -1)
-              {
-                PerceptMesh eMesh(3);
-                eMesh.openEmpty();
-                SerializeNodeRegistry snr(eMesh, 0, input_mesh, output_mesh, m_M, m_M_0,  m_W, m_iW, m_M_0, m_M_1);
-                snr.pass_init(i_pass);
-                VERIFY_OP_ON(streaming_pass_start, ==, streaming_pass_end, "must have one pass at a time with W > 1");
-                continue;
-              }
-
-            remove_original_elements = 0;
-            delete_parents = 0;
-            if (i_pass == 1)
-              {
-                remove_original_elements = remove_original_elements_save;
-                delete_parents = delete_parents_save;
-              }
-          }
-        //std::cout << "tmp srk i_pass= " << i_pass << " delete_parents= " << delete_parents << " remove_original_elements= " << remove_original_elements << std::endl;
-#endif
-
-        if (do_normal_pass)
-          {
-            if (streaming_size)
-              {
-                // special cases
-
-                // read all files, get global parts and node info
-                if (i_pass == -1)
-                  {
-#if STK_ADAPT_HAVE_YAML_CPP
-                    PerceptMesh eMesh(s_spatialDim);
-                    eMesh.openEmpty();
-                    SerializeNodeRegistry snr(eMesh, 0, input_mesh, output_mesh, m_M, 0, m_W, m_iW, m_M_0, m_M_1);
-                    snr.pass(i_pass);
-#else
-                    throw std::runtime_error("must have YAML for streaming refine");
-#endif
-                    continue;
-                  }
-
-                if (i_pass == 2)
-                  {
-#if STK_ADAPT_HAVE_YAML_CPP
-                    if (m_W == 1)
-                      {
-                        //  no exodus files i/o
-                        PerceptMesh eMesh(s_spatialDim);
-                        eMesh.openEmpty();
-                        SerializeNodeRegistry snr(eMesh, 0, input_mesh, output_mesh, m_M, 0, m_W, m_iW, m_M_0, m_M_1);
-                        snr.pass(i_pass);
-                      }
-
-#else
-                    throw std::runtime_error("must have YAML for streaming refine");
-#endif
-                    continue;
-                  }
-              }
-
-            for (m_iM = m_M_0; m_iM <= m_M_1; m_iM++)
-              {
-                if (streaming_size)
-                  {
-                    input_mesh = Ioss::Utils::decode_filename(input_mesh_save, m_iM, m_M);
-                    output_mesh = Ioss::Utils::decode_filename(output_mesh_save, m_iM, m_M);
-
-                    if (i_pass == 1)
-                      {
-                        output_mesh = output_mesh_save+"-pass1";
-                        output_mesh = Ioss::Utils::decode_filename(output_mesh, m_iM, m_M);
-                      }
-                  }
-
-                //EXCEPTWATCH;
-
-                if (streaming_size)
-                  {
-                    // special cases
-                    if (i_pass == 3)
-                      {
-#if STK_ADAPT_HAVE_YAML_CPP
-                        // fini
-                        //if ((m_W > 1 && m_iW == m_W) || (m_W == 1 && m_iM == m_M_1))
-                        if (m_iM == m_M_1)
-                          {
-                            NodeRegistry *some_nr = 0;
-                            PerceptMesh eMeshEmpty;
-                            eMeshEmpty.openEmpty();
-                            SerializeNodeRegistry snr(eMeshEmpty, some_nr, input_mesh_save, output_mesh_save, m_M, 0, m_W, m_iW, m_M_0, m_M_1);
-                            if (remove_geometry_blocks) snr.set_geometry_file(input_geometry);
-                            snr.pass3_new();
-                          }
-#else
-                        throw std::runtime_error("must have YAML for streaming refine");
-#endif
-                        continue;
-                      }
-                  }
-
-                eMeshP.reset(new percept::PerceptMesh);
-                if (output_active_elements_only)
-                  eMeshP->output_active_children_only(true);
-
-                if (1)
-                  {
-                    if (property_map.length())
-                      {
-                        eMeshP->parse_property_map_string(property_map);
-                      }
-                    const char * env_val = std::getenv("Percept_property_map");
-                    if (env_val)
-                      {
-                        std::string vv(env_val);
-                        if (eMeshP->get_rank() == 0) std::cout << "found Percept_property_map = " << vv << std::endl;
-                        eMeshP->parse_property_map_string(vv);
-                      }
-                    if (eMeshP->getProperty("MeshAdapt.debug") == "true")
-                      debug = 1;
-                  }
-
-
-                //percept::PerceptMesh eMesh;
-                // ==============  START Normal Pass  ==================================================================
-
-                if (do_normal_pass)
-                  {
-                    if (progress_meter && eMeshP->get_rank() == 0)
-                      {
-                        std::cout << "Stage: Open mesh..." << " cpu: " << eMeshP->cpu_time() << " [sec]" << std::endl;
-                      }
-
-                    int res1 = do_run_pre_commit();
-
-#if STK_ADAPT_HAVE_YAML_CPP
-                    // FIXME - this is this needed? see above
-                    // add global parts not found in this file
-                    if (streaming_size)
-                      {
-                        NodeRegistry *some_nr = 0;
-                        SerializeNodeRegistry snr(*eMeshP, some_nr, input_mesh, output_mesh, m_M, m_iM,  m_W, m_iW, m_M_0, m_M_1);
-                        snr.declareGlobalParts();
-                      }
-#endif
-
-                    // trap for RunAdaptRun
-                    if (res1 < 0)
-                      {
-                        eMeshP.reset();
-#if defined( STK_HAS_MPI )
-                        stk::parallel_machine_finalize();
-#endif
-#if defined(WITH_KOKKOS)
-                        Kokkos::finalize();
-#endif
-                        return 0;
-                      }
-
-                    if (progress_meter && eMeshP->get_rank() == 0)
-                      {
-                        std::cout << "Stage: Commit mesh..." << " cpu: " << eMeshP->cpu_time() << " [sec]" << std::endl;
-                      }
-                    eMeshP->commit();
-
-                    if (progress_meter && eMeshP->get_rank() == 0)
-                      {
-                        std::cout << "Stage: Commit mesh...done" << " cpu: " << eMeshP->cpu_time() << " [sec]" << std::endl;
-                      }
-
-                    if (streaming_size) eMeshP->setStreamingSize(m_M);
-                    do_run_post_commit();
-
-                  } // do_normal_pass
-
-                do_post_proc();
-
-              } // m_iM
-
-          } // do_normal_pass
-
-#if STK_ADAPT_HAVE_YAML_CPP
-        // fini pass
-        if (m_W > 1 && m_iW == m_W)
-          {
-            VERIFY_OP_ON(s_spatialDim, >=, 2, "AdaptMain bad spatial_dim");
-            PerceptMesh eMesh(s_spatialDim);
-            eMesh.openEmpty();
-            SerializeNodeRegistry snr(eMesh, 0, input_mesh, output_mesh, m_M, 0,  m_W, m_iW, m_M_0, m_M_1);
-            snr.pass_final(i_pass);
-          }
-#endif
-
-      } // i_pass
-
-    eMeshP.reset();
-
-#if defined( STK_HAS_MPI )
-    stk::parallel_machine_finalize();
-#endif
-#if defined(WITH_KOKKOS)
-    Kokkos::finalize();
-#endif
-    return result;
-  }
-
 
   int MeshAdapt::adapt_main_full_options_normal(int argc, char **argv)
   {
@@ -2703,7 +2365,7 @@ void MeshAdapt::initialize_m2g_geometry(std::string input_geometry)
   geom_assoc.set_mesh(bd);
   geom_assoc.set_fill_curve_and_surface_maps_during_import(false);
   const bool geometry_exists = true;
-  geom_assoc.import_assoc_file(m2gFile.c_str(), geometry_exists);
+  geom_assoc.import_m2g_file(m2gFile.c_str(), geometry_exists);
 
   bd->modification_begin();
 
@@ -2825,5 +2487,6 @@ void MeshAdapt::initialize_m2g_geometry(std::string input_geometry)
     res = adapt_main(argc, argv);
     return res;
   }
+
 }
 

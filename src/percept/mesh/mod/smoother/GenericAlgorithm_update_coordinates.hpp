@@ -15,14 +15,14 @@ namespace percept {
 template<typename MeshType>
 class ReferenceMeshSmootherConjugateGradientImpl;
 
-#if defined(WITH_KOKKOS) //&& defined(KOKKOS_HAVE_OPENMP)
+#if defined(WITH_KOKKOS)
 using Array4D = viewType;
 
 template<typename MeshType>
 struct A4DMD{
 	unsigned blkIndex;
 	unsigned numNodes;
-	Kokkos::View<typename MeshType::MTNode*, DataLayout, MemSpace> blockNodes;
+	Kokkos::View</*typename MeshType::MTNode**/unsigned**, DataLayout, MemSpace> blockNodes;
 
 	A4DMD(){
 		blkIndex =0;
@@ -57,7 +57,6 @@ struct A4DMD{
   struct GenericAlgorithm_update_coordinates
   {
     using RefMeshSmoother =     ReferenceMeshSmootherConjugateGradientImpl<MeshType>;
-    using Double = typename RefMeshSmoother::Double;
     using This = GenericAlgorithm_update_coordinates<MeshType>;
 
     RefMeshSmoother *m_rms;
@@ -69,23 +68,32 @@ struct A4DMD{
     typename MeshType::MTField *coord_field;
     typename MeshType::MTField *coord_field_current;
     typename MeshType::MTField *coord_field_lagged;
-
     typename MeshType::MTField *cg_s_field;
+    typename MeshType::MTField *cg_edge_length_field;
 
 
     std::vector<typename MeshType::MTNode> nodes;
 
+    std::vector< Kokkos::View<Double*,DataLayout,MemSpace> > dmax_candidates; //only safely usable on on bsg's
+    Kokkos::View<Double*,DataLayout,MemSpace> dmax_cands_this_block;
+    Double dmax;
 
-    Double alpha;
+    std::vector< Kokkos::View<Double*,DataLayout,MemSpace> > dmax_relative_candidates; //only safely usable on on bsg's
+    Kokkos::View<Double*,DataLayout,MemSpace> dmax_rel_cands_this_block;
+    Double dmax_relative;
+
+    Double /*double*/ alpha;
+    bool m_calc_deltas;
 
     GenericAlgorithm_update_coordinates(RefMeshSmoother *rms, PerceptMesh *eMesh, Double alpha_in);
 
-#if defined (WITH_KOKKOS) //&& defined(KOKKOS_HAVE_OPENMP)
+#if defined (WITH_KOKKOS)//madbrew  HACK not useful for unstructured cases
     std::list<A4DMD<MeshType>> blockMetaDatas;
-	Kokkos::View<typename MeshType::MTNode*, DataLayout, MemSpace> nodesThisBlock; //will be used to loop over a particular block's nodes.
+	Kokkos::View</*typename MeshType::MTNode**/unsigned**, DataLayout, MemSpace> nodesThisBlock; //will be used to loop over a particular block's nodes.
 	Array4D cfc;
 	Array4D cfl;
 	Array4D cgsf;
+	Array4D cgelf;
 #else
     std::list<A4DMD<MeshType>> blockMetaDatas;
     std::vector<typename MeshType::MTNode> * nodesThisBlock;
@@ -94,7 +102,7 @@ struct A4DMD{
 	Array4D * cgsf;
 #endif
 
-#if defined (WITH_KOKKOS) //&& defined(KOKKOS_HAVE_OPENMP)
+#if defined (WITH_KOKKOS)
     KOKKOS_INLINE_FUNCTION
     void operator()(const int64_t& index) const;
 #else
@@ -102,17 +110,16 @@ struct A4DMD{
     void operator()(const int64_t& index) const;
 #endif
 
-    void run();
+    void run(bool calc_deltas=false);
 
   };
 
-  #if defined (WITH_KOKKOS) //&& defined(KOKKOS_HAVE_OPENMP)
+  #if defined (WITH_KOKKOS)
 
   struct simplified_gatm_1_BSG{ //uses A4D's directly
 
     using RefMeshSmoother =     ReferenceMeshSmootherConjugateGradientImpl<StructuredGrid>;
 	  using This = simplified_gatm_1_BSG;
-	  typedef long double Double;
 	  using Array4D = viewType;
 
 	  RefMeshSmoother * m_rms; //adding smoother pointer a member didn't effect performance
@@ -166,29 +173,60 @@ struct A4DMD{
 
 	void run();
   };
-
-
-
-
-
-        //testing to see if templating degrades performance?
-
-template<typename boople>
-struct templeKokkos {
-	Kokkos::View<double*, DataLayout , MemSpace > templeDubs;
-	unsigned size;
-
-	templeKokkos(unsigned into);
-
-	KOKKOS_INLINE_FUNCTION
-	void
-	operator()(int64_t index) const;
-
-	void run();
-};
-
 #endif
+
+  template<typename T>
+  struct max_scanner
+  {
+      Kokkos::View<T*,DataLayout,MemSpace> candidates;
+
+      KOKKOS_INLINE_FUNCTION
+      void
+      init(T&interimMax) const
+      {//init function still not working correctly. Need to find out how to use it properly
+          interimMax = candidates(0);
+      }
+
+      KOKKOS_INLINE_FUNCTION void
+      join (volatile T& dst,
+      const volatile T& src) const
+      {
+          if (dst < src) {
+              dst = src;
+          }
+      }
+
+      KOKKOS_INLINE_FUNCTION
+      void
+      operator()(const int64_t index, T&interimMax) const
+      {
+        if(interimMax<candidates(index))
+            interimMax=candidates(index);
+      }
+
+
+      max_scanner(Kokkos::View<T*,DataLayout,MemSpace> candidates_in)
+      {
+          candidates=candidates_in;
+      }
+
+      T find_max()
+      {
+          T max;
+          Kokkos::parallel_reduce(Kokkos::RangePolicy<ExecSpace>(0,candidates.size()),*this,max);
+          return max;
+      }
+
+  };
+
+  KOKKOS_INLINE_FUNCTION
+  Double
+  device_safe_max_H(Double a, Double b)
+  {
+      return (a>b ? a : b);
+  }
 
 } // namespace percept
 
 #endif
+

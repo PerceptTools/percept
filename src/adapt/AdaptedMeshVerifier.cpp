@@ -1267,8 +1267,8 @@ namespace percept
                                 percept::MyPairIterRelation parent_to_element_relations (eMesh, parent_elem, eMesh.element_rank());
                                 VERIFY_OP_ON(parent_to_element_relations.size(), >=, 1, "not enough relations from side to element");
                                 int which_relation = 0; // just pick the first one
-                                stk::mesh::EntityId parent_ord = static_cast<stk::mesh::EntityId>(parent_to_element_relations[which_relation].relation_ordinal());
-                                predicted_parent_id = eMesh.exodus_side_id(eMesh.identifier(parent_to_element_relations[which_relation].entity()), parent_ord);
+                                const stk::mesh::ConnectivityOrdinal parent_ord_conn = parent_to_element_relations[which_relation].relation_ordinal();
+                                predicted_parent_id = eMesh.exodus_side_id(eMesh.identifier(parent_to_element_relations[which_relation].entity()), parent_ord_conn);
 
                                 if (0 && debug && fdata_new)
                                   {

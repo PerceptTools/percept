@@ -37,14 +37,16 @@ namespace percept {
    *  If output_xyz == 0, only do the size computation step so the caller can
    *    construct output_xyz and call again.
    *
-   *  TODO: boundary conditions interface
    */
 
   template<typename UInt, typename UInt64, typename Array4D>
   struct StructuredGridRefinerImpl {
 
-    const SGridSizes<UInt, UInt64> input_sizes;
-    SGridSizes<UInt, UInt64> output_sizes;
+    std::shared_ptr<StructuredBlock> input_block;
+    std::shared_ptr<StructuredBlock> output_block;
+
+    const SGridSizes input_sizes;
+    SGridSizes output_sizes;
     const std::array<UInt,3> loop_ordering; // loop ordering
     const std::array<UInt,3> access_ordering; // access ordering
     const Array4D input_xyz;
@@ -55,10 +57,11 @@ namespace percept {
     const unsigned m_index_base = 0;
 
 
-    StructuredGridRefinerImpl(const std::shared_ptr<StructuredBlock> input_block, 
-                                    std::shared_ptr<StructuredBlock> output_block,
+    StructuredGridRefinerImpl(const std::shared_ptr<StructuredBlock> input_block_in,
+                                    std::shared_ptr<StructuredBlock> output_block_in,
                               int debug_in)
-      :
+      :input_block(input_block_in),
+       output_block(output_block_in),
        input_sizes( input_block->m_sizes),
       output_sizes(output_block->m_sizes),
         loop_ordering(std::move(input_block->m_loop_ordering)),

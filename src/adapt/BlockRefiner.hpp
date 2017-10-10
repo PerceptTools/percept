@@ -147,13 +147,12 @@
             ++iplot;
           }
 
-        bool enforce_what[3] = {false, true, false};
         for (int ir = 0; ir < nrefs; ++ir)
           {
             if (!eMesh.get_rank())
               std::cout << "Refinement pass # " << ir << " start..." << std::endl;
             set_refine_field(block_selector);
-            breaker.refine( enforce_what);
+            breaker.refine();
             if (m_plot)
               {
                 char buf[1000];

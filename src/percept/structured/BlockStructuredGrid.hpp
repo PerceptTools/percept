@@ -76,7 +76,7 @@ namespace percept {
       uint64_t index =  index_in / nblocks;
       std::shared_ptr<StructuredBlock> sblock = m_sblocks[iblock];
       const int L0 = sblock->m_loop_ordering[0], L1 = sblock->m_loop_ordering[1], L2 = sblock->m_loop_ordering[2];
-      SGridSizes<unsigned, uint64_t>& sb_sizes = sblock->m_sizes;
+      SGridSizes& sb_sizes = sblock->m_sizes;
       const unsigned sizes[3] = {
         1+ sb_sizes.node_max[L0] - sb_sizes.node_min[L0],
         1+ sb_sizes.node_max[L1] - sb_sizes.node_min[L1],
@@ -99,7 +99,7 @@ namespace percept {
       size_t nblocks = m_sblocks.size();
       std::shared_ptr<StructuredBlock> sblock = m_sblocks[iblock];
       const int L0 = sblock->m_loop_ordering[0], L1 = sblock->m_loop_ordering[1], L2 = sblock->m_loop_ordering[2];
-      SGridSizes<unsigned, uint64_t>& sb_sizes = sblock->m_sizes;
+      SGridSizes& sb_sizes = sblock->m_sizes;
       const unsigned sizes[3] = {
         1+ sb_sizes.node_max[L0] - sb_sizes.node_min[L0],
         1+ sb_sizes.node_max[L1] - sb_sizes.node_min[L1],
@@ -126,6 +126,10 @@ namespace percept {
 
     void copy_field(typename StructuredGrid::MTField* field_dest, typename StructuredGrid::MTField* field_src);
 
+    void get_nodes_of_sb(std::vector<StructuredCellIndex>& nodes, unsigned iBlock, unsigned offset = 0);
+
+    void get_elements_of_sb(std::vector<StructuredCellIndex>&elements, unsigned iBlock);
+
     /// axpby calculates: y = alpha*x + beta*y
     void nodal_field_axpby(double alpha, typename StructuredGrid::MTField* field_x, double beta, typename StructuredGrid::MTField* field_y);
 
@@ -143,12 +147,159 @@ namespace percept {
     void sum_fields(std::vector<typename StructuredGrid::MTField*>& fields);
 
     static std::shared_ptr<BlockStructuredGrid>
-    fixture_1(stk::ParallelMachine comm, std::array<unsigned,3> sizes=std::array<unsigned,3>{{2u,2u,2u}});
+    fixture_1(stk::ParallelMachine comm, std::array<unsigned,3> sizes=std::array<unsigned,3>{{2u,2u,2u}},std::array<double,3> dim_widths=std::array<double,3>{{1.0,1.0,1.0}},std::array<double,3> dim_offsets=std::array<double,3>{{0.0,0.0,0.0}});
 
+    size_t parallel_count_nodes();
+  };
+
+  struct DetermineIfLowestRankedOwner
+  {   //for a given node on a given block, determine if the given block has the lowest blockID that contains the given node
+      std::shared_ptr<StructuredBlock> m_sblock;
+      SGridSizes m_sizes;
+
+      Kokkos::View<unsigned**,DataLayout,MemSpace> localBeg; //no_zones X 3 (ijk)
+      Kokkos::View<unsigned**,DataLayout,MemSpace> localEnd; //no_zones X 4 (ijkb)
+      unsigned noZones;
+      unsigned blockID;
+
+      DetermineIfLowestRankedOwner(std::shared_ptr<StructuredBlock> m_sblock_in) : m_sblock(m_sblock_in)
+      {
+          Kokkos::Experimental::resize(localBeg, m_sblock->m_zoneConnectivity.size(),3);
+          Kokkos::Experimental::resize(localEnd, m_sblock->m_zoneConnectivity.size(),4);
+
+          Kokkos::View<unsigned**,DataLayout,MemSpace>::HostMirror localBeg_mir = Kokkos::create_mirror_view(localBeg);
+          Kokkos::View<unsigned**,DataLayout,MemSpace>::HostMirror localEnd_mir = Kokkos::create_mirror_view(localEnd);
+
+          noZones = m_sblock->m_zoneConnectivity.size();
+          for (unsigned izone=0; izone < noZones; izone++)
+          {
+              Ioss::ZoneConnectivity zoneConnectivity = m_sblock->m_zoneConnectivity[izone];
+              unsigned dblockid = zoneConnectivity.m_donorZone - 1;
+
+              Ioss::IJK_t localBeg;
+              localBeg[0] = std::min(zoneConnectivity.m_rangeBeg[0],zoneConnectivity.m_rangeEnd[0]) - 1;
+              localBeg[1] = std::min(zoneConnectivity.m_rangeBeg[1],zoneConnectivity.m_rangeEnd[1]) - 1;
+              localBeg[2] = std::min(zoneConnectivity.m_rangeBeg[2],zoneConnectivity.m_rangeEnd[2]) - 1;
+
+              Ioss::IJK_t localEnd;
+              localEnd[0] = std::max(zoneConnectivity.m_rangeBeg[0],zoneConnectivity.m_rangeEnd[0]) - 1;
+              localEnd[1] = std::max(zoneConnectivity.m_rangeBeg[1],zoneConnectivity.m_rangeEnd[1]) - 1;
+              localEnd[2] = std::max(zoneConnectivity.m_rangeBeg[2],zoneConnectivity.m_rangeEnd[2]) - 1;
+
+              for(unsigned ijk=0;ijk<3;ijk++)
+              {
+                  localBeg_mir(izone,ijk) = (unsigned)localBeg[ijk];
+                  localEnd_mir(izone,ijk) = (unsigned)localEnd[ijk];
+              }
+              localEnd_mir(izone,3) = dblockid;
+          }
+          Kokkos::deep_copy(localBeg,localBeg_mir);
+          Kokkos::deep_copy(localEnd,localEnd_mir);
+
+          m_sizes = m_sblock->m_sizes;
+          blockID = m_sblock->get_block_id();
+      }
+
+      KOKKOS_INLINE_FUNCTION
+      bool operator()(Kokkos::Array<unsigned, 3>& index) const
+      {   //generalized boundary selector, should work with an arbitrary block structured mesh
+          bool candidate = (index[0] == 0 || index[0] == m_sizes.node_size[0]-1 ||
+                  index[1] == 0 || index[1] == m_sizes.node_size[1]-1 ||
+                  index[2] == 0 || index[2] == m_sizes.node_size[2]-1 ); //first verify coordinate is on one of the "ends" of a Structured Block
+
+          bool isAConnectivity = false; //assume it is a part of no connetivity
+          unsigned min_block_id = blockID;
+          if(candidate){ //if it's on an end
+              for (unsigned izone=0; izone < noZones; izone++)
+              {
+                  //predicated on assumption i = 0, j = 1, k = 2 locally for all cases, for both zone connectivities and their views
+                 bool isCurrentInConnectivity = ( ( localBeg(izone,0)<=index[0] && index[0]<=localEnd(izone,0) ) &&
+                          ( localBeg(izone,1)<=index[1] && index[1]<=localEnd(izone,1) ) &&
+                          ( localBeg(izone,2)<=index[2] && index[2]<=localEnd(izone,2) ) ); //verify whether or not it is part of an zone connectivity between blocks
+                 if(isCurrentInConnectivity)
+                 {
+                     if(min_block_id>localEnd(izone,3))
+                         min_block_id=localEnd(izone,3);
+                     isAConnectivity= true; //if it is the current connectivity, then it is in a connectivity
+                 }
+              }//foreach zone
+          }
+          return isAConnectivity && min_block_id==blockID;
+      }
   };
 
 
-}
+  struct DeviceSafeSGridBoundaryNotInterfaceSelector : public StructuredGrid::MTSelector {
+      //NOTE: selects a node if : its is on a boundary AND NOT on an interface
+      std::shared_ptr<StructuredBlock> m_sblock;
+      SGridSizes m_sizes;
+
+      Kokkos::View<unsigned**,DataLayout,MemSpace> localBeg; //no_zones X 3 (ijk)
+      Kokkos::View<unsigned**,DataLayout,MemSpace> localEnd; //no_zones X 3 (ijk)
+      unsigned noZones;
+
+      DeviceSafeSGridBoundaryNotInterfaceSelector(std::shared_ptr<StructuredBlock> m_sblock_in) : m_sblock(m_sblock_in)
+      {
+          Kokkos::Experimental::resize(localBeg, m_sblock->m_zoneConnectivity.size(),3);
+          Kokkos::Experimental::resize(localEnd, m_sblock->m_zoneConnectivity.size(),3);
+
+          Kokkos::View<unsigned**,DataLayout,MemSpace>::HostMirror localBeg_mir = Kokkos::create_mirror_view(localBeg);
+          Kokkos::View<unsigned**,DataLayout,MemSpace>::HostMirror localEnd_mir = Kokkos::create_mirror_view(localEnd);
+
+          noZones = m_sblock->m_zoneConnectivity.size();
+          for (unsigned izone=0; izone < noZones; izone++)
+          {
+              Ioss::ZoneConnectivity zoneConnectivity = m_sblock->m_zoneConnectivity[izone];
+
+              Ioss::IJK_t localBeg;
+              localBeg[0] = std::min(zoneConnectivity.m_rangeBeg[0],zoneConnectivity.m_rangeEnd[0]) - 1;
+              localBeg[1] = std::min(zoneConnectivity.m_rangeBeg[1],zoneConnectivity.m_rangeEnd[1]) - 1;
+              localBeg[2] = std::min(zoneConnectivity.m_rangeBeg[2],zoneConnectivity.m_rangeEnd[2]) - 1;
+
+              Ioss::IJK_t localEnd;
+              localEnd[0] = std::max(zoneConnectivity.m_rangeBeg[0],zoneConnectivity.m_rangeEnd[0]) - 1;
+              localEnd[1] = std::max(zoneConnectivity.m_rangeBeg[1],zoneConnectivity.m_rangeEnd[1]) - 1;
+              localEnd[2] = std::max(zoneConnectivity.m_rangeBeg[2],zoneConnectivity.m_rangeEnd[2]) - 1;
+
+              for(unsigned ijk=0;ijk<3;ijk++)
+              {
+                  localBeg_mir(izone,ijk) = (unsigned)localBeg[ijk];
+                  localEnd_mir(izone,ijk) = (unsigned)localEnd[ijk];
+              }
+          }
+          Kokkos::deep_copy(localBeg,localBeg_mir);
+          Kokkos::deep_copy(localEnd,localEnd_mir);
+
+          m_sizes = m_sblock->m_sizes;
+      }
+
+      virtual ~DeviceSafeSGridBoundaryNotInterfaceSelector(){}
+
+      KOKKOS_INLINE_FUNCTION
+      bool operator()(Kokkos::Array<unsigned, 3>& index) const
+      {   //generalized boundary selector, should work with an arbitrary block structured mesh
+          bool candidate = (index[0] == 0 || index[0] == m_sizes.node_size[0]-1 ||
+                  index[1] == 0 || index[1] == m_sizes.node_size[1]-1 ||
+                  index[2] == 0 || index[2] == m_sizes.node_size[2]-1 ); //first verify coordinate is on one of the "ends" of a Structured Block
+
+          if(candidate){ //if it's on an end
+              for (unsigned izone=0; izone < noZones; izone++)
+              {
+                  //predicated on assumption i = 0, j = 1, k = 2 locally for all cases, for both zone connectivities and their views
+                 bool isInConnectivity = ( ( localBeg(izone,0)<=index[0] && index[0]<=localEnd(izone,0) ) &&
+                          ( localBeg(izone,1)<=index[1] && index[1]<=localEnd(izone,1) ) &&
+                          ( localBeg(izone,2)<=index[2] && index[2]<=localEnd(izone,2) ) ); //verify whether or not it is part of an zone connectivity between blocks
+                 candidate =  !isInConnectivity;
+                 if(!candidate)
+                     break;
+              }//foreach zone
+          }
+          return candidate;
+      }
+  };
+
+
+}//PERCEPT
 
 
 #endif

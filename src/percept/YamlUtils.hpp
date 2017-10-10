@@ -13,7 +13,7 @@
 #include <map>
 #include <set>
 
-#if STK_ADAPT_HAVE_YAML_CPP
+#if defined(STK_ADAPT_HAVE_YAML_CPP)
 #include <yaml-cpp/yaml.h>
 
 #ifndef YAML_CHECK
@@ -29,7 +29,7 @@
 
   namespace percept {
 
-#if STK_ADAPT_HAVE_YAML_CPP
+#if defined(STK_ADAPT_HAVE_YAML_CPP)
 
     /// Set @param result if the @param key is present in the @param node, else set it to the given default value
     template<typename T>
