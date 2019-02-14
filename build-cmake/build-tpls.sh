@@ -6,7 +6,6 @@ do_parallel_build=-j12
 
 do_build=1
 
-do_build_superlu=$do_build
 do_build_xml=$do_build
 do_build_boost=$do_build
 do_build_yaml=$do_build
@@ -53,7 +52,7 @@ then
   ./gtest-release.config
   make clean
   make
-  cp *.a $percept_build_dir/install/lib/
+  cp lib/*.a $percept_build_dir/install/lib/
   cp -r ../include/gtest $percept_build_dir/install/include/
 
 fi
@@ -68,41 +67,6 @@ then
   cd $percept_build_dir/packages/opennurbs
   make
 
-fi
-
-################################################################################
-# SuperLU, Version 2.9.2
-################################################################################
-
-#Build
-
-if [ $do_build_superlu -eq 1 ]
-then
-
-  cd $percept_build_dir/packages/SuperLU_4.3
-
-  #To find out what the correct platform extension PLAT is:
-
-  # uname -m
-
-  #Edit make.inc as shown below (diffs shown from baselien).
-
-  #PLAT = _x86_64
-  #SuperLUroot   = /your_path/install/SuperLU_4.3 i.e., $percept_build_dir/install/SuperLU_4.3
-  #BLASLIB       = -L/usr/lib64 -lblas
-  #CC           = mpicc
-  #FORTRAN            = mpif77
-
-  #Now, make some new directories:
-
-  mkdir -p $percept_build_dir/install/SuperLU_4.3
-  mkdir -p $percept_build_dir/install/SuperLU_4.3/lib
-  mkdir -p $percept_build_dir/install/SuperLU_4.3/include
-
-  cd $percept_build_dir/packages/SuperLU_4.3
-  make  $do_parallel_build SuperLUroot=$percept_build_dir/packages/SuperLU_4.3
-  cp SRC/*.h $percept_build_dir/install/SuperLU_4.3/include
-  cp lib/*.a $percept_build_dir/install/SuperLU_4.3/lib
 fi
 
 ################################################################################
@@ -126,12 +90,12 @@ fi
 
 if [ $do_build_boost -eq 1 ]
 then
-  cd $percept_build_dir/packages/boost_1_55_0
+  cd $percept_build_dir/packages/boost_1_66_0
 
-  echo "using mpi : `which mpicxx` ;" >> ./tools/build/v2/user-config.jam
+  echo "using mpi ;" >> ./tools/build/example/user-config.jam
   ./bootstrap.sh --prefix=$percept_build_dir/install --with-libraries=signals,regex,filesystem,system,mpi,serialization,thread,program_options,exception,graph,graph_parallel
-  ./b2 link=static -j 12 2>&1 | tee boost_build_one
-  ./b2 link=static -j 12 install 2>&1 | tee boost_build_intall
+  ./b2 --user-config=./tools/build/example/user-config.jam link=static -j 12 2>&1 | tee boost_build_one
+  ./b2 --user-config=./tools/build/example/user-config.jam link=static -j 12 install 2>&1 | tee boost_build_install
 fi
 
 ################################################################################

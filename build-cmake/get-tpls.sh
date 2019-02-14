@@ -5,11 +5,9 @@ source module-file
 echo percept_build_dir = $percept_build_dir
 
 do_get=1
-do_build=0
 
 do_get_cgns=$do_get
 do_get_opennurbs=$do_get
-do_get_superlu=$do_get
 do_get_xml=$do_get
 do_get_boost=$do_get
 do_get_yaml=$do_get
@@ -66,24 +64,6 @@ fi
 
 
 ################################################################################
-# SuperLU, Version 2.9.2
-################################################################################
-
-if [ $do_get_superlu -eq 1 ]
-then
-
-  echo Getting SuperLU...
-  cd $percept_build_dir/packages
-  curl -s --retry 3 -o superlu_4.3.tar.gz http://crd-legacy.lbl.gov/~xiaoye/SuperLU/superlu_4.3.tar.gz
-  tar zxf superlu_4.3.tar.gz
-
-  cd $percept_build_dir/packages/SuperLU_4.3
-  cp $percept_build_dir/superlu-make-inc make.inc
-
-fi
-
-
-################################################################################
 #libxml2, Version 2.9.2
 ################################################################################
 
@@ -104,8 +84,8 @@ if [ $do_get_boost -eq 1 ]
 then
   echo Getting boost...
   cd $percept_build_dir/packages
-  curl -s --retry 3 -o boost_1_55_0.tar.gz http://iweb.dl.sourceforge.net/project/boost/boost/1.55.0/boost_1_55_0.tar.gz
-  tar zxf boost_1_55_0.tar.gz
+  curl -s --retry 3 -o boost_1_66_0.tar.gz http://iweb.dl.sourceforge.net/project/boost/boost/1.66.0/boost_1_66_0.tar.gz
+  tar zxf boost_1_66_0.tar.gz
 fi
 
 ################################################################################

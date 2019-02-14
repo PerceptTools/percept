@@ -129,7 +129,7 @@ PROJECT(Percept)
 
 SET(GCC_NO_MPI_WARNINGS_FLAGS "-Wno-literal-suffix")   # C++ 11 warnings originating with MPI
 
-SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${GCC_NO_MPI_WARNINGS_FLAGS}")
+SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${GCC_NO_MPI_WARNINGS_FLAGS} -Wno-deprecated-declarations")
 SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${Trilinos_CXX_COMPILER_FLAGS}")
 SET(CMAKE_Fortran_FLAGS ${CMAKE_Fortran_FLAGS} ${Trilinos_Fortran_COMPILER_FLAGS})
 MESSAGE("-- CMAKE_CXX_FLAGS     = ${CMAKE_CXX_FLAGS}")
@@ -143,60 +143,11 @@ ENDIF()
 SET(HEADERS "")
 SET(SOURCES "")
 
-SET(SOURCE_LITE "")
-SET(HEADER_LITE "")
-FILE (GLOB SOURCE_LITE
+FILE (GLOB ADAPT_MAIN
 
-    src/percept/mesh/mod/smoother/JacobianUtil.cpp
-    src/percept/mesh/mod/smoother/SpacingFieldUtil.cpp
-    src/percept/PerceptMesh.cpp
-    src/percept/pool.cpp
-    src/percept/RebalanceMesh.cpp
-    src/percept/RunEnvironment.cpp
-    src/percept/Util.cpp
-    src/percept/Stacktrace.cpp
-    src/percept/mesh/geometry/volume/VolumeUtil.cpp
-
-    src/percept/stk_rebalance/*.cpp
-    src/percept/stk_rebalance_utils/*.cpp
-#    src/percept/mesh/geometry/stk_geom/3D/*.cpp
-    src/percept/fixtures/*.cpp
-
-    src/adapt/*.*pp
-    src/adapt/sierra_element/*.cpp
-    src/adapt/markers/*.cpp
-)
-
-FILE (GLOB HEADER_LITE
-
-    src/percept/mesh/mod/smoother/JacobianUtil.hpp
-    src/percept/mesh/mod/smoother/SpacingFieldUtil.hpp
-    src/percept/PerceptMesh.hpp
-    src/percept/pool.hpp
-    src/percept/RebalanceMesh.hpp
-    src/percept/RunEnvironment.hpp
-    src/percept/Util.hpp
-    src/percept/Stacktrace.hpp
-    src/percept/mesh/geometry/volume/VolumeUtil.hpp
-
-    src/percept/stk_rebalance/*.hpp
-    src/percept/stk_rebalance_utils/*.hpp
-#    src/percept/mesh/geometry/stk_geom/3D/*.hpp
-    src/percept/fixtures/*.hpp
-
-    src/adapt/*.hpp
-    src/adapt/sierra_element/*.hpp
-    src/adapt/markers/*.hpp
+     src/adapt/main/*.cpp
 
 )
-
-
-IF (STK_PERCEPT_LITE)
-  MESSAGE("\n\n====================================================================================================================================\n\n")
-  MESSAGE("\n  -- BUILDING only the Lite version\n SOURCE_LITE= ${SOURCE_LITE}")
-  MESSAGE("\n\n====================================================================================================================================\n\n")
-ELSE()
-ENDIF()
 
 FILE (GLOB SOURCE
 
@@ -278,22 +229,18 @@ MESSAGE("-- PERCEPT_HTEST_SOURCE = ${PERCEPT_HTEST_SOURCE}")
 FILE (GLOB PERCEPT_RTEST_SOURCE test/regression_tests/*.cpp)
 MESSAGE("-- PERCEPT_RTEST_SOURCE = ${PERCEPT_RTEST_SOURCE}")
 
+FILE (GLOB PERCEPT_UTEST_HEADER test/unit_tests/*.hpp)
+MESSAGE("-- PERCEPT_UTEST_HEADER = ${PERCEPT_UTEST_HEADER}")
+
+FILE (GLOB PERCEPT_RTEST_HEADER test/regression_tests/*.hpp)
+MESSAGE("-- PERCEPT_RTEST_HEADER = ${PERCEPT_RTEST_HEADER}")
+
 INCLUDE_DIRECTORIES (${CMAKE_SOURCE_DIR}/src)
 INCLUDE_DIRECTORIES (${CMAKE_SOURCE_DIR}/test)
 
 SET(percept_lib_name "percept")
-SET(percept_lite_lib_name "percept_lite")
 
-ADD_LIBRARY (${percept_lite_lib_name} ${SOURCE_LITE} ${HEADER_LITE})
-TARGET_LINK_LIBRARIES(${percept_lite_lib_name} ${Trilinos_LIBRARIES} ${YAML_LIBRARY} ${OPENNURBS_LIBRARY} ${BOOST_LIBRARIES})
-
-SET_PROPERTY(
-  TARGET ${percept_lite_lib_name}
-  PROPERTY COMPILE_DEFINITIONS STK_PERCEPT_LITE=1
-)
-
-
-SET(percept_ex_name "perceptX")
+#SET(percept_ex_name "perceptX")
 SET(adapt_ex_name "mesh_adapt")
 SET(percept_utest_name "percept_utest")
 SET(percept_rtest_name "percept_rtest")
@@ -301,7 +248,7 @@ SET(percept_htest_name "percept_htest")
 
 MESSAGE("CMAKE_BUILD_TYPE = ${CMAKE_BUILD_TYPE}")
 IF (CMAKE_BUILD_TYPE STREQUAL "DEBUG")
-   SET (percept_ex_name "perceptXd")
+   #SET (percept_ex_name "perceptXd")
 #   ADD_DEFINITIONS("-Wall" "-Werror")
    SET(CMAKE_CXX_FLAGS "-g  -std=c++11")
    MESSAGE("-- Debug Build, CMAKE_CXX_FLAGS= ${CMAKE_CXX_FLAGS}")
@@ -309,26 +256,20 @@ ENDIF()
 
 IF (NOT STK_PERCEPT_LITE)
 
-#  MESSAGE("-- NOT STK_PERCEPT_LITE")
-
-  ADD_EXECUTABLE(${percept_ex_name} perceptMain.cpp)
-  TARGET_LINK_LIBRARIES(${percept_ex_name} ${percept_lib_name})
-
-  ADD_EXECUTABLE(${adapt_ex_name} ${ADAPT_SOURCE})
+  ADD_EXECUTABLE(${adapt_ex_name} ${ADAPT_MAIN})
   TARGET_LINK_LIBRARIES(${adapt_ex_name} ${percept_lib_name})
 
-  ADD_EXECUTABLE(${percept_utest_name} ${PERCEPT_UTEST_SOURCE})
+  ADD_EXECUTABLE(${percept_utest_name} ${PERCEPT_UTEST_SOURCE} ${PERCEPT_UTEST_HEADER})
   TARGET_LINK_LIBRARIES(${percept_utest_name} ${percept_lib_name} ${GTEST_LIBRARY})
 
-  ADD_EXECUTABLE(${percept_htest_name} ${PERCEPT_HTEST_SOURCE})
+  ADD_EXECUTABLE(${percept_htest_name} ${PERCEPT_HTEST_SOURCE} ${PERCEPT_RTEST_HEADER})
   TARGET_LINK_LIBRARIES(${percept_htest_name} ${percept_lib_name} ${GTEST_LIBRARY})
 
-  ADD_EXECUTABLE(${percept_rtest_name} ${PERCEPT_RTEST_SOURCE})
+  ADD_EXECUTABLE(${percept_rtest_name} ${PERCEPT_RTEST_SOURCE} ${PERCEPT_RTEST_HEADER})
   TARGET_LINK_LIBRARIES(${percept_rtest_name} ${percept_lib_name} ${GTEST_LIBRARY})
 
   ADD_LIBRARY (${percept_lib_name} ${SOURCE} ${HEADER})
   TARGET_LINK_LIBRARIES(${percept_lib_name} ${Trilinos_LIBRARIES} ${YAML_LIBRARY} ${OPENNURBS_LIBRARY} ${BOOST_LIBRARIES})
-#  TARGET_LINK_LIBRARIES(${percept_lib_name} ${GTEST_LIBRARY})
 
   SET_PROPERTY(
     TARGET ${percept_lib_name} ${adapt_ex_name} ${percept_utest_name} ${percept_rtest_name}
