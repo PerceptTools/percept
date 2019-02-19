@@ -1,6 +1,7 @@
-// Copyright 2014 Sandia Corporation. Under the terms of
-// Contract DE-AC04-94AL85000 with Sandia Corporation, the
-// U.S. Government retains certain rights in this software.
+// Copyright 2002 - 2008, 2010, 2011 National Technology Engineering
+// Solutions of Sandia, LLC (NTESS). Under the terms of Contract
+// DE-NA0003525 with NTESS, the U.S. Government retains certain rights
+// in this software.
 //
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
@@ -181,14 +182,14 @@ public:
                 //                std::cout << "      izone " << izone << "dblockid " << dblockid<< std::endl;
 
                 Ioss::IJK_t localBeg;
-                localBeg[0] = std::min(zoneConnectivity.m_rangeBeg[0],zoneConnectivity.m_rangeEnd[0]);
-                localBeg[1] = std::min(zoneConnectivity.m_rangeBeg[1],zoneConnectivity.m_rangeEnd[1]);
-                localBeg[2] = std::min(zoneConnectivity.m_rangeBeg[2],zoneConnectivity.m_rangeEnd[2]);
+                localBeg[0] = std::min(zoneConnectivity.m_ownerRangeBeg[0],zoneConnectivity.m_ownerRangeEnd[0]);
+                localBeg[1] = std::min(zoneConnectivity.m_ownerRangeBeg[1],zoneConnectivity.m_ownerRangeEnd[1]);
+                localBeg[2] = std::min(zoneConnectivity.m_ownerRangeBeg[2],zoneConnectivity.m_ownerRangeEnd[2]);
 
                 Ioss::IJK_t localEnd;
-                localEnd[0] = std::max(zoneConnectivity.m_rangeBeg[0],zoneConnectivity.m_rangeEnd[0]);
-                localEnd[1] = std::max(zoneConnectivity.m_rangeBeg[1],zoneConnectivity.m_rangeEnd[1]);
-                localEnd[2] = std::max(zoneConnectivity.m_rangeBeg[2],zoneConnectivity.m_rangeEnd[2]);
+                localEnd[0] = std::max(zoneConnectivity.m_ownerRangeBeg[0],zoneConnectivity.m_ownerRangeEnd[0]);
+                localEnd[1] = std::max(zoneConnectivity.m_ownerRangeBeg[1],zoneConnectivity.m_ownerRangeEnd[1]);
+                localEnd[2] = std::max(zoneConnectivity.m_ownerRangeBeg[2],zoneConnectivity.m_ownerRangeEnd[2]);
 
                 don_ela = *m_bsg->m_fields["cg_edge_length"].get()->m_block_fields[dblockid];
                 loc_ela = *m_bsg->m_fields["cg_edge_length"].get()->m_block_fields[iblock];
@@ -202,7 +203,7 @@ public:
                 for(unsigned iii=0;iii<3;iii++)
                 {
                     transform_arr[iii] = zoneConnectivity.m_transform[iii];
-                    local_range_beg[iii] =  zoneConnectivity.m_rangeBeg[iii];
+                    local_range_beg[iii] =  zoneConnectivity.m_ownerRangeBeg[iii];
                     donor_range_beg[iii] = zoneConnectivity.m_donorRangeBeg[iii];
                 }
                 if(iblock<dblockid && doSum)

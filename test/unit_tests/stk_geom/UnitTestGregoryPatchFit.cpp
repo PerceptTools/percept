@@ -1,6 +1,7 @@
-// Copyright 2014 Sandia Corporation. Under the terms of
-// Contract DE-AC04-94AL85000 with Sandia Corporation, the
-// U.S. Government retains certain rights in this software.
+// Copyright 2002 - 2008, 2010, 2011 National Technology Engineering
+// Solutions of Sandia, LLC (NTESS). Under the terms of Contract
+// DE-NA0003525 with NTESS, the U.S. Government retains certain rights
+// in this software.
 //
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
@@ -96,7 +97,7 @@ namespace percept
           eMesh.commit();
           eMesh.setProperty("FitGregoryPatches::noEdgeFitting", "true");
 
-          fitter.fit();
+          fitter.computeControlPoints();
           int faces[] = {11,14,15,21};
 
           double expected_data[][20][3]={
@@ -133,7 +134,7 @@ namespace percept
               if (stage == 1)
                 {
                   fitter.m_reverseAll = !fitter.m_reverseAll;
-                  fitter.fit();
+                  fitter.computeControlPoints();
                 }
               std::cout << "face data for fitter.m_reverseAll= " << fitter.m_reverseAll << std::endl;
               for (int jf=0; jf < nfaces; ++jf)
@@ -204,7 +205,7 @@ namespace percept
           std::cout << "is_valid = " << eMesh.is_valid(face_1) <<  std::endl;
           std::cout << "num_faces= " << eMesh.get_bulk_data()->num_faces(face_1) << std::endl;
 
-          fitter.fit();
+          fitter.computeControlPoints();
           int faces[] = {1,2};
 
           double expected_data[][20][3]={
@@ -327,7 +328,7 @@ namespace percept
 
           std::cout << "re-fit to FarinHansford data" << std::endl;
           bool doGetNormals = false;
-          fitter.fit(doGetNormals);
+          fitter.computeControlPoints(doGetNormals);
           for (int jf=0; jf < nfaces; ++jf)
             {
               stk::mesh::Entity face_i = eMesh.get_bulk_data()->get_entity(eMesh.element_rank(), faces[jf]);
@@ -402,7 +403,7 @@ namespace percept
 
           eMesh.save_as(prefix+"_0.e");
 
-          fitter.fit();
+          fitter.computeControlPoints();
 
           int nfaces = nTriFaces + nQuadFaces;
           for (int jf=0; jf < nfaces; ++jf)
@@ -462,7 +463,7 @@ namespace percept
 
           std::cout << "re-fit to FarinHansford data" << std::endl;
           bool doGetNormals = false;
-          fitter.fit(doGetNormals);
+          fitter.computeControlPoints(doGetNormals);
           for (int jf=0; jf < nfaces; ++jf)
             {
               stk::mesh::Entity face_i = eMesh.get_bulk_data()->get_entity(eMesh.element_rank(), faces[jf]);
@@ -1004,7 +1005,7 @@ namespace percept
           eMesh.commit();
           eMesh.setProperty("FitGregoryPatches::noEdgeFitting", "true");
 
-          fitter.fit();
+          fitter.computeControlPoints();
 
           bool debug = false;
           EvaluateGregoryPatch eval(eMesh, debug);
@@ -1050,7 +1051,7 @@ namespace percept
                             {
                               double uv[2] = {u,v};
                               double xyz[3], c_xyz[3], f_uv[2];
-                              eval.evaluate(uv, face_i, xyz);
+                              eval.evaluateGregoryPatch(uv, face_i, xyz);
                               bool bad = eval.findClosestPoint(xyz, face_i, c_xyz, f_uv);
                               EXPECT_FALSE(bad);
                               EXPECT_NEAR(xyz[0], c_xyz[0], 1.e-6);

@@ -1,6 +1,7 @@
-// Copyright 2014 Sandia Corporation. Under the terms of
-// Contract DE-AC04-94AL85000 with Sandia Corporation, the
-// U.S. Government retains certain rights in this software.
+// Copyright 2002 - 2008, 2010, 2011 National Technology Engineering
+// Solutions of Sandia, LLC (NTESS). Under the terms of Contract
+// DE-NA0003525 with NTESS, the U.S. Government retains certain rights
+// in this software.
 //
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
@@ -107,7 +108,7 @@
 
         for (unsigned iChild = 0; iChild < 2; iChild++)
           {
-            unsigned EN[2];
+            stk::mesh::EntityId EN[2];
             for (unsigned jNode = 0; jNode < 2; jNode++)
               {
                 unsigned childNodeIdx = ref_topo.child_node(iChild)[jNode];
@@ -115,7 +116,7 @@
                 unsigned childNodeIdxCheck = l2[childNodeIdx].ordinal_of_node;
                 VERIFY_OP(childNodeIdx, ==, childNodeIdxCheck, "childNodeIdxCheck");
 #endif
-                unsigned inode=0;
+                stk::mesh::EntityId inode=0;
 
                 if (l2[childNodeIdx].rank_of_subcell == 0)
                   inode = VERT_N(l2[childNodeIdx].ordinal_of_subcell);

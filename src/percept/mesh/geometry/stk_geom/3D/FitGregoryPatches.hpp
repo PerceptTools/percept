@@ -1,6 +1,7 @@
-// Copyright 2014 Sandia Corporation. Under the terms of
-// Contract DE-AC04-94AL85000 with Sandia Corporation, the
-// U.S. Government retains certain rights in this software.
+// Copyright 2002 - 2008, 2010, 2011 National Technology Engineering
+// Solutions of Sandia, LLC (NTESS). Under the terms of Contract
+// DE-NA0003525 with NTESS, the U.S. Government retains certain rights
+// in this software.
 //
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
@@ -36,7 +37,6 @@ namespace percept {
     bool m_activate;
     std::string m_file;
     std::vector<std::string> m_filenames;
-    std::string m_visualizer_command_prefix;
     int m_num_divisions;
   };
 
@@ -57,8 +57,7 @@ public:
   // call this before committing the MetaData to register required fields
   void register_or_set_fields(bool doRegister=true);
 
-  // computes control points
-  void fit(bool doGetNormals = true, bool createEdgeSeamsPart = false);
+  void computeControlPoints(bool doGetNormals = true, bool createEdgeSeamsPart = false);
 
   /// creates a surface mesh from the surfaces of the PerceptMesh, and optionally fits and refines the mesh
   ///   for display for Q/A purposes
@@ -95,7 +94,7 @@ public:
   faceNormal(stk::mesh::Entity face, double normal[3]);
 
   void
-  getCurrentParts(std::vector<stk::mesh::PartVector>& currentParts, bool allSurfaces = false);
+  getCurrentParts(std::vector<stk::mesh::PartVector>& currentParts);
 
   void
   findSeams(stk::mesh::PartVector& parts, bool createEdgeSeamsPart = false);
@@ -117,10 +116,8 @@ protected:
 
   bool in_surface_sets(const std::string& partToTest);
 
-#if defined(STK_ADAPT_HAVE_YAML_CPP)
   void parse(const YAML::Node& node);
   void emit(const YAML::Node& node);
-#endif
 
   void
   fitCubics(stk::mesh::PartVector& parts);
@@ -262,10 +259,7 @@ private:
   AngleMap m_angleMap;
   double m_globalAngleCriterion;
   bool m_debug;
-#if defined(STK_ADAPT_HAVE_YAML_CPP)
   YAML::Node m_node, m_node1;
-  //YAML::Node *m_node_ptr;
-#endif
 
 public:
   FGP_QA m_QA;

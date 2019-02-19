@@ -1,6 +1,7 @@
-// Copyright 2014 Sandia Corporation. Under the terms of
-// Contract DE-AC04-94AL85000 with Sandia Corporation, the
-// U.S. Government retains certain rights in this software.
+// Copyright 2002 - 2008, 2010, 2011 National Technology Engineering
+// Solutions of Sandia, LLC (NTESS). Under the terms of Contract
+// DE-NA0003525 with NTESS, the U.S. Government retains certain rights
+// in this software.
 //
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
@@ -71,18 +72,20 @@ void EigenVerify::create_fields(const int num_time_steps)
     // allocate data for the eigenvectors (sending)
     fieldAll[m] = & (mesh_data[m]->meta_data().declare_field<stk::mesh::Field<double, stk::mesh::SimpleArrayTag, stk::mesh::Cartesian> >(stk::topology::NODE_RANK, field_name_all));
 
-    stk::mesh::put_field( *fieldAll[m],
+    stk::mesh::put_field_on_mesh( *fieldAll[m],
 			  mesh_data[m]->meta_data().universal_part(),
 			  mesh_data[m]->meta_data().spatial_dimension(),
-			  num_time_steps );
+			  num_time_steps,
+			  nullptr);
 
     // allocate data for the eigenvectors (receiving)
     xferFieldAll[m] = & (mesh_data[m]->meta_data().declare_field<stk::mesh::Field<double, stk::mesh::SimpleArrayTag, stk::mesh::Cartesian> >(stk::topology::NODE_RANK, xfer_field_name_all));
 
-    stk::mesh::put_field( *xferFieldAll[m],
+    stk::mesh::put_field_on_mesh( *xferFieldAll[m],
 			  mesh_data[m]->meta_data().universal_part(),
 			  mesh_data[m]->meta_data().spatial_dimension(),
-			  num_time_steps );
+			  num_time_steps,
+			  nullptr);
 
     // get eigenvector field
     inputField[m] = mesh_data[m]->meta_data().get_field<stk::mesh::Field<double, stk::mesh::Cartesian> >(stk::topology::NODE_RANK, field_name);
@@ -97,7 +100,7 @@ void EigenVerify::create_fields(const int num_time_steps)
   // create fields to store nodal errors
   std::string error_field_name = "error." + field_name;
   errorField = & ( mesh_data[1]->meta_data().declare_field<stk::mesh::Field<double, stk::mesh::Cartesian> >(stk::topology::NODE_RANK, error_field_name) );
-  stk::mesh::put_field( *errorField, mesh_data[1]->meta_data().universal_part() );
+  stk::mesh::put_field_on_mesh( *errorField, mesh_data[1]->meta_data().universal_part() , nullptr);
 }
 
 void EigenVerify::load_field_data(const int m)

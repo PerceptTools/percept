@@ -1,6 +1,7 @@
-// Copyright 2014 Sandia Corporation. Under the terms of
-// Contract DE-AC04-94AL85000 with Sandia Corporation, the
-// U.S. Government retains certain rights in this software.
+// Copyright 2002 - 2008, 2010, 2011 National Technology Engineering
+// Solutions of Sandia, LLC (NTESS). Under the terms of Contract
+// DE-NA0003525 with NTESS, the U.S. Government retains certain rights
+// in this software.
 //
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
@@ -18,6 +19,8 @@
 #include <iostream>
 
 #include <Shards_BasicTopologies.hpp>
+
+#include <percept/PerceptUtils.hpp>
 
 #include <stk_util/parallel/Parallel.hpp>
 
@@ -48,7 +51,7 @@
 
     HeterogeneousFixture::HeterogeneousFixture( stk::ParallelMachine comm, bool doCommit, bool do_sidesets, bool do_one_sideset ) :
       m_spatial_dimension(3)
-      , m_metaData(m_spatial_dimension, stk::mesh::entity_rank_names() )
+      , m_metaData(m_spatial_dimension, entity_rank_names_and_family_tree())
       , m_bulkData(m_metaData, comm )
       , m_block_hex(        m_metaData.declare_part_with_topology(  "block_1", stk::topology::HEX_8 ))
       , m_block_wedge(      m_metaData.declare_part_with_topology( "block_2", stk::topology::WEDGE_6 ))
@@ -70,13 +73,13 @@
       // Define where fields exist on the mesh:
       stk::mesh::Part & universal = m_metaData.universal_part();
 
-      put_field( m_coordinates_field , universal );
-      put_field( m_centroid_field , universal );
-      put_field( m_temperature_field, universal );
-      put_field( m_volume_field, m_block_hex );
-      put_field( m_volume_field, m_block_wedge );
-      put_field( m_volume_field, m_block_tet );
-      put_field( m_volume_field, m_block_pyramid );
+      put_field_on_mesh( m_coordinates_field , universal, nullptr);
+      put_field_on_mesh( m_centroid_field , universal, nullptr);
+      put_field_on_mesh( m_temperature_field, universal, nullptr);
+      put_field_on_mesh( m_volume_field, m_block_hex, nullptr);
+      put_field_on_mesh( m_volume_field, m_block_wedge, nullptr);
+      put_field_on_mesh( m_volume_field, m_block_tet, nullptr);
+      put_field_on_mesh( m_volume_field, m_block_pyramid, nullptr);
 
       stk::io::put_io_part_attribute(  m_block_hex );
       stk::io::put_io_part_attribute(  m_block_wedge );

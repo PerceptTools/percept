@@ -27,6 +27,9 @@ FIND_LIBRARY(YAML_LIBRARY NAMES libyaml-cpp.a PATHS ${YAML_DIR}/lib )
 FIND_PATH(YAML_INCLUDES yaml.h PATHS ${YAML_DIR}/include/yaml-cpp )
 INCLUDE_DIRECTORIES(${YAML_INCLUDES}/..)
 
+MESSAGE("-- YAML_LIBRARY = ${YAML_LIBRARY}")
+MESSAGE("-- YAML_INCLUDES = ${YAML_INCLUDES}")
+
 # OpenNURBS
 FIND_LIBRARY(OPENNURBS_LIBRARY NAMES libopenNURBS.a PATHS ${OPENNURBS_DIR} )
 FIND_PATH(OPENNURBS_INCLUDES opennurbs.h PATHS ${OPENNURBS_DIR} )
@@ -35,8 +38,6 @@ INCLUDE_DIRECTORIES(${OPENNURBS_INCLUDES})
 MESSAGE("-- OPENNURBS_DIR = ${OPENNURBS_DIR}")
 MESSAGE("-- OPENNURBS_INCLUDES = ${OPENNURBS_INCLUDES}")
 MESSAGE("-- OPENNURBS_LIBRARY = ${OPENNURBS_LIBRARY}")
-
-
 
 # gtest
 FIND_LIBRARY(GTEST_LIBRARY NAMES libgtest.a PATHS ${PERCEPT_TPLS_INSTALL_DIR}/lib NO_DEFAULT_PATH)
@@ -144,96 +145,104 @@ SET(HEADERS "")
 SET(SOURCES "")
 
 FILE (GLOB ADAPT_MAIN
-
      src/adapt/main/*.cpp
+)
 
+FILE (GLOB ADAPT_HEADER
+     src/adapt/main/*.hpp
 )
 
 FILE (GLOB SOURCE
 
+     src/adapt/*.cpp
+     src/adapt/markers/*.cpp
+     src/adapt/sierra_element/*.cpp
+
      src/percept/*.cpp
+     src/percept/element/intrepid/*.cpp
+
+     src/percept/fixtures/*.cpp
      src/percept/function/*.cpp
      src/percept/function/internal/*.cpp
-     src/percept/norm/*.cpp
+
      src/percept/mesh/gen/*.cpp
 
-     src/percept/element/intrepid/*.cpp
-     src/percept/mesh/mod/smoother/*.cpp
      src/percept/mesh/geometry/kernel/*.cpp
      src/percept/mesh/geometry/kernel/search/*.cpp
      src/percept/mesh/geometry/kernel/xfer/*.cpp
 
      src/percept/mesh/geometry/recovery/*.cpp
-     src/percept/mesh/geometry/volume/*.cpp
-     src/percept/mesh/geometry/volume/sierra_only/*.cpp
      src/percept/mesh/geometry/stk_geom/*.cpp
      src/percept/mesh/geometry/stk_geom/3D/*.cpp
-     src/percept/structured/*.cpp
-     src/percept/xfer/*.cpp
-     src/percept/util/*.cpp
+     src/percept/mesh/geometry/volume/*.cpp
+     src/percept/mesh/geometry/volume/sierra_only/*.cpp
+
+     src/percept/mesh/mod/smoother/*.cpp
+
+     src/percept/norm/*.cpp
+
      src/percept/stk_rebalance/*.cpp
      src/percept/stk_rebalance_utils/*.cpp
-     src/percept/fixtures/*.cpp
+     src/percept/structured/*.cpp
 
-     src/adapt/*.cpp
-     src/adapt/sierra_element/*.cpp
-     src/adapt/geometry/*.cpp
-     src/adapt/markers/*.cpp
-
+     src/percept/util/*.cpp
+     src/percept/xfer/*.cpp
 )
 
 FILE (GLOB HEADER
 
-     src/percept/*.hpp
-     src/percept/function/*.hpp
-     src/percept/function/internal/*.hpp
-     src/percept/norm/*.hpp
-     src/percept/mesh/gen/*.hpp
-
-     src/percept/element/intrepid/*.hpp
-     src/percept/mesh/mod/smoother/*.hpp
-     src/percept/mesh/geometry/kernel/*.hpp
-     src/percept/mesh/geometry/kernel/search/*.hpp
-     src/percept/mesh/geometry/kernel/xfer/*.hpp
-
-     src/percept/mesh/geometry/recovery/*.hpp
-     src/percept/mesh/geometry/volume/*.hpp
-     src/percept/mesh/geometry/volume/sierra_only/*.hpp
-     src/percept/mesh/geometry/stk_geom/*.hpp
-     src/percept/mesh/geometry/stk_geom/3D/*.hpp
-     src/percept/structured/*.hpp
-     src/percept/xfer/*.hpp
-     src/percept/util/*.hpp
-     src/percept/stk_rebalance/*.hpp
-     src/percept/stk_rebalance_utils/*.hpp
-     src/percept/fixtures/*.hpp
-
      src/adapt/*.hpp
      src/adapt/sierra_element/*.hpp
-     src/adapt/geometry/*.hpp
      src/adapt/markers/*.hpp
+
+     src/percept/*.hpp
+
+     src/percept/element/intrepid/*.hpp
+
+     src/percept/fixtures/*.hpp
+     src/percept/function/*.hpp
+     src/percept/function/internal/*.hpp
+
+     src/percept/mesh/gen/*.hpp
+     src/percept/mesh/geometry/kernel/*.hpp
+     src/percept/mesh/geometry/kernel/xfer/*.hpp
+     src/percept/mesh/geometry/recovery/*.hpp
+     src/percept/mesh/geometry/stk_geom/*.hpp
+     src/percept/mesh/geometry/stk_geom/3D/*.hpp
+     src/percept/mesh/geometry/volume/*.hpp
+     src/percept/mesh/geometry/volume/sierra_only/*.hpp
+     src/percept/mesh/mod/smoother/*.hpp
+
+     src/percept/norm/*.hpp
+
+     src/percept/stk_rebalance/*.hpp
+     src/percept/stk_rebalance_utils/*.hpp
+     src/percept/structured/*.hpp
+
+     src/percept/util/*.hpp
+     src/percept/xfer/*.hpp
 )
 
-MESSAGE("-- SOURCE = ${SOURCE}")
-MESSAGE("-- HEADER = ${HEADER}")
+#MESSAGE("-- SOURCE = ${SOURCE}")
+#MESSAGE("-- HEADER = ${HEADER}")
 
 FILE (GLOB ADAPT_SOURCE src/adapt/main/*.cpp)
-MESSAGE("-- ADAPT_SOURCE = ${ADAPT_SOURCE}")
+#MESSAGE("-- ADAPT_SOURCE = ${ADAPT_SOURCE}")
 
 FILE (GLOB PERCEPT_UTEST_SOURCE test/unit_tests/*.cpp)
-MESSAGE("-- PERCEPT_UTEST_SOURCE = ${PERCEPT_UTEST_SOURCE}")
+#MESSAGE("-- PERCEPT_UTEST_SOURCE = ${PERCEPT_UTEST_SOURCE}")
 
 FILE (GLOB PERCEPT_HTEST_SOURCE test/heavy_tests/*.cpp)
-MESSAGE("-- PERCEPT_HTEST_SOURCE = ${PERCEPT_HTEST_SOURCE}")
+#MESSAGE("-- PERCEPT_HTEST_SOURCE = ${PERCEPT_HTEST_SOURCE}")
 
 FILE (GLOB PERCEPT_RTEST_SOURCE test/regression_tests/*.cpp)
-MESSAGE("-- PERCEPT_RTEST_SOURCE = ${PERCEPT_RTEST_SOURCE}")
+#MESSAGE("-- PERCEPT_RTEST_SOURCE = ${PERCEPT_RTEST_SOURCE}")
 
 FILE (GLOB PERCEPT_UTEST_HEADER test/unit_tests/*.hpp)
-MESSAGE("-- PERCEPT_UTEST_HEADER = ${PERCEPT_UTEST_HEADER}")
+#MESSAGE("-- PERCEPT_UTEST_HEADER = ${PERCEPT_UTEST_HEADER}")
 
 FILE (GLOB PERCEPT_RTEST_HEADER test/regression_tests/*.hpp)
-MESSAGE("-- PERCEPT_RTEST_HEADER = ${PERCEPT_RTEST_HEADER}")
+#MESSAGE("-- PERCEPT_RTEST_HEADER = ${PERCEPT_RTEST_HEADER}")
 
 INCLUDE_DIRECTORIES (${CMAKE_SOURCE_DIR}/src)
 INCLUDE_DIRECTORIES (${CMAKE_SOURCE_DIR}/test)
@@ -242,9 +251,9 @@ SET(percept_lib_name "percept")
 
 #SET(percept_ex_name "perceptX")
 SET(adapt_ex_name "mesh_adapt")
-SET(percept_utest_name "percept_utest")
-SET(percept_rtest_name "percept_rtest")
-SET(percept_htest_name "percept_htest")
+#SET(percept_utest_name "percept_utest")
+#SET(percept_rtest_name "percept_rtest")
+#SET(percept_htest_name "percept_htest")
 
 MESSAGE("CMAKE_BUILD_TYPE = ${CMAKE_BUILD_TYPE}")
 IF (CMAKE_BUILD_TYPE STREQUAL "DEBUG")
@@ -256,23 +265,23 @@ ENDIF()
 
 IF (NOT STK_PERCEPT_LITE)
 
-  ADD_EXECUTABLE(${adapt_ex_name} ${ADAPT_MAIN})
-  TARGET_LINK_LIBRARIES(${adapt_ex_name} ${percept_lib_name})
+  ADD_EXECUTABLE(${adapt_ex_name} ${ADAPT_MAIN} ${ADAPT_HEADER})
+  TARGET_LINK_LIBRARIES(${adapt_ex_name} ${percept_lib_name} ${YAML_LIBRARY})
 
-  ADD_EXECUTABLE(${percept_utest_name} ${PERCEPT_UTEST_SOURCE} ${PERCEPT_UTEST_HEADER})
-  TARGET_LINK_LIBRARIES(${percept_utest_name} ${percept_lib_name} ${GTEST_LIBRARY})
+  #ADD_EXECUTABLE(${percept_utest_name} ${PERCEPT_UTEST_SOURCE} ${PERCEPT_UTEST_HEADER})
+  #TARGET_LINK_LIBRARIES(${percept_utest_name} ${percept_lib_name} ${GTEST_LIBRARY})
 
-  ADD_EXECUTABLE(${percept_htest_name} ${PERCEPT_HTEST_SOURCE} ${PERCEPT_RTEST_HEADER})
-  TARGET_LINK_LIBRARIES(${percept_htest_name} ${percept_lib_name} ${GTEST_LIBRARY})
+  #ADD_EXECUTABLE(${percept_htest_name} ${PERCEPT_HTEST_SOURCE} ${PERCEPT_RTEST_HEADER})
+  #TARGET_LINK_LIBRARIES(${percept_htest_name} ${percept_lib_name} ${GTEST_LIBRARY})
 
-  ADD_EXECUTABLE(${percept_rtest_name} ${PERCEPT_RTEST_SOURCE} ${PERCEPT_RTEST_HEADER})
-  TARGET_LINK_LIBRARIES(${percept_rtest_name} ${percept_lib_name} ${GTEST_LIBRARY})
+  #ADD_EXECUTABLE(${percept_rtest_name} ${PERCEPT_RTEST_SOURCE} ${PERCEPT_RTEST_HEADER})
+  #TARGET_LINK_LIBRARIES(${percept_rtest_name} ${percept_lib_name} ${GTEST_LIBRARY})
 
   ADD_LIBRARY (${percept_lib_name} ${SOURCE} ${HEADER})
   TARGET_LINK_LIBRARIES(${percept_lib_name} ${Trilinos_LIBRARIES} ${YAML_LIBRARY} ${OPENNURBS_LIBRARY} ${BOOST_LIBRARIES})
 
   SET_PROPERTY(
-    TARGET ${percept_lib_name} ${adapt_ex_name} ${percept_utest_name} ${percept_rtest_name}
+    TARGET ${percept_lib_name} ${adapt_ex_name} #${percept_utest_name} ${percept_rtest_name}
     PROPERTY COMPILE_DEFINITIONS STK_PERCEPT_LITE=0 STK_PERCEPT_HAS_GEOMETRY STK_PERCEPT_USE_INTREPID
   )
 

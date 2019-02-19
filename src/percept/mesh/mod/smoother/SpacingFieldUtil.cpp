@@ -1,6 +1,7 @@
-// Copyright 2014 Sandia Corporation. Under the terms of
-// Contract DE-AC04-94AL85000 with Sandia Corporation, the
-// U.S. Government retains certain rights in this software.
+// Copyright 2002 - 2008, 2010, 2011 National Technology Engineering
+// Solutions of Sandia, LLC (NTESS). Under the terms of Contract
+// DE-NA0003525 with NTESS, the U.S. Government retains certain rights
+// in this software.
 //
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
@@ -94,10 +95,10 @@
               }
           }
 
-        std::vector<stk::mesh::FieldBase*> spacing_field_vec(1,spacing_field);
+        std::vector<const stk::mesh::FieldBase*> spacing_field_vec(1,spacing_field);
         stk::mesh::parallel_sum(*m_eMesh.get_bulk_data(), spacing_field_vec);
 
-        std::vector<stk::mesh::FieldBase*> spacing_field_counter_vec(1,spacing_field_counter);
+        std::vector<const stk::mesh::FieldBase*> spacing_field_counter_vec(1,spacing_field_counter);
         stk::mesh::parallel_sum(*m_eMesh.get_bulk_data(), spacing_field_counter_vec);
 
         {

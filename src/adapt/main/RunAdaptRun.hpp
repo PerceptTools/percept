@@ -1,6 +1,7 @@
-// Copyright 2014 Sandia Corporation. Under the terms of
-// Contract DE-AC04-94AL85000 with Sandia Corporation, the
-// U.S. Government retains certain rights in this software.
+// Copyright 2002 - 2008, 2010, 2011 National Technology Engineering
+// Solutions of Sandia, LLC (NTESS). Under the terms of Contract
+// DE-NA0003525 with NTESS, the U.S. Government retains certain rights
+// in this software.
 //
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
@@ -18,6 +19,7 @@
 #include <set>
 
 #include <percept/YamlUtils.hpp>
+#include <percept/PerceptUtils.hpp>
 #include <adapt/markers/MarkerUsingErrIndFraction.hpp>
 #include <adapt/markers/MarkerPhysicallyBased.hpp>
 #include <adapt/markers/MarkerInterval.hpp>
@@ -147,8 +149,6 @@ static void copy_error_indicator(PerceptMesh& eMesh_no_ft,PerceptMesh& eMesh,
   }
 #endif
 }
-
-#if STK_ADAPT_HAVE_YAML_CPP
 
   class RunAdaptRunInfo
   {
@@ -471,7 +471,7 @@ static void copy_error_indicator(PerceptMesh& eMesh_no_ft,PerceptMesh& eMesh,
       else
         {
           if (verify_meshes != "0")
-            VERIFY_MSG("--verify_meshes option unrecognized, use 0, 1, 2 or FV, your optoin: "+verify_meshes);
+            VERIFY_MSG("--verify_meshes option unrecognized, use 0, 1, 2 or FV, your option: "+verify_meshes);
         }
     }
 
@@ -483,6 +483,8 @@ static void copy_error_indicator(PerceptMesh& eMesh_no_ft,PerceptMesh& eMesh,
                               const std::string& ioss_write_options,
                               const std::string& property_map,
                               const std::string& verify_meshes,
+                              const std::string& memory_logfile_name,
+                              stk::diag::Timer & root_timer,
                               bool debug=false)
     {
       mMeshInputTime = 0.0;
@@ -535,26 +537,27 @@ static void copy_error_indicator(PerceptMesh& eMesh_no_ft,PerceptMesh& eMesh,
       }
 
       {
+        stk::diag::Timer timerReadMesh_("ReadMesh", root_timer);
+        stk::diag::TimeBlock tbReadMeshg_(timerReadMesh_);
+
         double inputTime = stk::wall_time();
         eMesh.open(has_ft_mesh ? input_ft : input);
         inputTime = stk::wall_time() - inputTime;
         mMeshInputTime += inputTime;
       }
+
       eMesh.register_and_set_refine_fields();
 
       eMesh.set_sync_io_regions(true);
 
       percept::RunAdaptRunInfo rar(eMesh, rar_input, "rar.yaml", debug);
       rar.create();
-      bool debug_print = false;
-      if (rar.m_debug)
-        debug_print = true;
 
       if (rar.m_debug_error_indicator_string_function.size()) errorIndicatorSource = STRING_FUNCTION;
 
       ErrorFieldType * error_field =
         &eMesh.get_fem_meta_data()->declare_field<ErrorFieldType>(stk::topology::ELEMENT_RANK, rar.m_error_indicator_field);
-      stk::mesh::put_field( *error_field , eMesh.get_fem_meta_data()->universal_part(), 1);
+      stk::mesh::put_field_on_mesh( *error_field , eMesh.get_fem_meta_data()->universal_part(), 1, nullptr);
       stk::io::set_field_role( *error_field, Ioss::Field::TRANSIENT);
 
       if (has_ft_mesh) {
@@ -567,9 +570,9 @@ static void copy_error_indicator(PerceptMesh& eMesh_no_ft,PerceptMesh& eMesh,
       Teuchos::RCP<UniformRefinerPatternBase> localBreakPattern = make_local_break_pattern(eMesh);
 
       eMesh.commit();
-      eMesh.set_do_print_memory(debug_print);
       verify_mesh_util(&eMesh, verify_meshes, true);
 
+      write_memory_logfile(eMesh.parallel(), READ_MESH, memory_logfile_name);
 
       if (DO_MEMORY && printMemory) {
         std::string hwm = print_memory_both(eMesh.parallel());
@@ -595,7 +598,7 @@ static void copy_error_indicator(PerceptMesh& eMesh_no_ft,PerceptMesh& eMesh,
 
         ErrorFieldType * from_error_field =
           &eMesh_error.get_fem_meta_data()->declare_field<ErrorFieldType>(stk::topology::ELEMENT_RANK, rar.m_error_indicator_field);
-        stk::mesh::put_field( *from_error_field , eMesh_error.get_fem_meta_data()->universal_part(), 1);
+        stk::mesh::put_field_on_mesh( *from_error_field , eMesh_error.get_fem_meta_data()->universal_part(), 1, nullptr);
         eMesh_error.add_input_field(from_error_field);
 
         eMesh_error.commit();
@@ -696,6 +699,7 @@ static void copy_error_indicator(PerceptMesh& eMesh_no_ft,PerceptMesh& eMesh,
         }
       breaker->setRemoveOldElements(false);
       breaker->setAlwaysInitializeNodeRegistry(false);
+      breaker->setAlternateRootTimer(&root_timer);
 
       if (DO_MEMORY && printMemory) {
         std::string hwm = print_memory_both(eMesh.parallel());
@@ -739,6 +743,8 @@ static void copy_error_indicator(PerceptMesh& eMesh_no_ft,PerceptMesh& eMesh,
       breaker->refine();
       if (rar.m_debug)
         eMesh.save_as("rar-refined.e");
+
+      write_memory_logfile(eMesh.parallel(), REFINE_MESH, memory_logfile_name);
 
       if (!p_rank) std::cout << "Refinement complete."  << std::endl;
 
@@ -784,6 +790,9 @@ static void copy_error_indicator(PerceptMesh& eMesh_no_ft,PerceptMesh& eMesh,
       // TODO make names like output.e and output_ft.e from input like "output.e" not "output"
       eMesh.output_active_children_only(false);
       {
+        stk::diag::Timer timerWriteMesh_("WriteMesh", root_timer);
+        stk::diag::TimeBlock tbWriteMeshg_(timerWriteMesh_);
+
         double outputTime = stk::wall_time();
         eMesh.save_as(output_ft);
         outputTime = stk::wall_time() - outputTime;
@@ -792,11 +801,16 @@ static void copy_error_indicator(PerceptMesh& eMesh_no_ft,PerceptMesh& eMesh,
 
       eMesh.output_active_children_only(true);
       {
+        stk::diag::Timer timerWriteMesh_("WriteMesh", root_timer);
+        stk::diag::TimeBlock tbWriteMeshg_(timerWriteMesh_);
+
         double outputTime = stk::wall_time();
         eMesh.save_as(output);
         outputTime = stk::wall_time() - outputTime;
         mMeshOutputTime += outputTime;
       }
+
+      write_memory_logfile(eMesh.parallel(), WRITE_MESH, memory_logfile_name);
 
       cpu1 = stk::cpu_time();
       t1   = stk::wall_time();
@@ -822,7 +836,6 @@ static void copy_error_indicator(PerceptMesh& eMesh_no_ft,PerceptMesh& eMesh,
     }
   };
 
-#endif
 }
 
 #endif

@@ -237,11 +237,6 @@ def main():
             if (not arg.startswith("_") and arg not in skip_list):
                 cmd_str += " %s" % convert_to_stk_adapt_option(args, arg)
 
-        if (num_proc > 1):
-            cmd_str += " --load_balance=1"
-        else:
-            cmd_str += " --load_balance=0"
-
         cmd_str += '"'
         run_cmd(cmd_str)
 

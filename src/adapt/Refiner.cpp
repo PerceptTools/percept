@@ -1,6 +1,7 @@
-// Copyright 2014 Sandia Corporation. Under the terms of
-// Contract DE-AC04-94AL85000 with Sandia Corporation, the
-// U.S. Government retains certain rights in this software.
+// Copyright 2002 - 2008, 2010, 2011 National Technology Engineering
+// Solutions of Sandia, LLC (NTESS). Under the terms of Contract
+// DE-NA0003525 with NTESS, the U.S. Government retains certain rights
+// in this software.
 //
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
@@ -43,21 +44,11 @@
 #include <adapt/FixSideSetsSelector.hpp>
 #include <adapt/AdaptedMeshVerifier.hpp>
 
-#ifndef NDEBUG
 #include <percept/mesh/geometry/volume/VolumeUtil.hpp>
-#endif
 
-#define DO_TIMING_REFINER DO_TIMING
-
-#if DO_TIMING_REFINER
-#define TIMING(code) code
-#define TIMER(name) stk::diag::Timer timer ## name ( #name, rootTimer());  stk::diag::TimeBlock tbTimer ## name (timer ## name)
-#define TIMER2(name,parentName) stk::diag::Timer timer ## name ( #name, timer ## parentName);  stk::diag::TimeBlock tbTimer ## name (timer ## name)
-#else
-#define TIMING(code) do {  } while(0)
-#define TIMER(name) do {} while(0)
-#define TIMER2(name,parentName) do {} while(0)
-#endif
+#define TIMER2(name,parentName) \
+  stk::diag::Timer       timer ## name (        #name, timer ## parentName);  \
+  stk::diag::TimeBlock tbTimer ## name (timer ## name)
 
 #define USE_PERCEPT_PERFORMANCE_TESTING_CALLGRIND 0
 #if USE_PERCEPT_PERFORMANCE_TESTING_CALLGRIND
@@ -68,6 +59,24 @@
 
   namespace percept {
     extern bool s_do_transition_break;
+
+    void mod_begin_timer(stk::mesh::BulkData& bulk_data, stk::diag::Timer& parent_timer)
+    {
+      stk::diag::Timer timerModBeg_("ModBeg", parent_timer);
+      stk::diag::TimeBlock timerModBegBlock_(timerModBeg_);
+      
+      bulk_data.modification_begin();
+    }
+    
+    void mod_end_timer(stk::mesh::BulkData& bulk_data, stk::diag::Timer& parent_timer, const std::string& msg)
+    {
+      stk::diag::Timer timerModEndAll_("ModEndAll",    parent_timer);
+      stk::diag::Timer timerModEnd_(   "ModEnd: "+msg, timerModEndAll_);
+      stk::diag::TimeBlock timerModEndBlock_(timerModEnd_);
+      stk::diag::TimeBlock timerModEndBlockAll_(timerModEndAll_);
+      
+      bulk_data.modification_end();
+    }
 
     using namespace percept;
 
@@ -117,7 +126,6 @@
       m_proc_rank_field(proc_rank_field), m_doRemove(true), m_ranks(), m_ignoreSideSets(false),
       m_geomFile(""), m_geomSnap(false),
       m_refinementInfo(this),
-      m_doQueryOnly(false),
       m_progress_meter_frequency(20),
       m_doProgress(false),
       m_alwaysInitNodeRegistry(true),
@@ -151,196 +159,6 @@
       m_timer.start();
     }
 
-    //NLM new constructor for Python users
-    //takes in a Pattern refine_type to determine which UniformRefinerPatternBase will be used
-
-    Refiner::Refiner(percept::PerceptMesh& eMesh, Pattern refine_type, stk::mesh::FieldBase *proc_rank_field) :
-      m_eMesh(eMesh), m_breakPattern(),
-      m_nodeRegistry(0),
-      m_proc_rank_field(proc_rank_field), m_doRemove(true), m_ranks(), m_ignoreSideSets(false),
-      m_geomFile(""), m_geomSnap(false),
-      m_refinementInfo(this),
-      m_doQueryOnly(false),
-      m_progress_meter_frequency(20),
-      m_doProgress(false),
-      m_alwaysInitNodeRegistry(true),
-      m_doSmoothGeometry(false),
-      m_removeGeometryBlocks(false),
-      m_fixAllBlockBoundaries(false),
-      m_needsRemesh(true),
-      m_doLevelBasedUnrefinement(false)
-      ,m_alternateRootTimer(0)
-      ,m_modBegEndRootTimer(0)
-      ,m_refinerSelector(0)
-      ,m_doAddChildrenToParts(true)
-      ,m_avoidFixSideSets(false)
-      ,m_avoidFixSideSetChecks(false)
-      ,m_avoidClearDanglingNodes(false)
-      ,m_onlyOneLevelUnrefine(false)
-      ,m_doRebalance(false)
-      ,m_rebalThreshold(1.0)
-      ,m_removeFromNewNodesPart(true)
-      ,m_do_new_elements(true)
-      ,m_timerSet(sierra::Diag::TIMER_ALL)
-      ,m_timer(stk::diag::createRootTimer("Refiner", m_timerSet))
-    {
-      m_nodeRegistry = new NodeRegistry (m_eMesh, this);
-      s_nodeRegistry = m_nodeRegistry;
-      m_nodeRegistry->initialize();
-      m_nodeRegistry->init_comm_all();
-      m_allocated = true;
-      m_timer.start();
-      UniformRefinerPatternBase* bp;
-      switch(refine_type)
-        {
-        case LINE2_LINE2_2:
-          bp = (UniformRefinerPatternBase*) new Line2_Line2_2(eMesh);
-          break;
-        case BEAM2_BEAM2_2:
-          bp = (UniformRefinerPatternBase*) new Beam2_Beam2_2(eMesh);
-          break;
-        case SHELLLINE2_SHELLLINE2_2:
-          bp = (UniformRefinerPatternBase*) new ShellLine2_ShellLine2_2(eMesh);
-          break;
-        case SHELLLINE3_SHELLLINE3_2:
-          bp = (UniformRefinerPatternBase*) new ShellLine3_ShellLine3_2(eMesh);
-          break;
-        case QUAD4_QUAD4_4_OLD:
-          bp = (UniformRefinerPatternBase*) new Quad4_Quad4_4_Old(eMesh);
-          break;
-        case QUAD4_QUAD4_4:
-          bp = (UniformRefinerPatternBase*) new Quad4_Quad4_4(eMesh);
-          break;
-        case QUAD4_QUAD4_4_SIERRA:
-          bp = (UniformRefinerPatternBase*) new Quad4_Quad4_4_Sierra(eMesh);
-          break;
-        case TRI3_TRI3_4:
-          bp = (UniformRefinerPatternBase*) new Tri3_Tri3_4(eMesh);
-          break;
-        case SHELLTRI3_SHELLTRI3_4:
-          bp = (UniformRefinerPatternBase*) new ShellTri3_ShellTri3_4(eMesh);
-          break;
-        case SHELLTRI6_SHELLTRI6_4:
-          bp = (UniformRefinerPatternBase*) new ShellTri6_ShellTri6_4(eMesh);
-          break;
-        case SHELLQUAD4_SHELLQUAD4_4:
-          bp = (UniformRefinerPatternBase*) new ShellQuad4_ShellQuad4_4(eMesh);
-          break;
-        case SHELLQUAD8_SHELLQUAD8_4:
-          bp = (UniformRefinerPatternBase*) new ShellQuad8_ShellQuad8_4(eMesh);
-          break;
-        case TET4_TET4_8:
-          bp = (UniformRefinerPatternBase*) new Tet4_Tet4_8(eMesh);
-          break;
-        case HEX8_HEX8_8:
-          bp = (UniformRefinerPatternBase*) new Hex8_Hex8_8(eMesh);
-          break;
-        case WEDGE6_WEDGE6_8:
-          bp = (UniformRefinerPatternBase*) new Wedge6_Wedge6_8(eMesh);
-          break;
-        case PYRAMID5_PYRAMID5_10:
-          bp = (UniformRefinerPatternBase*) new Pyramid5_Pyramid5_10(eMesh);
-          break;
-        case LINE3_LINE3_2:
-          bp = (UniformRefinerPatternBase*) new Line3_Line3_2(eMesh);
-          break;
-        case BEAM3_BEAM3_2:
-          bp = (UniformRefinerPatternBase*) new Beam3_Beam3_2(eMesh);
-          break;
-        case TRI6_TRI6_4:
-          bp = (UniformRefinerPatternBase*) new Tri6_Tri6_4(eMesh);
-          break;
-        case QUAD9_QUAD9_4:
-          bp = (UniformRefinerPatternBase*) new Quad9_Quad9_4(eMesh);
-          break;
-        case QUAD8_QUAD8_4:
-          bp = (UniformRefinerPatternBase*) new Quad8_Quad8_4(eMesh);
-          break;
-        case HEX27_HEX27_8:
-          bp = (UniformRefinerPatternBase*) new Hex27_Hex27_8(eMesh);
-          break;
-        case HEX20_HEX20_8:
-          bp = (UniformRefinerPatternBase*) new Hex20_Hex20_8(eMesh);
-          break;
-        case TET10_TET10_8:
-          bp = (UniformRefinerPatternBase*) new Tet10_Tet10_8(eMesh);
-          break;
-        case WEDGE15_WEDGE15_8:
-          bp = (UniformRefinerPatternBase*) new Wedge15_Wedge15_8(eMesh);
-          break;
-        case WEDGE18_WEDGE18_8:
-          bp = (UniformRefinerPatternBase*) new Wedge18_Wedge18_8(eMesh);
-          break;
-        case PYRAMID13_PYRAMID13_10:
-          bp = (UniformRefinerPatternBase*) new Pyramid13_Pyramid13_10(eMesh);
-          break;
-        case QUAD4_QUAD9_1:
-          bp = (UniformRefinerPatternBase*) new Quad4_Quad9_1(eMesh);
-          break;
-        case QUAD4_QUAD8_1:
-          bp = (UniformRefinerPatternBase*) new Quad4_Quad8_1(eMesh);
-          break;
-        case BEAM2_BEAM3_1:
-          bp = (UniformRefinerPatternBase*) new Beam2_Beam3_1(eMesh);
-          break;
-        case SHELLQUAD4_SHELLQUAD8_1:
-          bp = (UniformRefinerPatternBase*) new ShellQuad4_ShellQuad8_1(eMesh);
-          break;
-        case TRI3_TRI6_1:
-          bp = (UniformRefinerPatternBase*) new Tri3_Tri6_1(eMesh);
-          break;
-        case TET4_TET10_1:
-          bp = (UniformRefinerPatternBase*) new Tet4_Tet10_1(eMesh);
-          break;
-        case HEX8_HEX27_1:
-          bp = (UniformRefinerPatternBase*) new Hex8_Hex27_1(eMesh);
-          break;
-        case HEX8_HEX20_1:
-          bp = (UniformRefinerPatternBase*) new Hex8_Hex20_1(eMesh);
-          break;
-        case WEDGE6_WEDGE15_1:
-          bp = (UniformRefinerPatternBase*) new Wedge6_Wedge15_1(eMesh);
-          break;
-        case WEDGE6_WEDGE18_1:
-          bp = (UniformRefinerPatternBase*) new Wedge6_Wedge18_1(eMesh);
-          break;
-        case PYRAMID5_PYRAMID13_1:
-          bp = (UniformRefinerPatternBase*) new Pyramid5_Pyramid13_1(eMesh);
-          break;
-        case QUAD4_TRI3_2:
-          bp = (UniformRefinerPatternBase*) new Quad4_Tri3_2(eMesh);
-          break;
-        case QUAD4_TRI3_4:
-          bp = (UniformRefinerPatternBase*) new Quad4_Tri3_4(eMesh);
-          break;
-        case QUAD4_TRI3_6:
-          bp = (UniformRefinerPatternBase*) new Quad4_Tri3_6(eMesh);
-          break;
-        case HEX8_TET4_24:
-          bp = (UniformRefinerPatternBase*) new Hex8_Tet4_24(eMesh);
-          break;
-        case HEX8_TET4_6_12:
-          bp = (UniformRefinerPatternBase*) new Hex8_Tet4_6_12(eMesh);
-          break;
-        case TET4_HEX8_4:
-          bp = (UniformRefinerPatternBase*) new Tet4_Hex8_4(eMesh);
-          break;
-        case WEDGE6_HEX8_6:
-          bp = (UniformRefinerPatternBase*) new Wedge6_Hex8_6(eMesh);
-          break;
-        case TRI3_QUAD4_3:
-          bp = (UniformRefinerPatternBase*) new Tri3_Quad4_3(eMesh);
-          break;
-        default:
-          throw std::runtime_error("Refiner::Refiner Unrecognized refinement pattern");
-          break;
-        }
-
-      bp->setSubPatterns(m_breakPattern, eMesh);
-
-      m_proc_rank_field = proc_rank_field;
-    }
-
     Refiner::~Refiner()
     {
       if (m_nodeRegistry)
@@ -363,7 +181,8 @@
         {
           size_t now=0, hwm=0;
           stk::get_memory_usage(now, hwm);
-          std::cout << msg << " cpu: " << m_eMesh.cpu_time() << " [sec] mem= " << stk::human_bytes(now) << " [now_proc0] " << stk::human_bytes(hwm) << " [hwm_proc0]" << std::endl;
+          std::cout << std::left << std::setw(50) << msg.c_str();
+          std::cout << " cpu: " << m_eMesh.cpu_time() << " [sec] mem= " << stk::human_bytes(now) << " [now_proc0] " << stk::human_bytes(hwm) << " [hwm_proc0]" << std::endl;
         }
     }
 
@@ -399,59 +218,11 @@
     }
 
     void Refiner::
-    removeFromOldPart(stk::mesh::EntityRank rank, UniformRefinerPatternBase* breakPattern)
-    {
-      EXCEPTWATCH;
-
-      std::string oldPartName = breakPattern->getOldElementsPartName()+toString(rank);
-      stk::mesh::Part *oldPart = m_eMesh.get_fem_meta_data()->get_part(oldPartName);
-      //std::cout << "tmp removeFromOldPart:: oldPartName= " << oldPartName << std::endl;
-      if (!oldPart)
-        {
-          std::cout << "oldPartName= " << oldPartName << std::endl;
-          throw std::runtime_error("oldpart is null");
-        }
-
-      stk::mesh::PartVector remove_parts(1, oldPart);
-      stk::mesh::PartVector add_parts;
-      stk::mesh::Selector on_locally_owned_part =  ( m_eMesh.get_fem_meta_data()->locally_owned_part() );
-
-      std::vector<stk::mesh::Entity> elems;
-      const stk::mesh::BucketVector & buckets = m_eMesh.get_bulk_data()->buckets( rank );
-
-      for ( stk::mesh::BucketVector::const_iterator k = buckets.begin() ; k != buckets.end() ; ++k )
-        {
-          if (on_locally_owned_part(**k)) // && fromPartsSelector(**k) )
-            {
-              stk::mesh::Bucket & bucket = **k ;
-
-              const unsigned num_elements_in_bucket = bucket.size();
-
-              for (unsigned i_element = 0; i_element < num_elements_in_bucket; i_element++)
-                {
-                  stk::mesh::Entity element = bucket[i_element];
-                  elems.push_back(element);
-                }
-            }
-        }
-
-      for (unsigned ielem=0; ielem < elems.size(); ielem++)
-        {
-          //std::cout << "tmp removeFromOldPart:: element = " << *elems[ielem] << std::endl;
-          m_eMesh.get_bulk_data()->change_entity_parts( elems[ielem], add_parts, remove_parts );
-        }
-    }
-
-    void Refiner::
     addOldElementsToPart(stk::mesh::EntityRank rank, UniformRefinerPatternBase* breakPattern, unsigned *elementType)
     {
       EXCEPTWATCH;
       std::string oldPartName = breakPattern->getOldElementsPartName()+toString(rank);
       stk::mesh::Part *oldPart = m_eMesh.get_fem_meta_data()->get_part(oldPartName);
-
-#define DEBUG_REMOVE_OLD_PARTS 0
-
-      if (DEBUG_REMOVE_OLD_PARTS) std::cout << "tmp addOldElementsToPart:: oldPartName= " << oldPartName << std::endl;
 
       if (!oldPart)
         {
@@ -497,9 +268,6 @@
                     {
                       elems.push_back(element);
                       ++nele;
-                      if (DEBUG_REMOVE_OLD_PARTS) {
-                        std::cout << "tmp adding to oldParts = "; m_eMesh.print(element); std::cout << std::endl;
-                      }
                     }
                 }
             }
@@ -508,38 +276,10 @@
 
       for (unsigned ielem=0; ielem < elems.size(); ielem++)
         {
-          if (DEBUG_REMOVE_OLD_PARTS) {
-            std::cout << "tmp addOldElementsToPart element = "; m_eMesh.print(elems[ielem]); std::cout << std::endl;
-          }
           m_eMesh.get_bulk_data()->change_entity_parts( elems[ielem], add_parts, remove_parts );
         }
 
     }
-
-    void Refiner::
-    trace_print(std::string msg)
-    {
-      size_t heap_in_Mb = 0;
-      size_t memory_in_Mb = 0;
-      double cpu = 0.0;
-
-      if (TRACE_STAGE_PRINT)
-        {
-          memory_in_Mb = Util::memory(heap_in_Mb);
-          memory_in_Mb = memory_in_Mb / (1024*1024);
-          heap_in_Mb = heap_in_Mb / (1024*1024);
-        }
-
-      cpu = Util::cpu_time();
-      std::cout
-        << msg
-        << " cpu_time= " << cpu/(60.) << " [min] "
-        << " mem= " << memory_in_Mb << " [Mb] "
-        //<< " heap= " << heap_in_Mb << " [Mb] "
-        << std::endl;
-
-    }
-
 
     struct myVec
     {
@@ -548,34 +288,13 @@
       int res;
     };
 
-    static void doPrintSizes()
-    {
-      if (0)
-        {
-          std::cout
-            << "sizeof(myVec) = " << sizeof(myVec) << " "
-            << "sizeof(Relation) = " << sizeof(stk::mesh::Relation) << " "
-            << "sizeof(Entity) = " << sizeof(stk::mesh::Entity) << " "
-            << "\nsizeof(EntityKey) = " << sizeof(stk::mesh::EntityKey) << " "
-            << "\nsizeof(RelationVector) = " << sizeof(stk::mesh::RelationVector) << " "
-            << "\nsizeof(EntityCommInfoVector) = " << sizeof(stk::mesh::EntityCommInfoVector) << " "
-            << "\nsizeof(Bucket *) = " << sizeof(stk::mesh::Bucket *) << " "
-            << "\nsizeof(unsigned) = " << sizeof(unsigned) << " "
-            << "\nsizeof(size_t) = " << sizeof(size_t) << " "
-            << "\nsizeof(EntityModificationLog) = " << sizeof(stk::mesh::EntityState) << std::endl;
-
-        }
-    }
-
     void Refiner::
-    checkBreakPatternValidityAndBuildRanks(std::vector<stk::mesh::EntityRank>& ranks)
+    checkBreakPatternValidityAndBuildRanks(std::vector<stk::mesh::EntityRank>& ranks, stk::diag::Timer *timer)
     {
       ranks.resize(0);
 
-      if (0) doPrintPatterns();
-
       if (m_doRemove)
-        mod_begin();
+        mod_begin(timer);
 
       for (unsigned ibp = 0; ibp < m_breakPattern.size(); ibp++)
         {
@@ -616,27 +335,8 @@
             }
         }
       if (m_doRemove)
-        mod_end(0,"RefinerCBR");
+        mod_end_timer(*m_eMesh.get_bulk_data(), *timer, "RefinerCBR");
 
-    }
-
-    void Refiner::
-    doPrintPatterns()
-    {
-          for (unsigned jbp = 0; jbp < m_breakPattern.size(); jbp++)
-            {
-              if (m_breakPattern[jbp])
-                {
-                  stk::mesh::EntityRank jrank = m_breakPattern[jbp]->getPrimaryEntityRank();
-                  std::cout << "tmp jbp= " << jbp << " jrank= " << jrank
-#ifndef __clang__
-                            << " class= " << m_eMesh.demangle(typeid(*m_breakPattern[jbp]).name())
-#endif
-                            << " fromTopo= " << m_breakPattern[jbp]->getFromTopology()->name
-                            << " toTopo= " << m_breakPattern[jbp]->getToTopology()->name
-                            << std::endl;
-                }
-            }
     }
 
     void Refiner::
@@ -681,43 +381,9 @@
         } // ineed_ent
     }
 
-    bool isShell(PerceptMesh& eMesh, stk::mesh::Entity element)
-    {
-      // shards::CellTopology element_topo(eMesh.get_cell_topology(element));
-      // int topoDim = UniformRefinerPatternBase::getTopoDim(element_topo);
-
-      // bool isShell = false;
-      // if (topoDim < (int)eMesh.entity_rank(element))
-      //   {
-      //     isShell = true;
-      //   }
-      // return isShell;
-      stk::topology::topology_t topo = eMesh.topology(element);
-      switch(topo)
-        {
-        case stk::topology::SHELL_LINE_2:
-        case stk::topology::SHELL_LINE_3:
-        case stk::topology::SHELL_TRI_3:
-        case stk::topology::SHELL_TRI_4:
-        case stk::topology::SHELL_TRI_6:
-        case stk::topology::SHELL_QUAD_4:
-        case stk::topology::SHELL_QUAD_8:
-        case stk::topology::SHELL_QUAD_9:
-          return true;
-        default:
-          return false;
-        }
-      return false;
-    }
-
-
-
     // called by doMark
     void Refiner::
     preMark(int iter, int num_registration_loops) {}
-
-    //void Refiner::
-    //mark(int iter, int num_registration_loops) {}
 
     bool Refiner::
     postMark(int iter, int num_registration_loops) { return false; }
@@ -727,16 +393,9 @@
     {
       EXCEPTWATCH;
 
-      stk::diag::setEnabledTimerMetricsMask(stk::diag::METRICS_CPU_TIME | stk::diag::METRICS_WALL_TIME);
-      stk::diag::Timer timerAdapt_("percept::DoBreak", rootTimer());
-      stk::diag::TimeBlock tbTimerAdapt_(timerAdapt_);
-      stk::diag::TimeBlock tbRoot_(rootTimer());
-
       m_eMesh.get_bulk_data()->delete_face_adjacent_element_graph();
 
       initializeRefine();
-
-      if (m_doQueryOnly) return;
 
       doMark(num_registration_loops);
 
@@ -746,8 +405,9 @@
     void Refiner::
     initializeRefine()
     {
-      stk::diag::Timer timerAdapt_("percept::Refine", rootTimer());
+      stk::diag::Timer timerAdapt_("RefineMesh", rootTimer());
       stk::diag::TimeBlock timerAdaptBlock_(timerAdapt_);
+
       stk::diag::Timer timerInitRefine_("percept::InitRefine", timerAdapt_);
       stk::diag::TimeBlock timerInitRefineBlock_(timerInitRefine_);
 
@@ -763,8 +423,6 @@
         if (m_eMesh.getProperty("percept_Refiner_require_sides") != "false")
           require_sides_on_same_proc_as_pos_perm_element();
       }
-
-      if (0) doPrintSizes();
 
       {
         TIMER2(IR_side_part,InitRefine_);
@@ -785,7 +443,7 @@
         TIMER2(IR_checkBPVali,InitRefine_);
         std::vector<stk::mesh::EntityRank>& ranks = m_ranks;
         // check logic of break pattern setup and also build ranks used vector
-        checkBreakPatternValidityAndBuildRanks(ranks);
+        checkBreakPatternValidityAndBuildRanks(ranks, &timerInitRefine_);
       }
 
       {
@@ -917,9 +575,10 @@
   CALLGRIND_TOGGLE_COLLECT;
 #endif
 
-      stk::diag::Timer timerAdapt_("percept::Refine", rootTimer());
-      stk::diag::Timer timerDoMark_("percept::DoMark", timerAdapt_);
+      stk::diag::Timer timerAdapt_("RefineMesh", rootTimer());
       stk::diag::TimeBlock timerAdaptBlock_(timerAdapt_);
+
+      stk::diag::Timer timerDoMark_("percept::DoMark", timerAdapt_);
       stk::diag::TimeBlock timerDoMarkBlock_(timerDoMark_);
 
       getRefinementInfo().full_stats_before_mark();
@@ -1001,7 +660,7 @@
             }
           }
 
-          if (DO_MEMORY && m_eMesh.get_do_print_memory()) {
+          if (DO_MEMORY) {
             std::string hwm = print_memory_both(m_eMesh.parallel());
             if (!m_eMesh.get_rank()) std::cout << "MEM: " << hwm << " before createNewNodesInParallel= " << std::endl;
           }
@@ -1011,26 +670,13 @@
             m_nodeRegistry->endRegistration(ireg,num_registration_loops);
           }
 
-          if (DO_MEMORY && m_eMesh.get_do_print_memory()) {
+          if (DO_MEMORY) {
             std::string hwm = print_memory_both(m_eMesh.parallel());
             if (!m_eMesh.get_rank()) std::cout << "MEM: " << hwm << " after  createNewNodesInParallel= " << std::endl;
           }
 
         }
         m_nodeRegistry->dumpDB("after registration");
-
-#define CHECK_DEBUG 0
-        if (CHECK_DEBUG)
-          {
-            MPI_Barrier( MPI_COMM_WORLD );
-            std::cout << "P["<< m_eMesh.get_rank()
-                      <<"] ========================================================================================================================" << std::endl;
-            m_nodeRegistry->checkDB("after registerNeedNewNode");
-            check_db("after registerNeedNewNode");
-            MPI_Barrier( MPI_COMM_WORLD );
-            std::cout << "P["<< m_eMesh.get_rank()
-                      <<"] ========================================================================================================================" << std::endl;
-          }
 
         ///////////////////////////////////////////////////////////
         /////  Check for remote
@@ -1071,16 +717,6 @@
             }
           }
           m_nodeRegistry->endCheckForRemote(ireg,num_registration_loops);                /**/   TRACE_PRINT("Refiner: endCheckForRemote (top-level rank)... ");
-
-          if (CHECK_DEBUG)
-            {
-              std::cout << "P["<< m_eMesh.get_rank()
-                        <<"] ========================================================================================================================" << std::endl;
-              m_nodeRegistry->checkDB("after checkForRemote");
-              check_db("after checkForRemote");
-              std::cout << "P["<< m_eMesh.get_rank()
-                        <<"] ========================================================================================================================" << std::endl;
-            }
 
         }
 
@@ -1131,18 +767,6 @@
 
           m_nodeRegistry->dumpDB("after endGetFromRemote");
 
-          if (CHECK_DEBUG)
-            {
-              MPI_Barrier( MPI_COMM_WORLD );
-              std::cout << "P["<< m_eMesh.get_rank()
-                        <<"] ========================================================================================================================" << std::endl;
-              m_nodeRegistry->checkDB("end getFromRemote");
-              check_db("end getFromRemote");
-              MPI_Barrier( MPI_COMM_WORLD );
-
-              std::cout << "P["<< m_eMesh.get_rank()
-                        <<"] ========================================================================================================================" << std::endl;
-            }
         }  // get from remote
 
         bool break_loop = false;
@@ -1152,8 +776,8 @@
         }
 
         {
-          mod_begin(&timerDoMark_);
-          mod_end(&timerDoMark_,"Mark");
+          mod_begin_timer(*m_eMesh.get_bulk_data(), timerDoMark_);
+          mod_end_timer(  *m_eMesh.get_bulk_data(), timerDoMark_, "Mark");
         }
 
         if (break_loop)
@@ -1187,43 +811,15 @@
     }
 
     void Refiner::
-    debug_print_memory_doRefine(const unsigned num_elem_needed, const unsigned irank)
-    {
-        size_t hwm_max=0, hwm_min=0, hwm_avg=0, hwm_sum=0;
-        size_t dhwm_max=0, dhwm_min=0, dhwm_avg=0, dhwm_sum=0;
-
-        if (DO_MEMORY && m_eMesh.get_do_print_memory()) {
-            auto breakPattern = m_breakPattern[irank];
-            std::string bpName = PerceptMesh::demangle(typeid(*breakPattern).name());
-
-            get_memory_high_water_mark_across_processors(m_eMesh.parallel(), dhwm_max, dhwm_min, dhwm_avg, dhwm_sum);
-            dhwm_max -= hwm_max;
-            dhwm_min -= hwm_min;
-            dhwm_avg -= hwm_avg;
-            dhwm_sum -= hwm_sum;
-            size_t dhwm_tot = dhwm_sum;
-            std::string hwm = print_memory_both(m_eMesh.parallel());
-            size_t num_elem_needed_tot = num_elem_needed;
-            stk::all_reduce( m_eMesh.parallel(), stk::ReduceSum<1>( &num_elem_needed_tot ) );
-
-            if (!m_eMesh.get_rank() && num_elem_needed>0) {
-                std::cout << "MEM: " << hwm << " after  createEntities= " << bpName
-                        << "\nMEM: " << double(dhwm_tot)/double(std::max(num_elem_needed_tot,size_t(1))) << " = memory per Entity for "
-                        << num_elem_needed_tot << " " << m_ranks[irank] << " Topo: " << m_breakPattern[irank]->getFromTopoPartName()
-                        << std::endl;
-            }
-        }
-    }
-
-    void Refiner::
     doRefine()
     {
 #if USE_PERCEPT_PERFORMANCE_TESTING_CALLGRIND
   CALLGRIND_START_INSTRUMENTATION;
   CALLGRIND_TOGGLE_COLLECT;
 #endif
-      stk::diag::Timer timerAdapt_("percept::Refine", rootTimer());
+      stk::diag::Timer timerAdapt_("RefineMesh", rootTimer());
       stk::diag::TimeBlock timerAdaptBlock_(timerAdapt_);
+
       stk::diag::Timer timerDoRefine_("percept::DoRefine", timerAdapt_);
       stk::diag::TimeBlock timerDoRefineBlock_(timerDoRefine_);
 
@@ -1242,12 +838,7 @@
       ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
       // for each element type, in top-down rank order, do the rest of the refinement operations
       ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-      mod_begin(&timerDoRefine_);
-
-      if (CHECK_DEBUG)
-        {
-          m_nodeRegistry->checkDB("after mod begin() after end getFromRemote");
-        }
+      mod_begin_timer(*m_eMesh.get_bulk_data(), timerDoRefine_);
 
       size_t num_new_elements[2] = {0,0};
       for (unsigned irank = 0; irank < ranks.size(); irank++)
@@ -1282,6 +873,8 @@
               TIMER2(EstimateNumNewElems,DoRefine_);
               getRefinementInfo().full_stats_before_estimate(ranks[irank], num_elem_not_ghost);
               num_elem_needed = m_breakPattern[irank]->estimateNumberOfNewElements(m_eMesh, ranks[irank], *m_nodeRegistry, num_elem_not_ghost);
+              // FIXME use this simple formula when doing UMR
+              //num_elem_needed = num_elem_not_ghost * m_breakPattern[irank]->getNumNewElemPerElem();
               unsigned nelNeedMarked = num_elem_needed / m_breakPattern[irank]->getNumNewElemPerElem();
               getRefinementInfo().full_stats_after_estimate(ranks[irank], nelNeedMarked);
               num_new_elements[0] += num_elem_needed;
@@ -1307,8 +900,6 @@
                   m_eMesh.getEntitiesUsingIdServer( ranks[irank], num_elem_needed, new_elements);
 #endif
                 }
-
-              debug_print_memory_doRefine(num_elem_needed, irank);
 
               const stk::mesh::EntityRank FAMILY_TREE_RANK = static_cast<stk::mesh::EntityRank>(stk::topology::ELEMENT_RANK + 1u);
 #if USE_CREATE_ENTITIES
@@ -1365,9 +956,6 @@
             TIMER2(AddToParts,DoRefine_);
             m_nodeRegistry->addToExistingPartsNew();
           }
-#if CHECK_DEBUG
-          m_nodeRegistry->checkDB("before prolongate");
-#endif
 
           doProgressPrint("Stage: [6/16] Prolongate fields...");
 
@@ -1408,8 +996,8 @@
       {
         doProgressPrint("Stage: [8/16] Fix side sets...");
 
-        mod_end(&timerDoRefine_,"Refine0");
-        mod_begin(&timerDoRefine_);
+        mod_end_timer(  *m_eMesh.get_bulk_data(), timerDoRefine_, "Refine0");
+        mod_begin_timer(*m_eMesh.get_bulk_data(), timerDoRefine_);
 
         if (!getIgnoreSideSets())
           {
@@ -1423,11 +1011,6 @@
 
       REF_LTRACE("doRefine: fix_side_sets...done");
 
-#if CHECK_DEBUG
-      std::cout << "m_doRemove= " << m_doRemove << std::endl;
-      check_db("b4 remove");
-#endif
-
       if (m_doRemove)
         {
           doProgressPrint("Stage: [9/16] Remove old elements...");
@@ -1435,10 +1018,6 @@
           EXCEPTWATCH;
 
           TIMER2(DoRemove,DoRefine_);
-
-#if CHECK_DEBUG
-          m_nodeRegistry->checkDB("before removeOldElements");
-#endif
 
           for (unsigned irank = 0; irank < ranks.size(); irank++)
             {
@@ -1454,19 +1033,12 @@
 
 
       // remove any elements that are empty (these can exist when doing local refinement)
-#if CHECK_DEBUG
-      m_nodeRegistry->checkDB("before removeEmptyElements");
-#endif
       {
         doProgressPrint("Stage: [10/16] Remove empty elements part 2...");
 
         TIMER2(RemEmptyElem,DoRefine_);
         removeEmptyElements();
       }
-
-#if CHECK_DEBUG
-      m_nodeRegistry->checkDB("after removeEmptyElements");
-#endif
 
       if (m_removeFromNewNodesPart)
         {
@@ -1476,8 +1048,8 @@
 
       doProgressPrint("Stage: [11/16] Modification_end...");
       {
-        mod_end(&timerDoRefine_,"Refine1");
-        mod_begin(&timerDoRefine_);
+        mod_end_timer(  *m_eMesh.get_bulk_data(), timerDoRefine_, "Refine1");
+        mod_begin_timer(*m_eMesh.get_bulk_data(), timerDoRefine_);
       }
 
       doProgressPrint("Stage: [12/16] Remove unattached nodes...");
@@ -1497,10 +1069,6 @@
         removeEmptyFamilyTrees();
       }
 
-#if CHECK_DEBUG
-      m_nodeRegistry->checkDB("after removeDanglingNodes");
-#endif
-
       set_active_part();
       if (m_doAddChildrenToParts)
         add_children_to_parts();
@@ -1513,21 +1081,16 @@
       if (!reduced_mod_end)
         {
           // force a flush of all pending deletes, etc
-          mod_end(&timerDoRefine_,"Flush1");
-          mod_begin(&timerDoRefine_);
-          mod_end(&timerDoRefine_,"Flush2");
+          mod_end_timer(  *m_eMesh.get_bulk_data(), timerDoRefine_, "Flush1");
+          mod_begin_timer(*m_eMesh.get_bulk_data(), timerDoRefine_);
+          mod_end_timer(  *m_eMesh.get_bulk_data(), timerDoRefine_, "Flush2");
         }
       else
         {
-          mod_end(&timerDoRefine_,"Refine3");
+          mod_end_timer(*m_eMesh.get_bulk_data(), timerDoRefine_, "Refine3");
         }
 
       /**/                                                TRACE_PRINT("Refiner: mod_end...done ");
-
-      if (m_eMesh.get_create_edges())
-        {
-          RefinerUtil::create_missing_edges(m_eMesh);
-        }
 
       doProgressPrint("Stage: [15/16] Checks on ownership...");
 
@@ -1542,18 +1105,6 @@
       if (1)
         {
           RefinerUtil::save_node_registry(m_eMesh, *m_nodeRegistry, "Refiner: end");
-          if (m_eMesh.getProperty("NodeRegistry_rebuild_test") == "true")
-            {
-              static int cnt = 0;
-              ++cnt;
-              std::string file1 = "node_reg.1."+toString(cnt)+".e";
-              m_eMesh.save_as(file1);
-              PerceptMesh eMeshNR;
-              eMeshNR.set_ioss_read_options("large");
-              eMeshNR.open_read_only(file1);
-              NodeRegistry nr1(eMeshNR);
-              RefinerUtil::rebuild_node_registry(eMeshNR, nr1, true, &m_eMesh, m_nodeRegistry, true);
-            }
         }
 
       m_eMesh.setProperty("AdaptedMeshVerifier::checkPolarity", "doRefine end");
@@ -1581,9 +1132,6 @@
       getNodeRegistry().init_entity_repo();
 
       m_nodeRegistry->dumpDB("after doBreak");
-#if CHECK_DEBUG
-      m_nodeRegistry->checkDB("after doBreak");
-#endif
 
       doProgressPrint("Stage: [16/16] Rebalance...done, Refinement done.");
 
@@ -1605,27 +1153,6 @@
           if (1)
             {
               RefinerUtil::save_node_registry(m_eMesh, *m_nodeRegistry, "doRebalance");
-
-              if (m_eMesh.getProperty("NodeRegistry_rebuild_test_simple") == "true")
-                {
-                  PerceptMesh& eMeshNR = m_eMesh;
-                  NodeRegistry nr1(eMeshNR);
-                  RefinerUtil::rebuild_node_registry(eMeshNR, nr1, true, &m_eMesh, m_nodeRegistry, true);
-                  std::cout << "success" << std::endl;
-                }
-
-              if (m_eMesh.getProperty("NodeRegistry_rebuild_test") == "true")
-                {
-                  static int cnt = 0;
-                  ++cnt;
-                  std::string file1 = "node_reg.3."+toString(cnt)+".e";
-                  m_eMesh.save_as(file1);
-                  PerceptMesh eMeshNR;
-                  eMeshNR.set_ioss_read_options("large");
-                  eMeshNR.open_read_only(file1);
-                  NodeRegistry nr1(eMeshNR);
-                  RefinerUtil::rebuild_node_registry(eMeshNR, nr1, true, &m_eMesh, m_nodeRegistry, true);
-                }
             }
 
           RebalanceMesh rb(m_eMesh, m_eMesh.m_weights_field, false);
@@ -1669,6 +1196,9 @@
     /// Delete all elements that aren't child elements
     void Refiner::deleteParentElements()
     {
+      stk::diag::Timer timerAdapt_("RefineMesh", rootTimer());
+      stk::diag::Timer timerDoRefine_("percept::DoRefine", timerAdapt_);
+
       doProgressPrint("Stage: Deleting parent elements...");
 
       //check_sidesets_2(" deleteParentElements:: start");
@@ -1720,7 +1250,7 @@
 
         }
 
-      mod_begin();
+      mod_begin_timer(*m_eMesh.get_bulk_data(), timerDoRefine_);
 
       removeFamilyTrees();
 
@@ -1728,7 +1258,7 @@
 
       fix_side_sets_2(false,0,0,0,"Ref2");
 
-      mod_end(0, "RefinerDelPar");
+      mod_end_timer(*m_eMesh.get_bulk_data(), timerDoRefine_, "RefinerDelPar");
 
       doProgressPrint("Stage: Deleting parent elements, number of parent elements = ");
 
@@ -1736,8 +1266,6 @@
 
     void Refiner::removeEmptyElements()
     {
-      if (CHECK_DEBUG) std::cout << "removeEmptyElements start.... " << std::endl;
-
       for (unsigned irank=0; irank < m_ranks.size(); irank++)
         {
           elements_to_be_destroyed_type list(*m_eMesh.get_bulk_data());
@@ -1761,8 +1289,6 @@
 
           removeElements(list);
         }
-      if (CHECK_DEBUG) std::cout << "removeEmptyElements ....end " << std::endl;
-
     }
 
     void Refiner::removeEmptyFamilyTrees()
@@ -1924,6 +1450,12 @@
         else if (geomFile.find(".e") != std::string::npos || geomFile.find(".g") != std::string::npos || geomFile.find(".exo") != std::string::npos)
           {
             geomKernel = new GeometryKernelGregoryPatch(m_eMesh, false);
+            if (m_eMesh.get_ioss_read_options().find("auto-decomp:yes") != std::string::npos) {
+              geomKernel->set_property("auto_decomp", "true");
+            }
+            if (m_eMesh.get_ioss_read_options().find("large") != std::string::npos) {
+              geomKernel->set_property("exo_large", "true");
+            }
           }
         else if(geomFile.find(".sat") != std::string::npos)
           {
@@ -2071,7 +1603,7 @@
                 {
                   double drop_off_coeffs[3] = {1,1,1};  // FIXME
                   int nlayers_drop_off = 40;
-                  int niter = 1;
+                  niter = 1;
                   percept::ReferenceMeshSmootherAlgebraic pmmpsi(&m_eMesh, selector,NULL, mesh_geometry, niter, 1.e-4, drop_off_coeffs, nlayers_drop_off);
                   pmmpsi.m_do_animation = 0;
                   pmmpsi.m_use_ref_mesh = use_ref_mesh;
@@ -2080,7 +1612,6 @@
               else
                 {
                   percept::ReferenceMeshSmootherConjugateGradientImpl<STKMesh> pmmpsi(&m_eMesh, selector,NULL, mesh_geometry, niter, tol);
-                  //pmmpsi.m_do_animation = 0;
                   pmmpsi.m_use_ref_mesh = use_ref_mesh;
                   pmmpsi.run();
                 }
@@ -2351,7 +1882,6 @@
               throw std::logic_error("needed_entity_ranks[ineed_ent].second");
           }
 
-          std::vector<stk::mesh::Entity>::iterator current_it = element_pool_it;
           breakPattern->createNewElements(m_eMesh, *m_nodeRegistry, element, new_sub_entity_nodes,
                   element_pool_it, ft_element_pool_it, m_proc_rank_field);
 
@@ -2364,122 +1894,6 @@
       *ft_new_elements_pool_end_iter = ft_element_pool_it;
 
       return num_new_elems;
-    }
-
-    void Refiner::
-    debug_invalid_node_createNewNeededNodeIds(NodeIdsOnSubDimEntityType &nodeIds_onSE, const stk::mesh::Entity element,
-            NeededEntityType& needed_entity_type, unsigned iSubDimOrd)
-    {
-        if (nodeIds_onSE.m_entity_id_vector[0] == 0)
-        {
-            // for debugging cases that may have inconsistent edge marking schemes
-#define DEBUG_ALLOW_0_ENTITY_ID_VECTOR 0
-            if (DEBUG_ALLOW_0_ENTITY_ID_VECTOR)
-            {
-                return;
-            }
-            else
-            {
-                SubDimCell_SDCEntityType subDimEntity(&m_eMesh);
-                m_nodeRegistry->getSubDimEntity(subDimEntity, element, needed_entity_type.first, iSubDimOrd);
-                std::cout << "P[" << m_eMesh.get_rank() << "] nodeId ## = 0 << "
-                        << " nodeIds_onSE.m_entity_id_vector[0] = " << nodeIds_onSE.m_entity_id_vector[0]
-                                                                                                       << " element= " << m_eMesh.id(element)
-                                                                                                       << " needed_entity_ranks= " << needed_entity_type.first
-                                                                                                       << " needed_entity_ranks.third= " << needed_entity_type.third
-                                                                                                       << " iSubDimOrd = " << iSubDimOrd
-                                                                                                       << " node0 = " << m_eMesh.identifier(subDimEntity[0])
-                                                                                                       << " node1 = " << (subDimEntity.size() > 1 ? m_eMesh.identifier(subDimEntity[1]) : 0)
-                                                                                                       << " node2 = " << (subDimEntity.size() > 2 ? m_eMesh.identifier(subDimEntity[2]) : 0)
-                                                                                                       <<  std::endl;
-                m_eMesh.dump_vtk("bad-5.0.vtk");
-                stk::mesh::Entity neigh = m_eMesh.get_face_neighbor(element, iSubDimOrd);
-                std::cout << " element= " << m_eMesh.print_entity_compact(element) << "\nneigh= " << m_eMesh.print_entity_compact(neigh) << std::endl;
-                std::set<stk::mesh::Entity> ll_debug;
-                ll_debug.insert(element);
-                ll_debug.insert(neigh);
-                std::string ff = "bad-"+toString(m_eMesh.get_rank())+".vtk";
-                m_eMesh.dump_vtk(ff, false, &ll_debug);
-                VERIFY_MSG("Refiner::createNewNeededNodeIds logic err #5.0, nodeIds_onSE.m_entity_id_vector[i_new_node] == 0");
-            }
-        }
-
-        stk::mesh::Entity node1 = m_eMesh.get_bulk_data()->get_entity(stk::topology::NODE_RANK, nodeIds_onSE.m_entity_id_vector[0]);
-        nodeIds_onSE[0] = node1;
-
-        if (!m_eMesh.is_valid(node1))
-        {
-            if (!m_nodeRegistry->getUseCustomGhosting())
-            {
-                static stk::mesh::PartVector empty_parts;
-                node1 = m_eMesh.get_bulk_data()->declare_node(nodeIds_onSE.m_entity_id_vector[0], empty_parts);
-            }
-
-            if (!m_eMesh.is_valid(node1))
-            {
-                std::cout << "P[" << m_eMesh.get_rank() << "] nodeId ## = 0 << "
-                        << " nodeIds_onSE.m_entity_id_vector[0] = " << nodeIds_onSE.m_entity_id_vector[0] << " node1= " << node1
-                        << " element= " << element
-                        << " needed_entity_ranks= " << needed_entity_type.first
-                        << " iSubDimOrd = " << iSubDimOrd
-                        <<  std::endl;
-                throw std::logic_error("Refiner::createNewNeededNodeIds logic error #0");
-            }
-        }
-    }
-
-    void Refiner::
-    debug_excess_new_nodes_createNewNeededNodeIds(const unsigned num_new_nodes_needed, NodeIdsOnSubDimEntityType &nodeIds_onSE, const stk::mesh::Entity element, NeededEntityType& needed_entity_type,
-            unsigned numSubDimNeededEntities, unsigned iSubDimOrd, const percept::MyPairIterRelation &elem_nodes)
-    {
-
-        std::cout << "Refiner::createNewNeededNodeIds logic err #3:  num_new_nodes_needed= " << num_new_nodes_needed
-                << " nodeIds_onSE.size() = " << nodeIds_onSE.size()
-                << " needed_entity_ranks.first= " << needed_entity_type.first
-                << " needed_entity_ranks.second= " << needed_entity_type.second
-                << " numSubDimNeededEntities= " << numSubDimNeededEntities
-                << " iSubDimOrd = " << iSubDimOrd
-                << std::endl;
-        std::cout << "P[" << m_eMesh.get_rank() << "] element= ";
-        m_eMesh.print(element);
-        for (unsigned kn=0; kn < elem_nodes.size(); kn++)
-        {
-            m_eMesh.dump_vtk(elem_nodes[kn].entity(), std::string("node_dump_")+toString(kn)+".vtk");
-        }
-
-        throw std::logic_error("Refiner::createNewNeededNodeIds logic err #3");
-    }
-
-    void Refiner::
-    debug_zero_length_id_vector_createNewNeededNodeIds(NodeIdsOnSubDimEntityType &nodeIds_onSE, const stk::mesh::Entity element, NeededEntityType& needed_entity_type, unsigned iSubDimOrd)
-    {
-        if (DEBUG_ALLOW_0_ENTITY_ID_VECTOR)
-        {
-            return;
-        }
-        else
-        {
-            SubDimCell_SDCEntityType subDimEntity(&m_eMesh);
-            m_nodeRegistry->getSubDimEntity(subDimEntity, element, needed_entity_type.first, iSubDimOrd);
-            std::cout << "P[" << m_eMesh.get_rank() << "] nodeId ## = 0 << "
-                    << " nodeIds_onSE.m_entity_id_vector[0] = " << nodeIds_onSE.m_entity_id_vector[0]
-                                                                                                   << " element= " << m_eMesh.identifier(element)
-                                                                                                   << " needed_entity_ranks= " << needed_entity_type.first
-                                                                                                   << " iSubDimOrd = " << iSubDimOrd
-                                                                                                   << " node0 = " << m_eMesh.identifier(subDimEntity[0])
-                                                                                                   << " node1 = " << m_eMesh.identifier(subDimEntity[1])
-                                                                                                   <<  std::endl;
-            //m_eMesh.print_entity(std::cout, element, 0);
-            m_eMesh.dump_vtk("bad-5.1.vtk");
-            stk::mesh::Entity neigh = m_eMesh.get_face_neighbor(element, iSubDimOrd);
-            std::cout << " element= " << m_eMesh.print_entity_compact(element) << "\nneigh= " << m_eMesh.print_entity_compact(neigh) << std::endl;
-            std::set<stk::mesh::Entity> ll_debug;
-            ll_debug.insert(element);
-            ll_debug.insert(neigh);
-            std::string ff = "bad-"+toString(m_eMesh.get_rank())+".vtk";
-            m_eMesh.dump_vtk(ff, false, &ll_debug);
-            VERIFY_MSG("Refiner::createNewNeededNodeIds logic err #5.1, nodeIds_onSE.m_entity_id_vector[i_new_node] == 0");
-        }
     }
 
     /// create a list of nodes from the new nodes that can be easily deciphered by the UniformRefinerPattern
@@ -2558,9 +1972,6 @@
                     }
                 }
 
-              if (!m_eMesh.is_valid(nodeIds_onSE[0]))
-                  debug_invalid_node_createNewNeededNodeIds(nodeIds_onSE, element, needed_entity_ranks[ineed_ent], iSubDimOrd);
-
               unsigned num_new_nodes_needed = needed_entity_ranks[ineed_ent].second;
 
               if (num_new_nodes_needed == 0)
@@ -2571,16 +1982,10 @@
 
               new_sub_entity_nodes[needed_entity_ranks[ineed_ent].first][iSubDimOrd].resize(num_new_nodes_needed);
 
-              if (num_new_nodes_needed > nodeIds_onSE.size())
-                  debug_excess_new_nodes_createNewNeededNodeIds(num_new_nodes_needed, nodeIds_onSE, element, needed_entity_ranks[ineed_ent], numSubDimNeededEntities, iSubDimOrd, elem_nodes);
-
               for (unsigned i_new_node = 0; i_new_node < num_new_nodes_needed; i_new_node++)
                 {
                   if (!m_eMesh.is_valid(nodeIds_onSE[i_new_node]))
                     {
-                      if (nodeIds_onSE.m_entity_id_vector[i_new_node] == 0)
-                          debug_zero_length_id_vector_createNewNeededNodeIds(nodeIds_onSE, element, needed_entity_ranks[ineed_ent], iSubDimOrd);
-
                       stk::mesh::Entity node1 = m_eMesh.get_bulk_data()->get_entity(stk::topology::NODE_RANK, nodeIds_onSE.m_entity_id_vector[i_new_node]);
 
                       if (!m_eMesh.is_valid(node1))
@@ -2857,7 +2262,6 @@
     removeOldElements(unsigned irank, stk::mesh::EntityRank rank, UniformRefinerPatternBase* breakPattern)
     {
       EXCEPTWATCH;
-      if (CHECK_DEBUG) std::cout << "removeOldElements start ... " << std::endl;
 
       const stk::mesh::Part *oldPart = m_eMesh.getPart(breakPattern->getOldElementsPartName()+toString(rank));
 
@@ -2906,16 +2310,12 @@
                   if (!m_eMesh.isGhostElement(element))
                     {
                       elements_to_be_destroyed.insert(element_p);
-                      //std::cout << "tmp removing elem = "; m_eMesh.print(element_p);
                     }
                 }
             }
         }
 
-      //getNodeRegistry().clear_elements_to_be_deleted(&elements_to_be_destroyed);
       removeElements(elements_to_be_destroyed, irank);
-      if (CHECK_DEBUG) std::cout << "removeOldElements  ... end " << std::endl;
-
     }
 
     void Refiner::removeElements(elements_to_be_destroyed_type& elements_to_be_destroyed, unsigned irank)
@@ -3173,14 +2573,6 @@
       return m_refinementInfo;
     }
 
-    void
-    Refiner::
-    setQueryPassOnly(bool doQueryOnly)
-    {
-      m_doQueryOnly = doQueryOnly;
-    }
-
-
     void Refiner::
     add_children_to_parts()
     {
@@ -3415,121 +2807,8 @@
     //    ========================================================================================================================
     //    ========================================================================================================================
 
-
-    void Refiner::check_db(std::string msg)
-    {
-      std::cout << "P[" << m_eMesh.get_rank() << "] tmp check_db msg= " << msg << std::endl;
-      check_db_entities_exist(msg);
-      check_db_ownership_consistency(msg);
-      std::cout << "P[" << m_eMesh.get_rank() << "] tmp check_db done msg= " << msg << std::endl;
-    }
-
-
-    void Refiner::check_db_entities_exist(std::string msg)
-    {
-      std::vector<stk::mesh::EntityRank> ranks_to_check;
-      ranks_to_check.push_back(m_eMesh.node_rank());
-      ranks_to_check.push_back(stk::topology::ELEMENT_RANK);
-      for (unsigned irank=0; irank < ranks_to_check.size(); irank++)
-        {
-
-          const stk::mesh::BucketVector & buckets = m_eMesh.get_bulk_data()->buckets( ranks_to_check[irank] );
-
-          for ( stk::mesh::BucketVector::const_iterator k = buckets.begin() ; k != buckets.end() ; ++k )
-            {
-              stk::mesh::Bucket & bucket = **k ;
-
-              const unsigned num_entity_in_bucket = bucket.size();
-              for (unsigned ientity = 0; ientity < num_entity_in_bucket; ientity++)
-                {
-                  stk::mesh::Entity element = bucket[ientity];
-                  VERIFY_OP_ON(m_eMesh.is_valid(element), ==, true, "check_db_entities_exist bad element");
-                  stk::mesh::Entity element_1 = m_eMesh.get_bulk_data()->get_entity(ranks_to_check[irank], m_eMesh.identifier(element));
-                  if (element != element_1 || m_eMesh.identifier(element) != m_eMesh.identifier(element_1))
-                    {
-                      std::cout << "msg= " << msg << " error element, element_1, ids= "
-                                << &element << " " << element_1 << " " << m_eMesh.identifier(element) << " " << m_eMesh.identifier(element_1) << std::endl;
-                      throw std::logic_error("check_db_entities_exist:: error #1");
-                    }
-
-                }
-            }
-        }
-    }
-
-    void Refiner::check_db_ownership_consistency(std::string msg)
-    {
-      SubDimCellToDataMap& cell_2_data_map = m_nodeRegistry->getMap();
-      stk::mesh::BulkData &bulk_data = *m_eMesh.get_bulk_data();
-
-      for (SubDimCellToDataMap::iterator cell_iter = cell_2_data_map.begin(); cell_iter != cell_2_data_map.end(); ++cell_iter)
-        {
-          SubDimCellData& nodeId_elementOwnderId = (*cell_iter).second;
-          stk::mesh::EntityId owning_elementId = nodeId_elementOwnderId.get<SDC_DATA_OWNING_ELEMENT_KEY>().id();
-          NodeIdsOnSubDimEntityType& nodeIds_onSE = nodeId_elementOwnderId.get<SDC_DATA_GLOBAL_NODE_IDS>();
-          stk::mesh::EntityRank owning_elementRank = nodeId_elementOwnderId.get<SDC_DATA_OWNING_ELEMENT_KEY>().rank();
-
-          if (nodeIds_onSE.size())
-            {
-
-              if (!owning_elementId)
-                throw std::logic_error("check_db_ownership_consistency:: error #1 msg= "+msg);
-
-              stk::mesh::Entity owning_element = m_eMesh.get_bulk_data()->get_entity(owning_elementRank, owning_elementId);
-
-              if (!m_eMesh.is_valid(owning_element))
-                {
-                  std::cout << "P[" << m_eMesh.get_rank() << "] "
-                            << " error check_db_ownership_consistency: msg= " << msg << " owning_elementId= " << owning_elementId << std::endl;
-                  throw std::logic_error("check_db_ownership_consistency:: error #2, msg= "+msg);
-                }
-
-              if (stk::mesh::Deleted == bulk_data.state(owning_element) )
-                {
-                  std::cout << "P[" << m_eMesh.get_rank() << "] "
-                            << " error check_db_ownership_consistency: Deleted, msg= " << msg << " owning_elementId= " << owning_elementId << std::endl;
-                  throw std::logic_error("check_db_ownership_consistency:: error #2.0, msg= "+msg);
-                }
-
-
-              if (m_eMesh.identifier(owning_element) != owning_elementId)
-                {
-                  std::cout << "msg= " << msg << " check_db_ownership_consistency error element, element_1, ids= "
-                            << owning_elementId << " " << m_eMesh.identifier(owning_element) << std::endl;
-                  throw std::logic_error("check_db_ownership_consistency:: error #1.1, msg= "+msg);
-                }
-
-              if (!m_eMesh.isGhostElement(owning_element))
-                {
-
-                  for (unsigned inode = 0; inode < nodeIds_onSE.size(); inode++)
-                    {
-                      stk::mesh::Entity node = nodeIds_onSE[inode];
-                      if (!m_eMesh.is_valid(node))
-                        throw std::logic_error("check_db_ownership_consistency:: error #3, msg= "+msg);
-
-                      stk::mesh::Entity node1 = m_eMesh.get_bulk_data()->get_entity(stk::topology::NODE_RANK, nodeIds_onSE.m_entity_id_vector[inode]);
-                      if (!m_eMesh.is_valid(node1))
-                        throw std::logic_error("check_db_ownership_consistency:: error #3a, msg= "+msg);
-
-                      stk::mesh::Entity node2 = m_eMesh.get_bulk_data()->get_entity(stk::topology::NODE_RANK, m_eMesh.identifier(node) );
-                      if (!m_eMesh.is_valid(node2))
-                        throw std::logic_error("check_db_ownership_consistency:: error #3b, msg= "+msg);
-                      if (node != node2)
-                        throw std::logic_error("check_db_ownership_consistency:: error #3c, msg= "+msg);
-
-                    }
-                }
-            }
-        }
-    }
-
     void Refiner::initializeDB(bool use_rebuild_node_registry)
     {
-      if (m_eMesh.getProperty("use_rebuild_node_registry") == "true")
-        use_rebuild_node_registry = true;
-      if (m_eMesh.getProperty("use_rebuild_node_registry") == "false")
-        use_rebuild_node_registry = false;
       if (use_rebuild_node_registry)
         {
           RefinerUtil::rebuild_node_registry(m_eMesh, *m_nodeRegistry, true);
@@ -3715,8 +2994,6 @@
         }
 
       this->special_processing("refiner_post_initializeDB");
-
-      //m_nodeRegistry->checkDB("after initializeDB");
     }
 
     void Refiner::removeFromNewNodesPart()

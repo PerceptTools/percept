@@ -1,6 +1,7 @@
-// Copyright 2014 Sandia Corporation. Under the terms of
-// Contract DE-AC04-94AL85000 with Sandia Corporation, the
-// U.S. Government retains certain rights in this software.
+// Copyright 2002 - 2008, 2010, 2011 National Technology Engineering
+// Solutions of Sandia, LLC (NTESS). Under the terms of Contract
+// DE-NA0003525 with NTESS, the U.S. Government retains certain rights
+// in this software.
 //
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
@@ -3433,7 +3434,7 @@
                   settings["ignore_auto_fields"] = "true";
                   bool isDiff = false;
                   if (0) isDiff = PerceptMesh::mesh_difference(eMesh, eMesh1, "diff", print_diffs, print_all_field_diffs, &settings);
-                  if (0) EXPECT_FALSE(isDiff);
+                  if (0) { EXPECT_FALSE(isDiff); }
 
                   eMesh.output_active_children_only(false);
                   eMesh1.output_active_children_only(false);
@@ -3454,7 +3455,7 @@
                       //settings["ignore_auto_fields"] = "true";
                       bool isDiff0 = PerceptMesh::mesh_difference(eMesh0, eMesh01, "diff 2", print_diffs, print_all_field_diffs, &settings);
                       if (p_rank == 0) std::cout << "P[" << p_rank << " isDiff0 = " << isDiff0 << std::endl;
-                      if (1) EXPECT_FALSE(isDiff0);
+                      if (1) { EXPECT_FALSE(isDiff0); }
                     }
 
                   if (1)
@@ -3553,7 +3554,7 @@
             settings["ignore_auto_fields"] = "true";
             settings["sort_fields_by_name"] = "true";
             bool isDiff = PerceptMesh::mesh_difference(eMesh, eMesh1, "diff", print_diffs, print_all_field_diffs, &settings);
-            if (0) EXPECT_FALSE(isDiff);
+            if (0) { EXPECT_FALSE(isDiff); }
 
             eMesh.output_active_children_only(false);
             eMesh1.output_active_children_only(false);
@@ -3575,7 +3576,7 @@
                 settings["ignore_these_fields"] = "processor_id,proc_rank";
                 bool isDiff0 = PerceptMesh::mesh_difference(eMesh0, eMesh01, "diff 2", print_diffs, print_all_field_diffs, &settings);
                 if (p_rank == 0) std::cout << "P[" << p_rank << " isDiff0 = " << isDiff0 << std::endl;
-                if (1) EXPECT_FALSE(isDiff0);
+                if (1) { EXPECT_FALSE(isDiff0); }
               }
 
             eMesh1.output_active_children_only(false);

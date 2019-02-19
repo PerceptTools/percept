@@ -1,6 +1,7 @@
-// Copyright 2014 Sandia Corporation. Under the terms of
-// Contract DE-AC04-94AL85000 with Sandia Corporation, the
-// U.S. Government retains certain rights in this software.
+// Copyright 2002 - 2008, 2010, 2011 National Technology Engineering
+// Solutions of Sandia, LLC (NTESS). Under the terms of Contract
+// DE-NA0003525 with NTESS, the U.S. Government retains certain rights
+// in this software.
 //
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
@@ -23,7 +24,7 @@
      *   IAdapter directly, but instead will use one of its pre-existing subclasses (see below).
      *
      * There are two flavors of derived classes that can be used to develop your own adapter:
-     *  a) overload "mark" method on abstract base class IEdgeAdapter or IElementAdapter
+     *  a) overload "mark" method on abstract base class IEdgeAdapter
      *  b) or use the predicate-based approach where you supply simple structs with an operator() that supplies
      *       information on whether an edge or element is to be refined/unrefined (classes named *Predicate*.*pp )
      *
@@ -31,20 +32,18 @@
      *
      * a)
      * IEdgeAdapter is a base class for your class that provide a markEdge(edge_info) method.
-     * IElementAdapter allows overloading markElement(element_info) method.
      * In either case, the mark methods tell the driving code to refine any (or all edges) of the mesh, unrefine an
      * element (note that all "siblings" of the element must be marked before the collection is deleted and the parent
      * is reinstated to replace the children), or refine an element by subsequently marking all its edges.
      *
-     * @see IEdgeAdapter, IElementAdapter,
+     * @see IEdgeAdapter,
      *   unit_tests/TestLocalRefinerTri_N_3_IEdgeAdapter,
-     *   unit_tests/TestLocalRefinerTri_N_3_IElementAdapter,
+     *   unit_tests/TestLocalRefinerTri_N_3_TEA,
      *   and these tests in  unit_tests/UnitTestLocalRefiner:
      *     TEST(unit_localRefiner, break_tri_to_tri_N_3_1_IEdgeAdapter)
-     *     TEST(unit_localRefiner, break_tri_to_tri_N_3_1_IElementAdapter)
      *
      * b)
-     * Predicate based adapters are similar to Edge/IElementAdapter but are constructed with user-supplied structs that must
+     * Predicate based adapters are similar to IEdgeAdapter but are constructed with user-supplied structs that must
      * provide an operator() that takes edge- or element-based info, respectively, depending on the sub-flavor.
      *
      *   PredicateBasedIElementAdapter takes two structs defining a refine and unrefine operation on an element.

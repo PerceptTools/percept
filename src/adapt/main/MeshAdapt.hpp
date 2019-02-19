@@ -1,6 +1,7 @@
-// Copyright 2014 Sandia Corporation. Under the terms of
-// Contract DE-AC04-94AL85000 with Sandia Corporation, the
-// U.S. Government retains certain rights in this software.
+// Copyright 2002 - 2008, 2010, 2011 National Technology Engineering
+// Solutions of Sandia, LLC (NTESS). Under the terms of Contract
+// DE-NA0003525 with NTESS, the U.S. Government retains certain rights
+// in this software.
 //
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
@@ -27,9 +28,7 @@
 #if defined( STK_HAS_MPI )
 #include <mpi.h>
 #endif
-#if defined(WITH_KOKKOS)
 #include <Kokkos_Core.hpp>
-#endif
 
 #include <percept/PerceptMesh.hpp>
 #include <percept/Util.hpp>
@@ -63,33 +62,37 @@
 
 #if defined( STK_PERCEPT_HAS_GEOMETRY )
 #include <percept/DihedralAngleCheck.hpp>
-#include <percept/mesh/geometry/kernel/GeometryKernelOpenNURBS.hpp>
 #include <percept/mesh/geometry/stk_geom/LocalCubicSplineFit.hpp>
 #endif
 #include <percept/mesh/geometry/recovery/GeometryRecoverySplineFit.hpp>
 
 #define ALLOW_MEM_TEST 1
-#define DEBUG_ADAPT_MAIN 0
 
 #include "AdaptMain.hpp"
 #include "RunAdaptRun.hpp"
 #include <stk_mesh/base/MeshUtils.hpp>
-#include <adapt/main/MemoryMultipliers.hpp>
 
 class PGeom;
 #ifdef HAVE_ACIS
 class PGeomACIS;
 #endif
 
+namespace stk { 
+namespace diag {
+  class TimerSet;
+  class Timer;
+}
+}
+
 namespace percept {
+
+  void print_timer_table(stk::diag::Timer &timer);
+
+  class MemoryInfo;
 
   class MeshAdapt {
 
   public:
-
-    MeshAdapt();
-
-    double MegaByte(MemorySizeType x) { return  ((double)x/1024.0/1024.0); }
 
     enum GeometryType {
       GEOM_NONE,
@@ -100,13 +103,19 @@ namespace percept {
       N_GeometryType
     };
 
+    // member variable definition and initialization (c++11) 
+#include "MeshAdaptMemberVarInit.hpp"    
+
+    // constructor
+    MeshAdapt();
+
     bool has_suffix(const std::string &str, const std::string &suffix) {
       return str.size() >= suffix.size() &&
         str.compare(str.size() - suffix.size(), suffix.size(), suffix) == 0;
     }
+    // true if s is a well-formed integer, and set its value in i
+    bool is_number(std::string &s, int &i);
 
-    MemorySizeType memory_dump(int dump_level, const stk::ParallelMachine& comm, stk::mesh::BulkData& bulkData, NodeRegistry* node_reg, std::string msg);
-    void test_memory(MemorySizeType n_elements, MemorySizeType n_nodes);
     // Determine the basename and refinement level from a given an ExodusII file name.
     // This is the last integer before the final '.e' or '.exo' in the file name.
     // If no level was found, returns 0 as the level.
@@ -115,13 +124,41 @@ namespace percept {
     //    string - the basename which is everything before the number
     //    int    - the refinement level
     std::pair<std::string,int> get_basename_and_level(const std::string& input_mesh);
-    void checkInput(std::string option, std::string value, std::string allowed_values, Teuchos::CommandLineProcessor& clp);
-    void print_simple_usage(int argc, char **argv);
-    int check_for_simple_options(int argc, char **argv);
+    void to_vec_char( vector<char>& v, const std::string &s );
+    void to_vec_char( vector<char>& v, const char *s );
+    // return true and set found_h to true if input string s is the help string h, 
+    // followed by an = sign or nothing
+    bool check_optionstring( const char *s, const char *h, bool &found_h, std::string &value_h, std::string default_value = category_name[COMMON] );
+    // return true if any help option was found
+    bool check_help_options(int argc, char **argv, 
+                           bool &found_print_version, bool &found_help_list, bool &found_help, bool &found_help_full); 
+    // for printing words lined up in columns
+    void print_in_columns(const std::vector<std::string> &words) const;
+    void print_help(std::vector< std::string > &help_strings, HelpType help_type) const;
+    int do_help(ParserSystem &ps, HelpType help_type);
+    // set the default operation and output files, if needed
+    void set_operation_defaults(int argc, char **argv); 
 
-    int adapt_main_simple_options(int argc_in, char **argv_in);
-    void dump_args(int argc, char **argv);
-    void check_args(int argc, char **argv);
+    // non-trivial initializations that aren't safe to put in the constructor
+    void init(int argc, char **argv);
+    int checkInput(const std::string &option, const std::string &value, const std::string &allowed_values);
+    void fill_help_strings(int argc, char **argv);
+    // determine default output_mesh, previous and next meshes based on input mesh name
+    void default_output_files(std::string input_mesh_s, std::string operation, int number_refines,
+                              std::string &output_mesh_s, std::string &previous_adapted_mesh_s, std::string &next_adapted_mesh_s);
+    // true if there is an error
+    bool set_input_geometry_type();
+    // true if there is an error
+    bool check_parsing_results();
+    // returns index to the "operation" keyword, e.g. "adapt". Returns 0 if it wasn't simple syntax
+    int check_for_simple_options(int argc, char **argv);
+    // true if simple options were specified
+    int adapt_main_simple_options(int argc, char **argv, bool &parsing_ok, bool &do_adapt);
+
+    // what to print when a parsing error occurred, generic syntax help
+    void print_syntax_error_instructions(bool generic_syntax_error = true);
+    // clean up (finalize) libraries and exit
+    void exit_safely(int exit_code); 
 
     struct EntitySelectorUCF {
       PerceptMesh& m_eMesh;
@@ -157,14 +194,10 @@ namespace percept {
     int  bucket_in_block_names(stk::mesh::Bucket& bucket, std::string& block);
 
     // utilities
-    /// removes beams and shells in favor of node sets
-    void do_convert_geometry_parts_OpenNURBS(std::string geometry_file, std::string newExodusFile);
     void setup_m2g_parts(std::string input_geometry);
     void initialize_m2g_geometry(std::string input_geometry);
 
     // sub-algorithms of do_run algorithms
-    void do_precheck_memory_usage();
-    int setup_options(Teuchos::CommandLineProcessor& clp, const stk::ParallelMachine& comm, int argc, char **argv);
     BlockNamesType process_block_names();
     void mesh_based_geometry_setup();
     void mesh_based_geometry_fitting();
@@ -176,7 +209,6 @@ namespace percept {
     void do_histograms_final();
     void compute_hmesh_sizes_init();
     void compute_hmesh_sizes_final();
-    void do_test_memory();
     void run_adapt_run();
     void do_dihedral_angle_check();
 
@@ -184,7 +216,6 @@ namespace percept {
     void pre_open();
     int do_run_pre_commit();
     int do_run_post_commit();
-    int do_run_post_refine();
     int do_post_proc();
 
     // version - return true if built in Sierra
@@ -193,37 +224,11 @@ namespace percept {
     void log_usage( bool status = true );
 
     // main routines
-    int adapt_main(int argc, char **argv);
-    int adapt_main_full_options(int argc, char **argv);
-    int adapt_main_full_options_normal(int argc, char **argv);
+    int adapt_main(int argc, char **argv); // parse then adapt
+    int adapt_main_full_options(int argc, char **argv, bool &parsing_ok, bool &do_adapt); // parsing
+    int adapt_main_do_adapt(); // adaptation, after all parsing is done and info has been transfered to class variables
     int main(int argc, char **argv);
 
-    // member variable initialization (c++11) start
-    // ====================================================================================================================================
-#if MESH_ADAPT_CPP11_MVI
-#define CPP11MVITYPE(x) x
-#define CPP11MVI(x) {x}
-#define CPP11MVI_3(x,y,z) = {x,y,z}
-#define CPP11MVIEQ(x) x
-#define CPP11MV1_ARRAY_INIT(type, var, sz, tmpvar, arrInit) type var[sz] arrInit;
-#else
-#define CPP11MVITYPE(x) x
-#define CPP11MVI(x) = x
-#define CPP11MVI_3(x,y,z)
-#define CPP11MVIEQ(x) x
-#define CPP11MV1_ARRAY_INIT(type, var, sz, tmpvar, arrInit) type var[sz];
-#endif
-
-#include "MeshAdaptMemberVarInit.hpp"
-
-#undef CPP11MVITYPE
-#undef CPP11MVI
-#undef CPP11MVI_3
-#undef CPP11MVIEQ
-#undef CPP11MV1_ARRAY_INIT
-
-    // ====================================================================================================================================
-    // member variable initialization (c++11) end
     std::shared_ptr<FitGregoryPatches> fitter; // 3D
     std::shared_ptr<GeometryRecoverySplineFit> grsf; // 2D
 
@@ -248,7 +253,14 @@ namespace percept {
     typedef std::map<std::string, int> StringIntMap;
     StringIntMap block_names_x_map;
     std::shared_ptr<DihedralAngleCheck> m_dihedral_angle_check;
-  };
+
+  private:
+    stk::ParallelMachine m_comm;
+    MemoryInfo m_meminfo;
+ 
+    stk::diag::TimerSet m_timerSet;
+    stk::diag::Timer m_timer;
+ };
 
 
 }

@@ -1,6 +1,7 @@
-// Copyright 2014 Sandia Corporation. Under the terms of
-// Contract DE-AC04-94AL85000 with Sandia Corporation, the
-// U.S. Government retains certain rights in this software.
+// Copyright 2002 - 2008, 2010, 2011 National Technology Engineering
+// Solutions of Sandia, LLC (NTESS). Under the terms of Contract
+// DE-NA0003525 with NTESS, the U.S. Government retains certain rights
+// in this software.
 //
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
@@ -42,13 +43,7 @@ namespace percept {
     RefinerSelector *m_buildSideSetSelector;
     bool m_doProgress;
 
-    FixSideSets(Refiner *ref, PerceptMesh& eMesh, stk::mesh::PartVector& excludeParts, SidePartMap& side_part_map, const std::string& geomFile, bool avoidFixSideSetChecks,
-                RefinerSelector *sel = 0,
-                bool doProgress=false)
-      : m_refiner(ref), m_eMesh(eMesh), m_excludeParts(excludeParts), m_side_part_map(side_part_map), m_geomFile(geomFile), m_avoidFixSideSetChecks(avoidFixSideSetChecks),
-        m_buildSideSetSelector(sel),
-        m_doProgress(doProgress)
-    {}
+    FixSideSets(Refiner *ref, PerceptMesh& eMesh, stk::mesh::PartVector& excludeParts, SidePartMap& side_part_map, const std::string& geomFile, bool avoidFixSideSetChecks, RefinerSelector *sel = 0, bool doProgress=false);
 
     void fix_permutation(SetOfEntities& side_set);
     bool connect(stk::mesh::Entity side, bool& valid_side_part_map, SetOfEntities* avoid_elems, bool onlyPosPerm=false);
@@ -58,22 +53,6 @@ namespace percept {
     void disconnect_entity(stk::mesh::Entity entity);
 
     void doProgressPrint(PerceptMesh& eMesh, const std::string& msg);
-
-    template<class SetOfEntities>
-    static void print_set(PerceptMesh& eMesh, SetOfEntities& side_set, const std::string& msg = "sides_to_remove.size")
-    {
-      if (DEBUG_FSS)
-        {
-          std::cout << "print_set: " << msg << " side_set.size= " << side_set.size();
-          for (typename SetOfEntities::iterator it_side=side_set.begin(); it_side != side_set.end(); ++it_side)
-            {
-              std::cout << " " << eMesh.id(*it_side); // << " E: " << eMesh.print_entity_compact(*it_side)
-              //<< " nc: " << eMesh.numChildren(*it_side);
-              ;
-            }
-          std::cout << std::endl;
-        }
-    }
 
     void delete_unattached_sides(SetOfEntities& side_set, SetOfEntities *avoid_sides);
     bool bucket_acceptable(stk::mesh::Bucket& bucket, stk::mesh::EntityRank rank);
@@ -86,9 +65,7 @@ namespace percept {
     void move_side_to_correct_surface(stk::mesh::Part& surface, stk::mesh::Entity side, stk::mesh::Entity volume);
 
     // fast reconnector
-
-    void
-    fix_side_sets_2(bool allow_not_found, SetOfEntities *avoid_elems, SetOfEntities *avoid_sides, const std::string& msg);
+    void fix_side_sets_2(bool allow_not_found, SetOfEntities *avoid_elems, SetOfEntities *avoid_sides, const std::string& msg);
   };
 
 

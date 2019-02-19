@@ -1,6 +1,7 @@
-// Copyright 2014 Sandia Corporation. Under the terms of
-// Contract DE-AC04-94AL85000 with Sandia Corporation, the
-// U.S. Government retains certain rights in this software.
+// Copyright 2002 - 2008, 2010, 2011 National Technology Engineering
+// Solutions of Sandia, LLC (NTESS). Under the terms of Contract
+// DE-NA0003525 with NTESS, the U.S. Government retains certain rights
+// in this software.
 //
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
@@ -29,15 +30,9 @@
 #define DEBUG_UNREF_3 0
 #define DEBUG_RU 0
 
-#if DO_TIMING
 #define TIMING(code) code
 #define TIMER(name) stk::diag::Timer timer ## name ( #name, rootTimer());  stk::diag::TimeBlock tbTimer ## name (timer ## name)
 #define TIMER2(name,parentName) stk::diag::Timer timer ## name ( #name, timer ## parentName);  stk::diag::TimeBlock tbTimer ## name (timer ## name)
-#else
-#define TIMING(code) do {  } while(0)
-#define TIMER(name) do {} while(0)
-#define TIMER2(name,parentName) do {} while(0)
-#endif
 
 #define DO_DETAILED_TIMING 0
 #if DO_DETAILED_TIMING
@@ -591,7 +586,7 @@
           m_fromPartsSelector[irank] = stk::mesh::selectUnion( m_breakPattern[irank]->getFromParts() );
         }
 
-      if (DO_MEMORY && m_eMesh.get_do_print_memory()) {
+      if (DO_MEMORY) {
         std::string hwm = print_memory_high_water_mark(m_eMesh.parallel());
         if (!m_eMesh.get_rank()) std::cout << "MEM: " << hwm << " unrefiner: remeshElements= " << std::endl;
       }
@@ -735,11 +730,8 @@
     void Refiner::
     filterUnrefSetPass2(ElementUnrefineCollection& elements_to_unref,   SetOfEntities& elements_to_be_remeshed)
     {
-
-#if DO_TIMING
       stk::diag::Timer timerFilter_("filterUnrefSetPass2", rootTimer());
       stk::diag::TimeBlock tbTimerFilter_(timerFilter_);
-#endif
 
       int print_filter_info = DEBUG_UNREF_1;
       if (print_filter_info)  std::cout << "\n\nP["<< m_eMesh.get_rank() << "] filterUnrefSetPass2: initial elements_to_unref size = " << elements_to_unref.size() << std::endl;
@@ -959,9 +951,6 @@
       if (!m_do_new_elements)
         return;
 
-      bool checkDB = false;
-      if (checkDB) m_nodeRegistry->checkDB("RefinerUnrefine: generate_temporary_elements 0.0.0");
-
       size_t sz = 0;
       std::vector<stk::mesh::Entity> entities;
       for (SetOfEntities::iterator it=entities_to_delete.begin(); it != entities_to_delete.end(); ++it)
@@ -990,9 +979,8 @@
           return;
         }
 
-      if (checkDB) m_nodeRegistry->checkDB("RefinerUnrefine: generate_temporary_elements 0.0");
       m_eMesh.getEntitiesUsingIdServer(rank, sz, new_elements);
-      if (checkDB) m_nodeRegistry->checkDB("RefinerUnrefine: generate_temporary_elements 0.1: rank= "+toString(rank));
+
       size_t ielem = 0;
       VERIFY_OP_ON(new_elements.size(), ==, sz, "bad size");
       for (size_t jel = 0; jel < entities.size(); ++jel)
@@ -1037,8 +1025,6 @@
           m_eMesh.get_bulk_data()->change_entity_parts( newElement, add, rem );
           ++ielem;
         }
-      if (checkDB) m_nodeRegistry->checkDB("RefinerUnrefine: generate_temporary_elements 0.0");
-
     }
 
     void Refiner::
@@ -1329,8 +1315,9 @@
     void Refiner::
     require_sides_on_same_proc_as_pos_perm_element()
     {
-      stk::diag::Timer& timerRoot_ = rootTimer();
-      stk::diag::Timer timerReqSides_("ReqSidesLoc", timerRoot_);
+      stk::diag::Timer timerAdapt_("RefineMesh", rootTimer());
+      stk::diag::Timer timerInitRefine_("percept::InitRefine", timerAdapt_);
+      stk::diag::Timer timerReqSides_("ReqSidesLoc", timerInitRefine_);
       stk::diag::TimeBlock timerReqSidesBlock_(timerReqSides_);
 
       const stk::mesh::EntityRank FAMILY_TREE_RANK = static_cast<stk::mesh::EntityRank>(stk::topology::ELEMENT_RANK + 1u);
@@ -1459,22 +1446,21 @@
     Refiner::
     unrefinePass2(SetOfEntities& elements_to_unref)
     {
-#if DO_TIMING
-      stk::diag::Timer timerUnrefine_("unrefinePass2", rootTimer());
+      stk::diag::Timer timerAdapt_("RefineMesh", rootTimer());
+      stk::diag::TimeBlock timerAdaptBlock_(timerAdapt_);
+
+      stk::diag::Timer timerDoRefine_("percept::DoRefine", timerAdapt_);
+      stk::diag::TimeBlock timerDoRefineBlock_(timerDoRefine_);
+
+      stk::diag::Timer timerUnrefine_("unrefinePass2", timerDoRefine_);
       stk::diag::TimeBlock timerUnrefineBlock_(timerUnrefine_);
-#endif
 
       REF_LTRACE_0();
-
-      bool checkDB = false;
-      if (checkDB) m_nodeRegistry->checkDB("RefinerUnrefine: unrefinePass2 start");
 
       if (1)
       {
         TIMER2(unref_require_sides,Unrefine_);
         check_sides_on_same_proc_as_owned_element("unrefinePass2", true);
-        //check_parent_ownership();
-        //require_sides_on_same_proc_as_pos_perm_element();
       }
 
       mod_begin(&timerUnrefine_);
@@ -1515,8 +1501,6 @@
 
       if (DEBUG_UNREF_1) std::cout << "deleted_nodes.size= " << deleted_nodes.size() << std::endl;
 
-      if (checkDB) m_nodeRegistry->checkDB("RefinerUnrefine: unrefinePass2 1.0");
-
       // remove deleted nodes and their associated sub-dim entities from NodeRegistry's db
       //   save kept_nodes_orig on NodeRegistry
       SubDimCellToDataMap to_save;
@@ -1527,7 +1511,6 @@
         m_nodeRegistry->cleanDeletedNodes(deleted_nodes, kept_nodes_orig, to_save);
       }
 
-      if (checkDB) m_nodeRegistry->checkDB("RefinerUnrefine: unrefinePass2 1.1");
       print_set(m_eMesh, elements_to_unref, "elements_to_unref");
 
       // find sides to remove
@@ -1539,8 +1522,6 @@
         print_set(m_eMesh, sides_to_be_removed, "sides_to_be_removed");
       }
 
-      if (checkDB) m_nodeRegistry->checkDB("RefinerUnrefine: unrefinePass2 1.2");
-
       // remove children
       std::vector<stk::mesh::Entity> new_elements, new_sides;
 
@@ -1548,16 +1529,12 @@
       SetOfEntities new_element_set(*m_eMesh.get_bulk_data());
       SetOfEntities new_side_set(*m_eMesh.get_bulk_data());
 
-      if (checkDB) m_nodeRegistry->checkDB("RefinerUnrefine: unrefinePass2 1.3.0");
       {
         TIMER2(removeChildren,Unrefine_);
         generate_temporary_elements(elements_to_unref, m_eMesh.element_rank(), new_elements);
-        if (checkDB) m_nodeRegistry->checkDB("RefinerUnrefine: unrefinePass2 1.3.1");
         new_element_set.insert(new_elements.begin(), new_elements.end());
-        if (checkDB) m_nodeRegistry->checkDB("RefinerUnrefine: unrefinePass2 1.3.2");
         delete_entities(elements_to_unref, m_eMesh.element_rank());
       }
-      if (checkDB) m_nodeRegistry->checkDB("RefinerUnrefine: unrefinePass2 1.3");
 
       {
         TIMER2(deleteSides,Unrefine_);
@@ -1565,8 +1542,6 @@
         new_side_set.insert(new_sides.begin(), new_sides.end());
         delete_entities(sides_to_be_removed, m_eMesh.side_rank());
       }
-
-      if (checkDB) m_nodeRegistry->checkDB("RefinerUnrefine: unrefinePass2 1.4");
 
       // reconnect and remove any dangling side elements
       bool allow_not_found = false;
@@ -1579,17 +1554,12 @@
         print_set(m_eMesh, parent_side_elements, "parent_side_elements");
       }
 
-      if (checkDB) m_nodeRegistry->checkDB("RefinerUnrefine: unrefinePass2 3.1");
-
       // remesh the holes left by removing child elems (quad/hex hanging node doesn't need this)
       if (m_needsRemesh)
         {
           remeshElements(elements_to_be_remeshed, m_eMesh.element_rank(), 0);
 
-          if (checkDB) m_nodeRegistry->checkDB("RefinerUnrefine: unrefinePass2 1.5");
           remeshElements(parent_side_elements, m_eMesh.side_rank(), 0);
-
-          if (checkDB) m_nodeRegistry->checkDB("RefinerUnrefine: unrefinePass2 1.6");
         }
 
       // remove any elements that are empty (these can exist when doing local refinement)
@@ -1608,8 +1578,6 @@
         set_active_part();
       }
 
-      if (checkDB) m_nodeRegistry->checkDB("RefinerUnrefine: unrefinePass2 3.0");
-
       if (m_do_new_elements)
         {
           for (SetOfEntities::iterator iter = new_element_set.begin(); iter != new_element_set.end(); ++iter)
@@ -1627,8 +1595,6 @@
           m_eMesh.initializeIdServer();
         }
 
-      if (checkDB) m_nodeRegistry->checkDB("RefinerUnrefine: unrefinePass2 2");
-
       bool reduced_mod_end = true;
       if (m_eMesh.getProperty("percept_reduced_mod_end") == "false")
         reduced_mod_end = false;
@@ -1641,7 +1607,6 @@
       }
 
       m_nodeRegistry->cleanInvalidNodes();
-      if (checkDB) m_nodeRegistry->checkDB("RefinerUnrefine: unrefinePass2 3");
 
       if (1)
       {
@@ -1651,7 +1616,6 @@
         //fix_side_sets_2(allow_not_found, 0, 0, 0, "Unref1");
         fix_side_sets_2(allow_not_found, 0, 0, &fss_unref, "Unref1");
       }
-      if (checkDB) m_nodeRegistry->checkDB("RefinerUnrefine: unrefinePass2 4");
 
       {
         TIMER2(ResetFT,Unrefine_);
@@ -1664,8 +1628,6 @@
         mod_begin(&timerUnrefine_);
       }
 
-      if (checkDB) m_nodeRegistry->checkDB("RefinerUnrefine: unrefinePass2 5");
-
       if (m_nodeRegistry->s_use_new_ownership_check)
         {
           update_node_registry();
@@ -1676,7 +1638,6 @@
         m_nodeRegistry->clear_element_owner_data_phase_2(true, false);
       }
 
-      if (checkDB) m_nodeRegistry->checkDB("RefinerUnrefine: unrefinePass2 6");
       {
         TIMER2(unref_set_active_part_2,Unrefine_);
         set_active_part();
@@ -1686,7 +1647,6 @@
 
       REF_LTRACE_0();
 
-      if (checkDB) m_nodeRegistry->checkDB("RefinerUnrefine: unrefinePass2 before prolong");
 
       if (1)
       {

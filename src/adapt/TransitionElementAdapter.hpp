@@ -1,6 +1,7 @@
-// Copyright 2014 Sandia Corporation. Under the terms of
-// Contract DE-AC04-94AL85000 with Sandia Corporation, the
-// U.S. Government retains certain rights in this software.
+// Copyright 2002 - 2008, 2010, 2011 National Technology Engineering
+// Solutions of Sandia, LLC (NTESS). Under the terms of Contract
+// DE-NA0003525 with NTESS, the U.S. Government retains certain rights
+// in this software.
 //
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
@@ -19,7 +20,6 @@
 #include <percept/Histograms.hpp>
 
 #include <adapt/HangingNodeAdapter.hpp>
-#include <adapt/TEA_SelectIfRefined.hpp>
 
 #define USE_ADAPT_PERFORMANCE_TESTING_CALLGRIND 0
 #if USE_ADAPT_PERFORMANCE_TESTING_CALLGRIND
@@ -27,8 +27,6 @@
 #endif
 
 #define DO_ALT_TIMER 1
-
-#if DO_TIMING
 
 #define TIMING(code) code
 #define TIMER(name) stk::diag::Timer timer ## name ( #name, Base::rootTimer());  stk::diag::TimeBlock tbTimer ## name (timer ## name)
@@ -42,12 +40,7 @@
 
 #define START_TIMER(name) do { timersLocal_[#name] = stk::cpu_time(); } while(0)
 #define STOP_TIMER(name)  do { timersLocal_[#name] = stk::cpu_time() - timersLocal_[#name]; timers_[#name] += timersLocal_[#name]; } while(0)
-#else
-#define TIMING(code) do {  } while(0)
-#define TIMER(name) do {} while(0)
-#define TIMER2(name,parentName) do {} while(0)
-#define TIMER3(name,parentName) do {} while(0)
-#endif
+
 #include <stk_mesh/base/MeshUtils.hpp>
 
   namespace percept {
@@ -550,14 +543,6 @@
             }
 
           }
-#if 0
-            GeometryVerifier geomVerifier(false);
-            bool isBad= geomVerifier.isGeometryBad( *Base::m_eMesh.get_bulk_data(), true );
-            if (isBad && eMesh.get_rank()==0)
-              {
-                std::cout << "found bad jacobian" << std::endl;
-              }
-#endif
       }
 
       virtual void refine()
@@ -567,26 +552,14 @@
   CALLGRIND_TOGGLE_COLLECT;
 #endif
 
-#if DO_TIMING
         stk::diag::Timer timerRefine_("TE_Refine", Base::rootTimer());
         stk::diag::TimeBlock timerRefineBlock_(timerRefine_);
         stk::diag::Timer *altTimer = Base::getAlternateRootTimer();
         if (altTimer && DO_ALT_TIMER)
           Base::setAlternateRootTimer(&timerRefine_);
-#endif
 
         PerceptMesh& eMesh = Base::m_eMesh;
 
-        bool do_filter = false;
-
-        bool check_geom=false;
-        if (check_geom)
-        {
-          bool isGeometryBad = eMesh.check_mesh_volumes(true, 0.0);
-          VERIFY_OP_ON(isGeometryBad, ==, false, "bad vol for INITIAL MESH");
-        }
-
-        if (1)
           {
             {
               TIMER2(TER_ReqSides_CPO,Refine_);
@@ -617,8 +590,6 @@
             }
           }
 
-        bool checkDB = false;
-        if (checkDB) Base::m_nodeRegistry->checkDB("TEA refine start");
         Base::m_removeFromNewNodesPart = false;
         this->special_processing("tea_pre_refine");
 
@@ -678,9 +649,7 @@
         }
 
         this->special_processing("tea_before_enforce_te_consistency");
-        //save("after-special-proc");
 
-        if (1)
           {
             {
               TIMER2(TER_EnforceTE,Refine_);
@@ -724,29 +693,14 @@
               Base:: m_predicate_refine.setRefineStage(-10);
               Base::m_predicate_refine.setMarkNone(false);
 
-              TEA_SelectIfRefined tea_sr(Base::m_eMesh);
-              if (do_filter)
-                {
-                  tea_sr.initialize();
-                  Base::setRefinerSelector(&tea_sr);
-                }
               Base:: initializeRefine();
 
               Base::doMark(1);
               Base:: m_predicate_refine.setRefineStage(0);
-              //Base::doMark(1);
 
-              if (0)
-              {
-                //TIMER2(ProlongCoord,DoRefine_);
-                Base::getNodeRegistry().prolongate(Base::m_eMesh.get_coordinates_field());
-              }
               Base::setRefinerSelector(0);
-              if (0 && Base::m_eMesh.get_rank() == 0)
-                Base::getRefinementInfo().printTable(std::cerr, 0, false, "TER_doMark0");
               STOP_TIMER(0TER_doMark0);
             }
-            if (checkDB) Base::m_nodeRegistry->checkDB("TEA refine 1.0");
 
             if (m_debug)
               {
@@ -756,18 +710,7 @@
               }
 
             save1("after-mark","0after-mark.e");
-            if (0)
-            {
-              stk::mesh::EntityId st[] = {87, 476, 893, 1057};
-              std::vector<stk::mesh::EntityId> subDim(st,st+4);
-              std::vector<PerceptMesh::SubDimInfoType> results, nresults;
-              int inm = eMesh.in_mesh(subDim, results, true);
-              std::vector<stk::mesh::EntityId> ninm = eMesh.nodes_in_mesh(subDim, nresults, true);
-              std::cout << "TransitionElementAdapter in_mesh= " << inm << " nodes_in_mesh= " << ninm.size() << " \n" << ninm << "\n look for: " << subDim << std::endl;
-              if (inm) std::cout << "results= " << results << std::endl;
-            }
 
-            if (checkDB) Base::m_nodeRegistry->checkDB("TEA refine 1.1");
             {
               {
                 TIMER3(TER_RefUTE,Refine_);
@@ -789,12 +732,6 @@
                 START_TIMER(0TER_Refine1);
                 clearMarkedParentRefineField();
                 Base::m_removeFromNewNodesPart = true;
-                TEA_SelectIfRefined tea_sr(Base::m_eMesh);
-                if (do_filter)
-                  {
-                    tea_sr.initialize();
-                    Base::setRefinerSelector(&tea_sr);
-                  }
                 Base::doRefine();
                 Base::setRefinerSelector(0);
                 if (0 && Base::m_eMesh.get_rank() == 0)
@@ -811,8 +748,6 @@
               save("after-ute");
             }
             save1("after-ute","0after-ute.e");
-
-            if (checkDB) Base::m_nodeRegistry->checkDB("TEA refine 1");
 
             if (m_debug)
               {
@@ -860,30 +795,12 @@
             STOP_TIMER(0TER_checkTE);
           }
 
-        if (checkDB) Base::m_nodeRegistry->checkDB("TEA refine 2");
-
         s_do_transition_break = true;
         Base:: m_predicate_refine.setMarkNone(false);
         Base:: m_predicate_refine.setRefineStage(0);
 
-        // leaving this in - used to be necessary in prior versions, deprecated now
-        if (0)
-        {
-          TIMER3(TER_Refine2,Refine_);
-          START_TIMER(0TER_Refine2);
-          s_do_transition_break = true;
-          Base:: m_predicate_refine.setMarkNone(false);
-          Base:: m_predicate_refine.setRefineStage(0);
-
-          Base:: doMark(1);
-          Base::m_removeFromNewNodesPart = true;
-          Base:: doRefine();
-          save("after-ref-doRefine2");
-          STOP_TIMER(0TER_Refine2);
-        }
         save1("after-ref-doRefine2","0after-ref-doRefine2.e");
 
-        if (checkDB) Base::m_nodeRegistry->checkDB("TEA refine 3");
         {
           TIMER2(TER_Verifier, Refine_);
           START_TIMER(0TER_Verifier);
@@ -944,17 +861,8 @@
               }
           }
 
-        if (checkDB) Base::m_nodeRegistry->checkDB("TEA end");
-        if (check_geom)
-          {
-            bool isGeometryBad = eMesh.check_mesh_volumes(true, 0.0);
-            VERIFY_OP_ON(isGeometryBad, ==, false, "bad vol for REFINED mesh");
-          }
-
-#if DO_TIMING
         if (altTimer && DO_ALT_TIMER)
           Base::setAlternateRootTimer(altTimer);
-#endif
 
 #if USE_ADAPT_PERFORMANCE_TESTING_CALLGRIND
   CALLGRIND_TOGGLE_COLLECT;
@@ -992,15 +900,12 @@
 
       virtual void unrefine() {
 
-#if DO_TIMING
         stk::diag::Timer timerUnrefine_("TE_UnRef", Base::rootTimer());
         stk::diag::TimeBlock timerUnrefineBlock_(timerUnrefine_);
 
         stk::diag::Timer *altTimer = Base::getAlternateRootTimer();
         if (altTimer && DO_ALT_TIMER)
           Base::setAlternateRootTimer(&timerUnrefine_);
-
-#endif
 
         save1("before-unrefine","0before-unref.e");
 
@@ -1044,11 +949,8 @@
 
         this->special_processing("tea_post_unrefine");
 
-#if DO_TIMING
         if (altTimer && DO_ALT_TIMER)
           Base::setAlternateRootTimer(altTimer);
-#endif
-
       }
 
       virtual void

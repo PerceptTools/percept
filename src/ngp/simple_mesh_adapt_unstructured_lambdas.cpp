@@ -9,10 +9,10 @@
 
 #include <iostream>
 
-#ifdef KOKKOS_HAVE_CUDA
+#ifdef KOKKOS_ENABLE_CUDA
   typedef Kokkos::Cuda   ExecSpace ;
   typedef Kokkos::CudaSpace   MemSpace ;
-#elif KOKKOS_HAVE_OPENMP
+#elif defined(KOKKOS_ENABLE_OPENMP)
   typedef Kokkos::OpenMP     ExecSpace ;
   typedef Kokkos::OpenMP     MemSpace ;
 #else
@@ -570,10 +570,10 @@ void printRefinedGridFromDevice(int rows, int columns, Kokkos::View<node*, Kokko
 TEST(refine, unstructured)
 {
 
-#ifdef KOKKOS_HAVE_CUDA
+#ifdef KOKKOS_ENABLE_CUDA
 	std::cout << "Running Test with Kokkos::Cuda execution space and Kokkos::CudaSpace memory space" <<std::endl;
 
-#elif KOKKOS_HAVE_OPENMP
+#elif defined(KOKKOS_ENABLE_OPENMP)
 	std::cout << "Running Test with Kokkos::OpenMP execution space and Kokkos::OpenMP memory space" <<std::endl;
 #else
 	std::cout << "Running Test with Kokkos::Serial execution space and Kokkos::HostSpace memory space" <<std::endl;

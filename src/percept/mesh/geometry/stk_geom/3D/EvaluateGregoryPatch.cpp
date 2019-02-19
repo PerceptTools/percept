@@ -1,6 +1,7 @@
-// Copyright 2014 Sandia Corporation. Under the terms of
-// Contract DE-AC04-94AL85000 with Sandia Corporation, the
-// U.S. Government retains certain rights in this software.
+// Copyright 2002 - 2008, 2010, 2011 National Technology Engineering
+// Solutions of Sandia, LLC (NTESS). Under the terms of Contract
+// DE-NA0003525 with NTESS, the U.S. Government retains certain rights
+// in this software.
 //
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
@@ -68,7 +69,7 @@ namespace percept {
 
   //static
   bool EvaluateGregoryPatch::
-  evaluate(const stk::mesh::BulkData& bulk, const double *uv, stk::mesh::Entity face, double *xyz,
+  evaluateGregoryPatch(const stk::mesh::BulkData& bulk, const double *uv, stk::mesh::Entity face, double *xyz,
            const GregoryControlPointsType *sideset_field, const GregoryControlPointsType *shell_field)
   {
     const GregoryControlPointsType *field = 0;
@@ -124,7 +125,7 @@ namespace percept {
 
   //static
   bool EvaluateGregoryPatch::
-  normal(const stk::mesh::BulkData& bulk, const double *uv, stk::mesh::Entity face, double *normal,
+  normalGregoryPatch(const stk::mesh::BulkData& bulk, const double *uv, stk::mesh::Entity face, double *normal,
          const GregoryControlPointsType *sideset_field, const GregoryControlPointsType *shell_field)
   {
     const GregoryControlPointsType *field = 0;
@@ -182,16 +183,16 @@ namespace percept {
   }
 
   bool EvaluateGregoryPatch::
-  evaluate(const double *uv, stk::mesh::Entity face, double *xyz)
+  evaluateGregoryPatch(const double *uv, stk::mesh::Entity face, double *xyz)
   {
-    return evaluate(*m_eMesh.get_bulk_data(), uv, face, xyz,
+    return evaluateGregoryPatch(*m_eMesh.get_bulk_data(), uv, face, xyz,
                     m_eMesh.m_gregory_control_points_field, m_eMesh.m_gregory_control_points_field_shell);
   }
 
   bool EvaluateGregoryPatch::
-  normal(const double *uv, stk::mesh::Entity face, double *norm)
+  normalGregoryPatch(const double *uv, stk::mesh::Entity face, double *norm)
   {
-    return normal(*m_eMesh.get_bulk_data(), uv, face, norm,
+    return normalGregoryPatch(*m_eMesh.get_bulk_data(), uv, face, norm,
                     m_eMesh.m_gregory_control_points_field, m_eMesh.m_gregory_control_points_field_shell);
   }
 
@@ -277,7 +278,7 @@ namespace percept {
     double eps() const { return 1.e-6; }
     double operator()(const double u[Size])
     {
-      EvaluateGregoryPatch::evaluate(*m_eMesh.get_bulk_data(), u, m_face, xyz,
+      EvaluateGregoryPatch::evaluateGregoryPatch(*m_eMesh.get_bulk_data(), u, m_face, xyz,
                                      m_eMesh.m_gregory_control_points_field, m_eMesh.m_gregory_control_points_field_shell);
 
       double sum=0.0;

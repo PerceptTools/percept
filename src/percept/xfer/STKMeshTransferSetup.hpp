@@ -1,6 +1,7 @@
-// Copyright 2014 Sandia Corporation. Under the terms of
-// Contract DE-AC04-94AL85000 with Sandia Corporation, the
-// U.S. Government retains certain rights in this software.
+// Copyright 2002 - 2008, 2010, 2011 National Technology Engineering
+// Solutions of Sandia, LLC (NTESS). Under the terms of Contract
+// DE-NA0003525 with NTESS, the U.S. Government retains certain rights
+// in this software.
 //
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
@@ -34,7 +35,8 @@ buildSTKMeshTransfer(stk::mesh::BulkData       &bulkData_from,
 		     stk::mesh::Field<double, stk::mesh::Cartesian> * coordinates_to,
 		     stk::mesh::FieldBase * field_to,
 		     const std::string &transfer_name,
-                     SrcFieldType srcFieldType=SRC_FIELD)
+                     SrcFieldType srcFieldType=SRC_FIELD,
+                     const double expansion_factor = 1.5)
 {
   TransferType transferType = THREED_TO_THREED;
 
@@ -62,7 +64,7 @@ buildSTKMeshTransfer(stk::mesh::BulkData       &bulkData_from,
                        srcFieldType));
 
   boost::shared_ptr<SMT>
-    mesh_transfer(new SMT(from_mesh, to_mesh, transfer_name));
+    mesh_transfer(new SMT(from_mesh, to_mesh, transfer_name, expansion_factor));
 
   return mesh_transfer;
 }

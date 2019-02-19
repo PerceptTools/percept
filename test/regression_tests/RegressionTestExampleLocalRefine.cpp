@@ -1,6 +1,7 @@
-// Copyright 2014 Sandia Corporation. Under the terms of
-// Contract DE-AC04-94AL85000 with Sandia Corporation, the
-// U.S. Government retains certain rights in this software.
+// Copyright 2002 - 2008, 2010, 2011 National Technology Engineering
+// Solutions of Sandia, LLC (NTESS). Under the terms of Contract
+// DE-NA0003525 with NTESS, the U.S. Government retains certain rights
+// in this software.
 //
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
@@ -293,9 +294,6 @@ TEST(DISABLED_example, two_tri_uniform_node_registry)
         for (unsigned e=0; e<elems.size(); e++) {
             const stk::mesh::Entity element = elems[e];
             const CellTopologyData * const bucket_topo_data = eMesh.get_cell_topology(element);
-
-            // NOTE: PredicateBasedElementAdapter::refineMethodApply has code to only add
-            // new nodes when the element has been marked.
             nodeRegistry.doForAllSubEntities(&NodeRegistry::registerNeedNewNode, element, needed_entities, bucket_topo_data);
         }
 

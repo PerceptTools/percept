@@ -1,6 +1,7 @@
-// Copyright 2014 Sandia Corporation. Under the terms of
-// Contract DE-AC04-94AL85000 with Sandia Corporation, the
-// U.S. Government retains certain rights in this software.
+// Copyright 2002 - 2008, 2010, 2011 National Technology Engineering
+// Solutions of Sandia, LLC (NTESS). Under the terms of Contract
+// DE-NA0003525 with NTESS, the U.S. Government retains certain rights
+// in this software.
 //
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
@@ -60,7 +61,7 @@
                         stk::mesh::FieldBase *proc_rank_field=0)
       {
         const CellTopologyData * const cell_topo_data = m_eMesh.get_cell_topology(element);
-        typedef boost::array<unsigned,3> quadratic_type;
+        typedef boost::array<stk::mesh::EntityId,3> quadratic_type;
         static vector<quadratic_type> elems(1);
 
         CellTopology cell_topo(cell_topo_data);
@@ -79,7 +80,7 @@
 
           for (unsigned ind = 0; ind < 2; ind++)
             {
-              unsigned inode = VERT_N(ind);
+              stk::mesh::EntityId inode = VERT_N(ind);
               EN[ind] = inode;
             }
 

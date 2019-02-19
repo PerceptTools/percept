@@ -1,6 +1,7 @@
-// Copyright 2014 Sandia Corporation. Under the terms of
-// Contract DE-AC04-94AL85000 with Sandia Corporation, the
-// U.S. Government retains certain rights in this software.
+// Copyright 2002 - 2008, 2010, 2011 National Technology Engineering
+// Solutions of Sandia, LLC (NTESS). Under the terms of Contract
+// DE-NA0003525 with NTESS, the U.S. Government retains certain rights
+// in this software.
 //
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
@@ -71,24 +72,10 @@
         CellTopology cell_topo(cell_topo_data);
         const percept::MyPairIterRelation elem_nodes (m_eMesh, element, stk::topology::NODE_RANK);
 
-        //std::cout << "tmp quad elem= " << element << std::endl;
-
-        //stk::mesh::Part & active = mesh->ActivePart();
-        //stk::mesh::Part & quad4  = mesh->QuadPart();
-
         std::vector<stk::mesh::Part*> add_parts;
         std::vector<stk::mesh::Part*> remove_parts;
 
         add_parts = m_toParts;
-
-        //std::cout << "P["<< m_eMesh.get_rank() << "] add_parts = " << add_parts << std::endl;
-
-        //stk::mesh::EntityRank my_rank = m_primaryEntityRank;
-
-        //nodeRegistry.prolongate(*const_cast<stk::mesh::Entity>(&element), my_rank, 0u);
-        //nodeRegistry.addToExistingParts(*const_cast<stk::mesh::Entity>(&element), my_rank, 0u);
-        //nodeRegistry.prolongateFields(*const_cast<stk::mesh::Entity>(&element), my_rank, 0u);
-
         {
           unsigned globalIqf  = VERT_N(0);
           unsigned minVal     = globalIqf;
@@ -133,6 +120,9 @@
             change_entity_parts(eMesh, element, newElement);
 
             set_parent_child_relations(eMesh, element, newElement, *ft_element_pool, ielem);
+
+            std::vector<stk::mesh::Entity> elements(1,element);
+            eMesh.prolongateElementFields( elements, newElement);
 
             ft_element_pool++;
             if (!use_declare_element_side)

@@ -1,6 +1,7 @@
-// Copyright 2014 Sandia Corporation. Under the terms of
-// Contract DE-AC04-94AL85000 with Sandia Corporation, the
-// U.S. Government retains certain rights in this software.
+// Copyright 2002 - 2008, 2010, 2011 National Technology Engineering
+// Solutions of Sandia, LLC (NTESS). Under the terms of Contract
+// DE-NA0003525 with NTESS, the U.S. Government retains certain rights
+// in this software.
 //
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
@@ -525,7 +526,7 @@ void BlockStructuredGrid::get_elements_of_sb(
         Array4D fx = (*field_x->m_block_fields[iblock]);
         Array4D fy = (*field_y->m_block_fields[iblock]);
 
-        unsigned spatDim = fx.dimension_3();
+        unsigned spatDim = fx.extent(3);
 
         SB_nodal_field_dot na(fx, fy, sgrid);
         na.spatialDim = spatDim;
@@ -584,7 +585,7 @@ void BlockStructuredGrid::get_elements_of_sb(
   }
 
 
-  void BlockStructuredGrid::sum_fields(std::vector<typename StructuredGrid::MTField*>& fields)
+  void BlockStructuredGrid::sum_fields(std::vector<const typename StructuredGrid::MTField*>& fields)
   {
     if (stk::parallel_machine_rank(m_comm) == 1) // only if parallel run
       std::cout << "sum_fields not yet impl" << std::endl;

@@ -1,6 +1,7 @@
-// Copyright 2014 Sandia Corporation. Under the terms of
-// Contract DE-AC04-94AL85000 with Sandia Corporation, the
-// U.S. Government retains certain rights in this software.
+// Copyright 2002 - 2008, 2010, 2011 National Technology Engineering
+// Solutions of Sandia, LLC (NTESS). Under the terms of Contract
+// DE-NA0003525 with NTESS, the U.S. Government retains certain rights
+// in this software.
 //
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
@@ -378,7 +379,6 @@
 
       void test()
       {
-        //#ifndef NDEBUG
         FDGradient<FDTest> fd;
         double v[2] = {0.1, 0.2};
         double g[2];
@@ -388,7 +388,6 @@
         VERIFY_OP_ON(std::fabs(t.deriv[0] - g[0]) , < , 1.e-6, "bad g");
         VERIFY_OP_ON(std::fabs(t.deriv[1] - g[1]) , < , 1.e-6, "bad g 1");
         std::cout << "OK g= " << g[0] << " " << g[1] << std::endl;
-        //#endif
       }
 
       std::string getName() { return "FDGradient"; }
@@ -421,7 +420,6 @@
 
       void test()
       {
-        //#ifndef NDEBUG
         FDHessian<FDTest> fd;
         double v[2] = {0.1, 0.2};
         double h[4];
@@ -436,7 +434,6 @@
         VERIFY_OP_ON(std::fabs(t.hess[3] - h[3]) , < , 1.e-6, "bad h 3");
         std::cout << "OK h= " << h[0] << " " << h[1] << std::endl;
         std::cout << "OK h= " << h[2] << " " << h[3] << std::endl;
-        //#endif
       }
 
       void operator()(F& f, const double *u, double * h_col_major) const
@@ -551,7 +548,6 @@
 
       void test()
       {
-        //#ifndef NDEBUG
         FDTest t;
         FDHessianFromGrad<FDTest> fd(t);
         double v[2] = {0.1, 0.2};
@@ -566,7 +562,6 @@
         VERIFY_OP_ON(std::fabs(t.hess[3] - h[3]) , < , 1.e-6, "bad h 3");
         std::cout << "OK h= " << h[0] << " " << h[1] << std::endl;
         std::cout << "OK h= " << h[2] << " " << h[3] << std::endl;
-        //#endif
       }
 
       void operator()(F& f, const double *u, double * h_col_major)

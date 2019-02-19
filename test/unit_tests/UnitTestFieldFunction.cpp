@@ -1,6 +1,7 @@
-// Copyright 2014 Sandia Corporation. Under the terms of
-// Contract DE-AC04-94AL85000 with Sandia Corporation, the
-// U.S. Government retains certain rights in this software.
+// Copyright 2002 - 2008, 2010, 2011 National Technology Engineering
+// Solutions of Sandia, LLC (NTESS). Under the terms of Contract
+// DE-NA0003525 with NTESS, the U.S. Government retains certain rights
+// in this software.
 //
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
@@ -735,7 +736,9 @@ static void test_sync(PerceptMesh& eMesh, bool sync_shared, bool sync_aura)
                 p_e = ((eMesh.parallel_owner_rank(entity)+1)*100+id);
                 type = Ghost;
                 if (sync_aura)
+                {
                   ASSERT_NEAR(p[0], p_e, 1.e-6);
+                }
               }
             out1 << "P["<<p_rank<<"] after id= " << eMesh.identifier(entity) << " p= " << p[0] << " type= " << types[type] << std::endl;
 
@@ -848,7 +851,9 @@ static void test_sync_1(stk::mesh::BulkData& eMesh, PressureFieldType& pressure_
                 p_e = ((eMesh.parallel_owner_rank(entity)+1)*100+id);
                 type = Ghost;
                 if (sync_aura)
+                {
                   ASSERT_EQ(p[0], p_e);
+                }
               }
             out1 << "P["<<p_rank<<"] after id= " << eMesh.identifier(entity) << " p= " << p[0] << " type= " << types[type] << std::endl;
 
@@ -877,7 +882,7 @@ TEST(function, fieldFunction_field_sync)
   int vectorDimension = 0;  // signifies a scalar field
   stk::mesh::FieldBase* pressure_field =  eMesh.add_field("pressure", stk::topology::NODE_RANK, vectorDimension);
   PressureFieldType& p_field = fixture.meta_data.declare_field<PressureFieldType>(stk::topology::NODE_RANK, "p");
-  stk::mesh::put_field( p_field , fixture.meta_data.universal_part());
+  stk::mesh::put_field_on_mesh( p_field , fixture.meta_data.universal_part(), nullptr);
 
   (void)pressure_field;
   (void)p_field;

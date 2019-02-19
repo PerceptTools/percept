@@ -1,6 +1,7 @@
-// Copyright 2014 Sandia Corporation. Under the terms of
-// Contract DE-AC04-94AL85000 with Sandia Corporation, the
-// U.S. Government retains certain rights in this software.
+// Copyright 2002 - 2008, 2010, 2011 National Technology Engineering
+// Solutions of Sandia, LLC (NTESS). Under the terms of Contract
+// DE-NA0003525 with NTESS, the U.S. Government retains certain rights
+// in this software.
 //
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
@@ -114,15 +115,7 @@
                 ++num_edges_marked;
               }
           }
-        if (num_edges_marked != 6)
-          {
-            if (s_do_transition_break)
-              m_transition_breaker->createNewElements(eMesh, nodeRegistry, element, new_sub_entity_nodes, element_pool, ft_element_pool, proc_rank_field);
-            return;
-          }
-        genericRefine_createNewElements(eMesh, nodeRegistry,
-                                        element, new_sub_entity_nodes, element_pool, ft_element_pool,
-                                        proc_rank_field);
+        m_transition_breaker->createNewElements(eMesh, nodeRegistry, element, new_sub_entity_nodes, element_pool, ft_element_pool, proc_rank_field);
       }
 
     };

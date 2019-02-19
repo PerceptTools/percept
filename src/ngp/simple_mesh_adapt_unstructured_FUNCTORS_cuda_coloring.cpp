@@ -13,11 +13,11 @@
 #include <sstream>
 #include <Kokkos_Threads.hpp>
 
-#ifdef KOKKOS_HAVE_CUDA		
+#ifdef KOKKOS_ENABLE_CUDA		
   typedef Kokkos::Cuda        ExecSpace ;
   typedef Kokkos::CudaSpace   MemSpace ;
   typedef Kokkos::LayoutRight DataLayout;
-#elif KOKKOS_HAVE_OPENMP
+#elif defined(KOKKOS_ENABLE_OPENMP)
   typedef Kokkos::OpenMP     ExecSpace ;
   typedef Kokkos::OpenMP     MemSpace ;
   typedef Kokkos::LayoutRight DataLayout;
@@ -343,9 +343,9 @@ struct baseGridColorer
 		Kokkos::View<quad*,DataLayout, MemSpace> & baseQuads,
 		bool printDebug=true)
 	{			
-#ifdef KOKKOS_HAVE_CUDA
+#ifdef KOKKOS_ENABLE_CUDA
 		int num_threads = 4992; //hard coding this to the number of threads available on the Telsa K80 GPU, the one found on the ASCIGPU machines
-#elif KOKKOS_HAVE_OPENMP
+#elif defined(KOKKOS_ENABLE_OPENMP)
 		const char* ompThrdCnt = std::getenv("OMP_NUM_THREADS");
 		std::stringstream converter;
 		converter << ompThrdCnt;
@@ -536,9 +536,9 @@ int get_max_num_threads(int length)
 
 TEST(DISABLED_refine, unstructuredFunctorsColors)
 {	
-	#ifdef KOKKOS_HAVE_CUDA
+	#ifdef KOKKOS_ENABLE_CUDA
 	std::cout << "Running Test with Kokkos::Cuda execution space and Kokkos::CudaSpace memory space" <<std::endl;
-	#elif KOKKOS_HAVE_OPENMP
+	#elif defined(KOKKOS_ENABLE_OPENMP)
 	std::cout << "Running Test with Kokkos::OpenMP execution space and Kokkos::OpenMP memory space" <<std::endl;
 	#else
 	std::cout << "Running Test with Kokkos::Serial execution space and Kokkos::HostSpace memory space" <<std::endl;

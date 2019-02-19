@@ -1,6 +1,7 @@
-// Copyright 2014 Sandia Corporation. Under the terms of
-// Contract DE-AC04-94AL85000 with Sandia Corporation, the
-// U.S. Government retains certain rights in this software.
+// Copyright 2002 - 2008, 2010, 2011 National Technology Engineering
+// Solutions of Sandia, LLC (NTESS). Under the terms of Contract
+// DE-NA0003525 with NTESS, the U.S. Government retains certain rights
+// in this software.
 //
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
@@ -28,10 +29,9 @@
 
 #if !STK_PERCEPT_LITE
 #include <percept/structured/StructuredGridRefiner.hpp>
-#if HAVE_CUBIT
-#include <percept/structured/StructuredGridSnap.hpp>
-#endif
+//#include <percept/structured/StructuredGridSnap.hpp>
 #include <percept/mesh/mod/smoother/JacobianUtil.hpp>
+//#include <percept/structured/PGeomAssocStructured.hpp>
 #endif
 
 #include <percept/PerceptMesh.hpp>
@@ -40,13 +40,11 @@
 
 #include <percept/mesh/mod/smoother/ReferenceMeshSmootherConjugateGradient.hpp>
 
-#if HAVE_CUBIT
-#include <PGeom.hpp>
-#endif
+//#include <PGeom.hpp>
+//#include <PGeomACIS.hpp>
 
 
 // Ioss
-#define NO_XDMF_SUPPORT
 #if defined(STK_BUILT_IN_SIERRA)
 #include <main/io_info.h>
 //#include <main/struc-to-unstruc.h>
@@ -474,7 +472,7 @@ namespace percept
 
     TEST(regr_PerceptCGNS, test10_sgrid_volume)
     {
-#ifdef KOKKOS_HAVE_CUDA
+#ifdef KOKKOS_ENABLE_CUDA
       return;
 #endif
 
@@ -605,56 +603,13 @@ namespace percept
         do_refine_cgns_structured_refinement_only_fixture(size);
     }
 
-
-#if HAVE_CUBIT
-    void do_refine_cgns_structured_with_geom(const std::string& file, const std::string& geom_file, int print_level=0, bool allow_parallel=false)
+    struct CylinderTestData
     {
-      stk::diag::Timer     my_timer(file, rootTimerStructured());
-      stk::diag::TimeBlock my_timeblock(my_timer);
+        int surface_id;
+        double expected_xy_radius;
 
-      PerceptMesh eMesh(3u);
-      if (eMesh.get_parallel_size() > 1 && !allow_parallel) return;
-
-      eMesh.open(file, "cgns_structured");
-      eMesh.readBulkData();
-
-      StructuredGridRefiner sgr(eMesh.get_block_structured_grid(), print_level);
-
-      size_t pos = file.find(".cgns");
-      VERIFY_OP_ON(pos, !=, std::string::npos, "bad filename: need .cgns extension, file= "+file);
-      std::string prefix = file.substr(0,pos);
-      if (print_level)
-        sgr.m_input->print(std::cout, print_level-1);
-      sgr.m_input->dump_vtk(prefix);
-      sgr.do_refine();
-
-      // snap the refined mesh to the geometry
-      if (geom_file.length() != 0.0)
-        {
-          std::shared_ptr<PGeom> pgeom(new PGeom());
-
-          if (pgeom->initialize(OPENNURBS_GEOMETRY_ENGINE))
-            {
-              pgeom->import_open_nurbs_file(geom_file.c_str());
-              StructuredGridSnap str_snap(sgr.m_output);
-              str_snap.snap_to_geometry(pgeom);
-            }
-        }
-
-      sgr.m_output->dump_vtk(prefix+"_ref");
-      if (print_level)
-        sgr.m_output->print(std::cout, print_level-1);
-    }
-#endif
-
-#if HAVE_CUBIT
-    TEST(regr_PerceptCGNS, test_sgrid_refine_and_snap)
-    {
-#if !KOKKOS_HAVE_CUDA
-      do_refine_cgns_structured_with_geom("half_cyl.cgns", "half_cyl.3dm", 0, true);
-#endif
-    }
-#endif
+        CylinderTestData(int surf_id, double radius) : surface_id(surf_id), expected_xy_radius(radius) {};
+    };
 
     void do_test_sgrid_zone_connectivity(const std::string file, const int print_level = 0)
     {
@@ -682,14 +637,14 @@ namespace percept
                 std::shared_ptr<StructuredBlock> dblock = bsg->m_sblocks[dblockid];
 
                 Ioss::IJK_t localBeg;
-                localBeg[0] = std::min(zoneConnectivity.m_rangeBeg[0],zoneConnectivity.m_rangeEnd[0]);
-                localBeg[1] = std::min(zoneConnectivity.m_rangeBeg[1],zoneConnectivity.m_rangeEnd[1]);
-                localBeg[2] = std::min(zoneConnectivity.m_rangeBeg[2],zoneConnectivity.m_rangeEnd[2]);
+                localBeg[0] = std::min(zoneConnectivity.m_ownerRangeBeg[0],zoneConnectivity.m_ownerRangeEnd[0]);
+                localBeg[1] = std::min(zoneConnectivity.m_ownerRangeBeg[1],zoneConnectivity.m_ownerRangeEnd[1]);
+                localBeg[2] = std::min(zoneConnectivity.m_ownerRangeBeg[2],zoneConnectivity.m_ownerRangeEnd[2]);
 
                 Ioss::IJK_t localEnd;
-                localEnd[0] = std::max(zoneConnectivity.m_rangeBeg[0],zoneConnectivity.m_rangeEnd[0]);
-                localEnd[1] = std::max(zoneConnectivity.m_rangeBeg[1],zoneConnectivity.m_rangeEnd[1]);
-                localEnd[2] = std::max(zoneConnectivity.m_rangeBeg[2],zoneConnectivity.m_rangeEnd[2]);
+                localEnd[0] = std::max(zoneConnectivity.m_ownerRangeBeg[0],zoneConnectivity.m_ownerRangeEnd[0]);
+                localEnd[1] = std::max(zoneConnectivity.m_ownerRangeBeg[1],zoneConnectivity.m_ownerRangeEnd[1]);
+                localEnd[2] = std::max(zoneConnectivity.m_ownerRangeBeg[2],zoneConnectivity.m_ownerRangeEnd[2]);
 
                 Array4D don_a4d = dblock->m_sgrid_coords;
                 Array4D loc_a4d = sblock->m_sgrid_coords;
@@ -708,7 +663,7 @@ namespace percept
                             {
                                 local_indices[iii] = indexLocal[iii];
                                 transform_arr[iii] = zoneConnectivity.m_transform[iii];
-                                local_range_beg[iii] =  zoneConnectivity.m_rangeBeg[iii];
+                                local_range_beg[iii] =  zoneConnectivity.m_ownerRangeBeg[iii];
                                 donor_range_beg[iii] = zoneConnectivity.m_donorRangeBeg[iii];
                             }
 
@@ -744,7 +699,7 @@ namespace percept
                 for(unsigned iii=0;iii<3;iii++)
                 {
                     transform_arr[iii] = zoneConnectivity.m_transform[iii];
-                    local_range_beg[iii] =  zoneConnectivity.m_rangeBeg[iii];
+                    local_range_beg[iii] =  zoneConnectivity.m_ownerRangeBeg[iii];
                     donor_range_beg[iii] = zoneConnectivity.m_donorRangeBeg[iii];
                 }
 
@@ -835,14 +790,14 @@ namespace percept
                 std::shared_ptr<StructuredBlock> dblock = bsg->m_sblocks[dblockid];
 
                 Ioss::IJK_t localBeg;
-                localBeg[0] = std::min(zoneConnectivity.m_rangeBeg[0],zoneConnectivity.m_rangeEnd[0]);
-                localBeg[1] = std::min(zoneConnectivity.m_rangeBeg[1],zoneConnectivity.m_rangeEnd[1]);
-                localBeg[2] = std::min(zoneConnectivity.m_rangeBeg[2],zoneConnectivity.m_rangeEnd[2]);
+                localBeg[0] = std::min(zoneConnectivity.m_ownerRangeBeg[0],zoneConnectivity.m_ownerRangeEnd[0]);
+                localBeg[1] = std::min(zoneConnectivity.m_ownerRangeBeg[1],zoneConnectivity.m_ownerRangeEnd[1]);
+                localBeg[2] = std::min(zoneConnectivity.m_ownerRangeBeg[2],zoneConnectivity.m_ownerRangeEnd[2]);
 
                 Ioss::IJK_t localEnd;
-                localEnd[0] = std::max(zoneConnectivity.m_rangeBeg[0],zoneConnectivity.m_rangeEnd[0]);
-                localEnd[1] = std::max(zoneConnectivity.m_rangeBeg[1],zoneConnectivity.m_rangeEnd[1]);
-                localEnd[2] = std::max(zoneConnectivity.m_rangeBeg[2],zoneConnectivity.m_rangeEnd[2]);
+                localEnd[0] = std::max(zoneConnectivity.m_ownerRangeBeg[0],zoneConnectivity.m_ownerRangeEnd[0]);
+                localEnd[1] = std::max(zoneConnectivity.m_ownerRangeBeg[1],zoneConnectivity.m_ownerRangeEnd[1]);
+                localEnd[2] = std::max(zoneConnectivity.m_ownerRangeBeg[2],zoneConnectivity.m_ownerRangeEnd[2]);
 
                 auto loc_coords = subview(sblock->m_sgrid_coords,
                         Kokkos::make_pair(localBeg[0]-1,localEnd[0]),
@@ -873,13 +828,13 @@ namespace percept
                     std::cout << "  SUM: donor and loc sizes don't match on block " << iblock << " and zone " << izone
                               << " sizes according to subviews DONOR :" << donor_coords.size() << " LOCAL :" << loc_coords.size()
                               << " sizes according to connectivity limits DONOR: " << (donorEnd[0]-donorBeg[0])*(donorEnd[1]-donorBeg[1])*(donorEnd[2]-donorBeg[2])
-                              << " LOCAL: " << (1+zoneConnectivity.m_rangeEnd[0] - zoneConnectivity.m_rangeBeg[0]) * (1+zoneConnectivity.m_rangeEnd[1] - zoneConnectivity.m_rangeBeg[1]) * (1+zoneConnectivity.m_rangeEnd[2] - zoneConnectivity.m_rangeBeg[2])
+                              << " LOCAL: " << (1+zoneConnectivity.m_ownerRangeEnd[0] - zoneConnectivity.m_ownerRangeBeg[0]) * (1+zoneConnectivity.m_ownerRangeEnd[1] - zoneConnectivity.m_ownerRangeBeg[1]) * (1+zoneConnectivity.m_ownerRangeEnd[2] - zoneConnectivity.m_ownerRangeBeg[2])
                               <<std::endl;
                     std::cout << "DONOR limits END " << donorEnd[0] << " " << donorEnd[1] << " " << donorEnd[2] << std::endl;
                     std::cout << "DONOR limits BEG " << donorBeg[0] << " " << donorBeg[1] << " " << donorBeg[2] << std::endl;
 
-                    std::cout << "LOCAL limits END " << zoneConnectivity.m_rangeEnd[0] << " " << zoneConnectivity.m_rangeEnd[1] << " " << zoneConnectivity.m_rangeEnd[2] << std::endl;
-                    std::cout << "LOCAL limits BEG " << zoneConnectivity.m_rangeBeg[0] << " " << zoneConnectivity.m_rangeBeg[1] << " " << zoneConnectivity.m_rangeBeg[2] << std::endl;
+                    std::cout << "LOCAL limits END " << zoneConnectivity.m_ownerRangeEnd[0] << " " << zoneConnectivity.m_ownerRangeEnd[1] << " " << zoneConnectivity.m_ownerRangeEnd[2] << std::endl;
+                    std::cout << "LOCAL limits BEG " << zoneConnectivity.m_ownerRangeBeg[0] << " " << zoneConnectivity.m_ownerRangeBeg[1] << " " << zoneConnectivity.m_ownerRangeBeg[2] << std::endl;
                 }
 
                 if(iblock<dblockid){
@@ -907,14 +862,14 @@ namespace percept
                 std::shared_ptr<StructuredBlock> dblock = bsg->m_sblocks[dblockid];
 
                 Ioss::IJK_t localBeg;
-                localBeg[0] = std::min(zoneConnectivity.m_rangeBeg[0],zoneConnectivity.m_rangeEnd[0]);
-                localBeg[1] = std::min(zoneConnectivity.m_rangeBeg[1],zoneConnectivity.m_rangeEnd[1]);
-                localBeg[2] = std::min(zoneConnectivity.m_rangeBeg[2],zoneConnectivity.m_rangeEnd[2]);
+                localBeg[0] = std::min(zoneConnectivity.m_ownerRangeBeg[0],zoneConnectivity.m_ownerRangeEnd[0]);
+                localBeg[1] = std::min(zoneConnectivity.m_ownerRangeBeg[1],zoneConnectivity.m_ownerRangeEnd[1]);
+                localBeg[2] = std::min(zoneConnectivity.m_ownerRangeBeg[2],zoneConnectivity.m_ownerRangeEnd[2]);
 
                 Ioss::IJK_t localEnd;
-                localEnd[0] = std::max(zoneConnectivity.m_rangeBeg[0],zoneConnectivity.m_rangeEnd[0]);
-                localEnd[1] = std::max(zoneConnectivity.m_rangeBeg[1],zoneConnectivity.m_rangeEnd[1]);
-                localEnd[2] = std::max(zoneConnectivity.m_rangeBeg[2],zoneConnectivity.m_rangeEnd[2]);
+                localEnd[0] = std::max(zoneConnectivity.m_ownerRangeBeg[0],zoneConnectivity.m_ownerRangeEnd[0]);
+                localEnd[1] = std::max(zoneConnectivity.m_ownerRangeBeg[1],zoneConnectivity.m_ownerRangeEnd[1]);
+                localEnd[2] = std::max(zoneConnectivity.m_ownerRangeBeg[2],zoneConnectivity.m_ownerRangeEnd[2]);
 
                 auto loc_coords = subview(sblock->m_sgrid_coords,
                         Kokkos::make_pair(localBeg[0]-1,localEnd[0]),
@@ -945,13 +900,13 @@ namespace percept
                     std::cout << "  PROP: donor and loc sizes don't match on block " << iblock << " and zone " << izone
                               << " sizes according to subviews DONOR :" << donor_coords.size() << " LOCAL :" << loc_coords.size()
                               << " sizes according to connectivity limits DONOR: " << (donorEnd[0]-donorBeg[0])*(donorEnd[1]-donorBeg[1])*(donorEnd[2]-donorBeg[2])
-                              << " LOCAL: " << (1+zoneConnectivity.m_rangeEnd[0] - zoneConnectivity.m_rangeBeg[0]) * (1+zoneConnectivity.m_rangeEnd[1] - zoneConnectivity.m_rangeBeg[1]) * (1+zoneConnectivity.m_rangeEnd[2] - zoneConnectivity.m_rangeBeg[2])
+                              << " LOCAL: " << (1+zoneConnectivity.m_ownerRangeEnd[0] - zoneConnectivity.m_ownerRangeBeg[0]) * (1+zoneConnectivity.m_ownerRangeEnd[1] - zoneConnectivity.m_ownerRangeBeg[1]) * (1+zoneConnectivity.m_ownerRangeEnd[2] - zoneConnectivity.m_ownerRangeBeg[2])
                               <<std::endl;
                     std::cout << "DONOR limits END " << donorEnd[0] << " " << donorEnd[1] << " " << donorEnd[2] << std::endl;
                     std::cout << "DONOR limits BEG " << donorBeg[0] << " " << donorBeg[1] << " " << donorBeg[2] << std::endl;
 
-                    std::cout << "LOCAL limits END " << zoneConnectivity.m_rangeEnd[0] << " " << zoneConnectivity.m_rangeEnd[1] << " " << zoneConnectivity.m_rangeEnd[2] << std::endl;
-                    std::cout << "LOCAL limits BEG " << zoneConnectivity.m_rangeBeg[0] << " " << zoneConnectivity.m_rangeBeg[1] << " " << zoneConnectivity.m_rangeBeg[2] << std::endl;
+                    std::cout << "LOCAL limits END " << zoneConnectivity.m_ownerRangeEnd[0] << " " << zoneConnectivity.m_ownerRangeEnd[1] << " " << zoneConnectivity.m_ownerRangeEnd[2] << std::endl;
+                    std::cout << "LOCAL limits BEG " << zoneConnectivity.m_ownerRangeBeg[0] << " " << zoneConnectivity.m_ownerRangeBeg[1] << " " << zoneConnectivity.m_ownerRangeBeg[2] << std::endl;
                 }
 
                 if(iblock>dblockid){
@@ -980,14 +935,14 @@ namespace percept
                 std::shared_ptr<StructuredBlock> dblock = bsg->m_sblocks[dblockid];
 
                 Ioss::IJK_t localBeg;
-                localBeg[0] = std::min(zoneConnectivity.m_rangeBeg[0],zoneConnectivity.m_rangeEnd[0]);
-                localBeg[1] = std::min(zoneConnectivity.m_rangeBeg[1],zoneConnectivity.m_rangeEnd[1]);
-                localBeg[2] = std::min(zoneConnectivity.m_rangeBeg[2],zoneConnectivity.m_rangeEnd[2]);
+                localBeg[0] = std::min(zoneConnectivity.m_ownerRangeBeg[0],zoneConnectivity.m_ownerRangeEnd[0]);
+                localBeg[1] = std::min(zoneConnectivity.m_ownerRangeBeg[1],zoneConnectivity.m_ownerRangeEnd[1]);
+                localBeg[2] = std::min(zoneConnectivity.m_ownerRangeBeg[2],zoneConnectivity.m_ownerRangeEnd[2]);
 
                 Ioss::IJK_t localEnd;
-                localEnd[0] = std::max(zoneConnectivity.m_rangeBeg[0],zoneConnectivity.m_rangeEnd[0]);
-                localEnd[1] = std::max(zoneConnectivity.m_rangeBeg[1],zoneConnectivity.m_rangeEnd[1]);
-                localEnd[2] = std::max(zoneConnectivity.m_rangeBeg[2],zoneConnectivity.m_rangeEnd[2]);
+                localEnd[0] = std::max(zoneConnectivity.m_ownerRangeBeg[0],zoneConnectivity.m_ownerRangeEnd[0]);
+                localEnd[1] = std::max(zoneConnectivity.m_ownerRangeBeg[1],zoneConnectivity.m_ownerRangeEnd[1]);
+                localEnd[2] = std::max(zoneConnectivity.m_ownerRangeBeg[2],zoneConnectivity.m_ownerRangeEnd[2]);
 
                 auto loc_coords = subview(sblock->m_sgrid_coords,
                         Kokkos::make_pair(localBeg[0]-1,localEnd[0]),
@@ -1018,13 +973,13 @@ namespace percept
                     std::cout << "  CHECK: donor and loc sizes don't match on block " << iblock << " and zone " << izone
                             << " sizes according to subviews DONOR :" << donor_coords.size() << " LOCAL :" << loc_coords.size()
                             << " sizes according to connectivity limits DONOR: " << (donorEnd[0]-donorBeg[0])*(donorEnd[1]-donorBeg[1])*(donorEnd[2]-donorBeg[2])
-                            << " LOCAL: " << (1+zoneConnectivity.m_rangeEnd[0] - zoneConnectivity.m_rangeBeg[0]) * (1+zoneConnectivity.m_rangeEnd[1] - zoneConnectivity.m_rangeBeg[1]) * (1+zoneConnectivity.m_rangeEnd[2] - zoneConnectivity.m_rangeBeg[2])
+                            << " LOCAL: " << (1+zoneConnectivity.m_ownerRangeEnd[0] - zoneConnectivity.m_ownerRangeBeg[0]) * (1+zoneConnectivity.m_ownerRangeEnd[1] - zoneConnectivity.m_ownerRangeBeg[1]) * (1+zoneConnectivity.m_ownerRangeEnd[2] - zoneConnectivity.m_ownerRangeBeg[2])
                             <<std::endl;
                     std::cout << "DONOR limits END " << donorEnd[0] << " " << donorEnd[1] << " " << donorEnd[2] << std::endl;
                     std::cout << "DONOR limits BEG " << donorBeg[0] << " " << donorBeg[1] << " " << donorBeg[2] << std::endl;
 
-                    std::cout << "LOCAL limits END " << zoneConnectivity.m_rangeEnd[0] << " " << zoneConnectivity.m_rangeEnd[1] << " " << zoneConnectivity.m_rangeEnd[2] << std::endl;
-                    std::cout << "LOCAL limits BEG " << zoneConnectivity.m_rangeBeg[0] << " " << zoneConnectivity.m_rangeBeg[1] << " " << zoneConnectivity.m_rangeBeg[2] << std::endl;
+                    std::cout << "LOCAL limits END " << zoneConnectivity.m_ownerRangeEnd[0] << " " << zoneConnectivity.m_ownerRangeEnd[1] << " " << zoneConnectivity.m_ownerRangeEnd[2] << std::endl;
+                    std::cout << "LOCAL limits BEG " << zoneConnectivity.m_ownerRangeBeg[0] << " " << zoneConnectivity.m_ownerRangeBeg[1] << " " << zoneConnectivity.m_ownerRangeBeg[2] << std::endl;
                 }
 
                 if(iblock>dblockid){

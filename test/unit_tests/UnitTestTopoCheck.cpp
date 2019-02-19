@@ -1,6 +1,7 @@
-// Copyright 2014 Sandia Corporation. Under the terms of
-// Contract DE-AC04-94AL85000 with Sandia Corporation, the
-// U.S. Government retains certain rights in this software.
+// Copyright 2002 - 2008, 2010, 2011 National Technology Engineering
+// Solutions of Sandia, LLC (NTESS). Under the terms of Contract
+// DE-NA0003525 with NTESS, the U.S. Government retains certain rights
+// in this software.
 //
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
@@ -487,8 +488,8 @@ void use_encr_case_1_driver( MPI_Comm comm )
     VectorFieldType & coordinates_field =
       mesh_meta_data.declare_field< VectorFieldType >( stk::topology::NODE_RANK, "coordinates" );
 
-    stk::mesh::put_field(
-      coordinates_field , universal , SpatialDim );
+    stk::mesh::put_field_on_mesh(
+      coordinates_field , universal , SpatialDim , nullptr);
 
     //--------------------------------
 

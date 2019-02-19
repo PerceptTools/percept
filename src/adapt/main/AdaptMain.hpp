@@ -1,6 +1,7 @@
-// Copyright 2014 Sandia Corporation. Under the terms of
-// Contract DE-AC04-94AL85000 with Sandia Corporation, the
-// U.S. Government retains certain rights in this software.
+// Copyright 2002 - 2008, 2010, 2011 National Technology Engineering
+// Solutions of Sandia, LLC (NTESS). Under the terms of Contract
+// DE-NA0003525 with NTESS, the U.S. Government retains certain rights
+// in this software.
 //
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
@@ -10,7 +11,7 @@
 
   namespace percept {
 
-    static std::string s_docString = 
+    static std::string detailed_docString = 
       "Welcome to Percept's command-line interface.  Percept can uniformly refine a mesh in parallel to\n"
       "create very large simulation inputs, while respecting the geometry of the original model using CAD\n"
       "data. It can convert a mesh from one topology to another (eg Tetrahedra to Hexahedra) or enrich a\n"
@@ -62,8 +63,8 @@
       "  mesh_adapt --input_mesh=in.e --output_mesh=out.e --refine=DEFAULT --number_refines=0\n"
       "  --smooth_use_reference_mesh=0 --fix_all_block_boundaries=1 --smooth_geometry=1\n"
       "\n"
-      "The --fix_all_block_boundaries=1 options freezes nodes on block boundaries including those shared\n"
-      "between two blocks.\n"
+      "The --fix_all_block_boundaries=1 options freezes the position of nodes on block boundaries,\n"
+      "including those shared between two blocks.\n"
       "\n"
       "Subsetting Operation\n"
       "\n"
@@ -125,14 +126,9 @@
       "Debugging/Advanced Options\n"
       "\n"
       "1. Use --dump_geometry_file to print contents of a .3dm file.\n"
-      "\n"
       "2. --proc_rank_field=1 adds an element-based field with the value of the processor rank\n"
-      "\n"
-      "3. --remove_original_elements=0 will keep the input mesh elements present in the output mesh\n"
-      "\n"
-      "4. --progress_meter=1 will show a 'percent-complete' progress bar and other progress information\n"
-      "\n"
-      "5. --remove_geometry_blocks=1 will remove blocks in the input mesh that contain\n"
+      "3. --progress_meter=1 will show a 'percent-complete' progress bar and other progress information\n"
+      "4. --remove_geometry_blocks=1 will remove blocks in the input mesh that contain "
       "geometric-associativity information\n";
 
   }

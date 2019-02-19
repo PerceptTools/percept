@@ -72,21 +72,13 @@ namespace percept {
     {
     }
 
-#if defined WITH_KOKKOS
     KOKKOS_INLINE_FUNCTION
-#else
-    inline
-#endif
     void printdebug(char * entTopo,int i,int j,int k,int ic, double coord) const
     { 
       printf("%s( %d %d %d %d) = %g\n", entTopo, i, j, k, ic, coord);
     }
 
-#if defined WITH_KOKKOS
     KOKKOS_INLINE_FUNCTION
-#else
-    inline
-#endif
     void printdebug1(char * entTopo,int i,int j,int k,int ic) const
     {
       printf("%s( %d %d %d %d) \n", entTopo,i, j, k, ic);
@@ -96,28 +88,12 @@ namespace percept {
     {
       const int L0 = loop_ordering[0], L1 = loop_ordering[1], L2 = loop_ordering[2];
 
-#if defined WITH_KOKKOS
       const UInt totalNumNodes =
                          (1+ input_sizes.node_max[L0] - input_sizes.node_min[L0])
                         *(1+ input_sizes.node_max[L1] - input_sizes.node_min[L1])
                         *(1+ input_sizes.node_max[L2] - input_sizes.node_min[L2]);
 
       Kokkos::parallel_for(Kokkos::RangePolicy<ExecSpace>(0,totalNumNodes),*this);
-#else 
-      UInt indx[3]{0,0,0};
-      UInt index = 0;
-      for (indx[L2] = input_sizes.node_min[L2]; indx[L2] <= input_sizes.node_max[L2]; ++indx[L2])
-        {
-          for (indx[L1] = input_sizes.node_min[L1]; indx[L1] <= input_sizes.node_max[L1]; ++indx[L1])
-            {
-              for (indx[L0] = input_sizes.node_min[L0]; indx[L0] <= input_sizes.node_max[L0]; ++indx[L0])
-                {
-                  (*this)(index);
-                  ++index;
-                }
-            }
-        }
-#endif
     }
 
     // FIXME - need to find out if Kokkos requires including the last index of Array4D
@@ -125,11 +101,7 @@ namespace percept {
     //    Also, need to generalize for general fields if we need to prolong fields as
     //    well as coordinates.
 
-#if defined WITH_KOKKOS
     KOKKOS_INLINE_FUNCTION
-#else
-    inline
-#endif
     void multi_dim_indices_from_index(const UInt& index, std::array<UInt,3>& indx) const
     {
       const int L0 = loop_ordering[0], L1 = loop_ordering[1], L2 = loop_ordering[2];
@@ -142,17 +114,13 @@ namespace percept {
       indx[L1] = input_sizes.node_min[L1] + ((index / sizes[L0]) % sizes[L1] );
       indx[L0] = input_sizes.node_min[L0] + (index % sizes[L0]);
 
-#if !KOKKOS_HAVE_CUDA // exceptions cannot be called from the GPU
+#if !defined(KOKKOS_ENABLE_CUDA) // exceptions cannot be called from the GPU
       UInt ii = indx[L0]-input_sizes.node_min[L0] + sizes[L0]*(indx[L1] - input_sizes.node_min[L1]) + sizes[L0]*sizes[L1]*(indx[L2] - input_sizes.node_min[L2]);
       VERIFY_OP_ON(ii, ==, index, "bad index");
 #endif
     }
 
-#if defined WITH_KOKKOS
     KOKKOS_INLINE_FUNCTION
-#else
-    inline
-#endif
     void operator()(const UInt& index) const
     {
       bool ldebug = debug == 3;

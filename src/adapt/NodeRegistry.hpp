@@ -1,6 +1,7 @@
-// Copyright 2014 Sandia Corporation. Under the terms of
-// Contract DE-AC04-94AL85000 with Sandia Corporation, the
-// U.S. Government retains certain rights in this software.
+// Copyright 2002 - 2008, 2010, 2011 National Technology Engineering
+// Solutions of Sandia, LLC (NTESS). Under the terms of Contract
+// DE-NA0003525 with NTESS, the U.S. Government retains certain rights
+// in this software.
 //
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
@@ -289,11 +290,6 @@
     public:
 
       bool is_empty( const stk::mesh::Entity element, stk::mesh::EntityRank needed_entity_rank, unsigned iSubDimOrd);
-      void query(std::ostream& out, stk::mesh::EntityId elementId, int rank, unsigned iSubDimOrd, std::string msg="", stk::mesh::EntityId *edge=0, SubDimCell_SDCEntityType* subDimEntityIn=0);
-      void query(stk::mesh::EntityId elementId, int rank, unsigned iSubDimOrd, std::string msg="", stk::mesh::EntityId *edge=0, SubDimCell_SDCEntityType* subDimEntityIn=0)
-      {
-        query(std::cout, elementId, rank, iSubDimOrd, msg, edge, subDimEntityIn);
-      }
 
       static std::string print_string(PerceptMesh& eMesh, const SubDimCell_SDCEntityType& subDimEntity)
       {
@@ -322,8 +318,6 @@
       }
 
       NodeIdsOnSubDimEntityType* getNewNodesOnSubDimEntity(const stk::mesh::Entity element,  stk::mesh::EntityRank& needed_entity_rank, unsigned iSubDimOrd);
-
-      void checkDB(std::string msg="");
 
       /// allocate the send/recv buffers for all-to-all communication
       bool allocateBuffers();
@@ -360,7 +354,7 @@
       void dumpDB(std::string msg="");
 
       // estimate of memory used by this object
-      unsigned get_memory_usage();
+      size_t get_memory_usage();
 
       void mod_begin();
       void mod_end(const std::string& msg="");

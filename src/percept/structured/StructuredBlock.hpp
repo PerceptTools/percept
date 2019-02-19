@@ -1,6 +1,7 @@
-// Copyright 2014 Sandia Corporation. Under the terms of
-// Contract DE-AC04-94AL85000 with Sandia Corporation, the
-// U.S. Government retains certain rights in this software.
+// Copyright 2002 - 2008, 2010, 2011 National Technology Engineering
+// Solutions of Sandia, LLC (NTESS). Under the terms of Contract
+// DE-NA0003525 with NTESS, the U.S. Government retains certain rights
+// in this software.
 //
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
@@ -82,6 +83,9 @@ namespace percept {
 
     // return the ordinal of the given i,j,k in the list of all nodes
     uint64_t local_offset(uint64_t i, uint64_t j, uint64_t k, unsigned *sizes);
+
+    // return the i,j,k given the local offset
+    void multi_dim_indices_from_local_offset(uint64_t local_offset, std::array<unsigned,3>& indx);
 
     // extract data from the CGNS file if constructed using an Ioss::StructuredBlock
     void read_cgns();

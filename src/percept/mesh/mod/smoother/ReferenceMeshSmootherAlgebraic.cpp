@@ -1,6 +1,7 @@
-// Copyright 2014 Sandia Corporation. Under the terms of
-// Contract DE-AC04-94AL85000 with Sandia Corporation, the
-// U.S. Government retains certain rights in this software.
+// Copyright 2002 - 2008, 2010, 2011 National Technology Engineering
+// Solutions of Sandia, LLC (NTESS). Under the terms of Contract
+// DE-NA0003525 with NTESS, the U.S. Government retains certain rights
+// in this software.
 //
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
@@ -301,10 +302,10 @@ namespace percept {
                           {
                             if (m_eMesh->owned(node))
                               {
-                                std::pair<bool,int> fixed = this->get_fixed_flag(node);
-                                if (!fixed.first)
+                                std::pair<bool,int> fixed2 = this->get_fixed_flag(node);
+                                if (!fixed2.first)
                                   {
-                                    if (fixed.second == MS_SURFACE)
+                                    if (fixed2.second == MS_SURFACE)
                                       {
                                         project_delta_to_tangent_plane(node, cg_s);
                                       }

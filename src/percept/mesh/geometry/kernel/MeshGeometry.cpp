@@ -1,6 +1,7 @@
-// Copyright 2014 Sandia Corporation. Under the terms of
-// Contract DE-AC04-94AL85000 with Sandia Corporation, the
-// U.S. Government retains certain rights in this software.
+// Copyright 2002 - 2008, 2010, 2011 National Technology Engineering
+// Solutions of Sandia, LLC (NTESS). Under the terms of Contract
+// DE-NA0003525 with NTESS, the U.S. Government retains certain rights
+// in this software.
 //
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
@@ -19,7 +20,7 @@
 
 namespace percept {
 
-GeometryEvaluator::GeometryEvaluator(stk::mesh::Part* part) : mGeometry(-1,INVALID), mMesh(*part), mPart(part)  {}
+GeometryEvaluator::GeometryEvaluator(stk::mesh::Part* part) : mGeometry(-1,INVALID,""), mMesh(*part), mPart(part)  {}
   
 MeshGeometry::MeshGeometry(const PerceptMesh& eMesh, GeometryKernel* geom, double doCheckMovement, double doCheckCPUTime, bool cache_classify_bucket_is_active, bool doPrint)
   : m_eMesh(eMesh), m_doCheckMovement(doCheckMovement), m_checkCPUTime(doCheckCPUTime), m_cache_classify_bucket_is_active(cache_classify_bucket_is_active), m_doPrint(doPrint),

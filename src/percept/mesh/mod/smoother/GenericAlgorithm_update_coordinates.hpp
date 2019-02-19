@@ -1,6 +1,7 @@
-// Copyright 2014 Sandia Corporation. Under the terms of
-// Contract DE-AC04-94AL85000 with Sandia Corporation, the
-// U.S. Government retains certain rights in this software.
+// Copyright 2002 - 2008, 2010, 2011 National Technology Engineering
+// Solutions of Sandia, LLC (NTESS). Under the terms of Contract
+// DE-NA0003525 with NTESS, the U.S. Government retains certain rights
+// in this software.
 //
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
@@ -15,7 +16,6 @@ namespace percept {
 template<typename MeshType>
 class ReferenceMeshSmootherConjugateGradientImpl;
 
-#if defined(WITH_KOKKOS)
 using Array4D = viewType;
 
 template<typename MeshType>
@@ -32,26 +32,6 @@ struct A4DMD{
 	~A4DMD(){}
 
 };
-#else
-using Array4D = MDArray;
-
-template<typename MeshType>
-struct A4DMD{
-	//metadata on an A4D
-	unsigned blkIndex;
-	unsigned numNodes;
-	std::vector<typename MeshType::MTNode> blockNodes;
-
-	A4DMD(){
-
-		blockNodes.resize(0);
-		blkIndex =0;
-		numNodes=0;
-	}
-
-	~A4DMD(){}
-};
-#endif
 
   template<typename MeshType>
   struct GenericAlgorithm_update_coordinates
@@ -87,34 +67,19 @@ struct A4DMD{
 
     GenericAlgorithm_update_coordinates(RefMeshSmoother *rms, PerceptMesh *eMesh, Double alpha_in);
 
-#if defined (WITH_KOKKOS)//madbrew  HACK not useful for unstructured cases
     std::list<A4DMD<MeshType>> blockMetaDatas;
 	Kokkos::View</*typename MeshType::MTNode**/unsigned**, DataLayout, MemSpace> nodesThisBlock; //will be used to loop over a particular block's nodes.
 	Array4D cfc;
 	Array4D cfl;
 	Array4D cgsf;
 	Array4D cgelf;
-#else
-    std::list<A4DMD<MeshType>> blockMetaDatas;
-    std::vector<typename MeshType::MTNode> * nodesThisBlock;
-	Array4D * cfc;
-	Array4D * cfl;
-	Array4D * cgsf;
-#endif
 
-#if defined (WITH_KOKKOS)
     KOKKOS_INLINE_FUNCTION
     void operator()(const int64_t& index) const;
-#else
-    inline
-    void operator()(const int64_t& index) const;
-#endif
 
     void run(bool calc_deltas=false);
 
   };
-
-  #if defined (WITH_KOKKOS)
 
   struct simplified_gatm_1_BSG{ //uses A4D's directly
 
@@ -173,7 +138,6 @@ struct A4DMD{
 
 	void run();
   };
-#endif
 
   template<typename T>
   struct max_scanner

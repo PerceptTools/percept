@@ -1,6 +1,7 @@
-// Copyright 2014 Sandia Corporation. Under the terms of
-// Contract DE-AC04-94AL85000 with Sandia Corporation, the
-// U.S. Government retains certain rights in this software.
+// Copyright 2002 - 2008, 2010, 2011 National Technology Engineering
+// Solutions of Sandia, LLC (NTESS). Under the terms of Contract
+// DE-NA0003525 with NTESS, the U.S. Government retains certain rights
+// in this software.
 //
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
@@ -80,24 +81,16 @@ bool GeometryKernelGregoryPatch::read_file
             field = m_geometryMesh->m_gregory_control_points_field_shell;
           if(percept::PerceptMesh::field_is_defined_on_part(field, part))
             {
-              geometry_entities.push_back(GeometryHandle(static_cast<int>(part.mesh_meta_data_ordinal()), SURFACE));
+              geometry_entities.push_back(GeometryHandle(static_cast<int>(part.mesh_meta_data_ordinal()), SURFACE, part.name()));
             }
         }
       else if (part.name() == "edgeseams")
         {
-          geometry_entities.push_back(GeometryHandle(static_cast<int>(part.mesh_meta_data_ordinal()), CURVE));
+          geometry_entities.push_back(GeometryHandle(static_cast<int>(part.mesh_meta_data_ordinal()), CURVE, "edgeseams"));
         }
     }
 
   return true;
-}
-
-std::string GeometryKernelGregoryPatch::get_attribute(GeometryHandle geom) const
-{
-  unsigned ordinal = static_cast<unsigned>(geom.m_id);
-  stk::mesh::Part * part = &m_nodeMesh.get_fem_meta_data()->get_part(ordinal);
-  VERIFY_OP_ON(part, !=, 0, "bad part");
-  return part->name();
 }
 
 void GeometryKernelGregoryPatch::snap_to
@@ -132,7 +125,6 @@ void GeometryKernelGregoryPatch::snap_to
     }
 
   stk::mesh::Selector inMyParts = stk::mesh::selectUnion(m_geometryMeshActiveParts);
-
 
   stk::mesh::Entity closest_face = stk::mesh::Entity();
   std::set<stk::mesh::Entity> neighbors, neighbors_local;
@@ -189,11 +181,10 @@ void GeometryKernelGregoryPatch::snap_to
                 << " node= " << m_nodeMesh.id(node_hint)
                 << std::endl;
 
-      stk::mesh::Selector sel = inMyParts;
       std::vector<stk::mesh::Entity> vecFaces, vecShells;
 
-      stk::mesh::get_selected_entities(sel , m_geometryMesh->get_bulk_data()->buckets(m_geometryMesh->side_rank()), vecFaces);
-      stk::mesh::get_selected_entities(sel , m_geometryMesh->get_bulk_data()->buckets(m_geometryMesh->element_rank()), vecShells);
+      stk::mesh::get_selected_entities(inMyParts, m_geometryMesh->get_bulk_data()->buckets(m_geometryMesh->side_rank()), vecFaces);
+      stk::mesh::get_selected_entities(inMyParts, m_geometryMesh->get_bulk_data()->buckets(m_geometryMesh->element_rank()), vecShells);
       vecFaces.insert(vecFaces.end(), vecShells.begin(), vecShells.end());
 
       std::set<stk::mesh::Entity> allFaces;
@@ -309,7 +300,7 @@ bool GeometryKernelGregoryPatch::findClosestPointInternal(const double *point,
           double cp_loc[3];
           percept::EvaluateGregoryPatch evgp1(*m_geometryMesh, false);
 
-          evgp1.evaluate(found_uv_local, root, cp_loc);
+          evgp1.evaluateGregoryPatch(found_uv_local, root, cp_loc);
           double d0 = percept::Math::distance_squared_3d(cp_loc, closest_point_local);
 
           std::cout << "\n\nP[" << m_geometryMesh->get_rank()
@@ -354,7 +345,7 @@ bool GeometryKernelGregoryPatch::findClosestPointInternal(const double *point,
   if (useLinearOnly)
     {
       percept::EvaluateGregoryPatch evgp1(*m_geometryMesh, false);
-      evgp1.evaluate(closest_uv, found_face, closest_point);
+      evgp1.evaluateGregoryPatch(closest_uv, found_face, closest_point);
     }
 
   if (1)
@@ -424,7 +415,7 @@ void GeometryKernelGregoryPatch::normal_at(KernelPoint& point, GeometryHandle ge
   snap_to(cp, geom, &tol, cuv, 0, hint);
   bool debug = false;
   percept::EvaluateGregoryPatch evgp(*m_geometryMesh, debug);
-  evgp.normal(uv, m_found_face, &normal[0]);
+  evgp.normalGregoryPatch(uv, m_found_face, &normal[0]);
   double dn = percept::Math::dot_3d(&normal[0], &linearNormal[0]);
   if (dn <= 0.0)
     {

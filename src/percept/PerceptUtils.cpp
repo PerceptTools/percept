@@ -1,6 +1,7 @@
-// Copyright 2014 Sandia Corporation. Under the terms of
-// Contract DE-AC04-94AL85000 with Sandia Corporation, the
-// U.S. Government retains certain rights in this software.
+// Copyright 2002 - 2008, 2010, 2011 National Technology Engineering
+// Solutions of Sandia, LLC (NTESS). Under the terms of Contract
+// DE-NA0003525 with NTESS, the U.S. Government retains certain rights
+// in this software.
 //
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
@@ -19,6 +20,13 @@
 #include <Shards_CellTopologyData.h>
 
 namespace percept {
+
+std::vector<std::string> entity_rank_names_and_family_tree()
+{
+  std::vector<std::string> rank_names = stk::mesh::entity_rank_names();
+  rank_names.push_back("FAMILY_TREE");
+  return rank_names;
+}
 
 void computeCentroid(stk::mesh::Entity elem, double centroid[3], const stk::mesh::FieldBase & coord_field)
 {
@@ -67,8 +75,11 @@ void printTimersTableStructured() {
   rootTimerStructured().stop();
   stk::diag::printTimersTable(str, rootTimerStructured(), stk::diag::METRICS_ALL, false);
   
-  std::cout << str.str() << std::endl;
+  if (0==stk::parallel_machine_rank(MPI_COMM_WORLD))
+    std::cout << str.str() << std::endl;
 }
+
+double MegaByte(const size_t x) {return ((double)x/1024.0/1024.0);}
 
 void get_memory_high_water_mark_across_processors(MPI_Comm comm, size_t& hwm_max, size_t& hwm_min, size_t& hwm_avg, size_t& hwm_sum)
 {
@@ -112,6 +123,66 @@ std::string
 print_memory_both(MPI_Comm comm)
 {
   return print_memory_now(comm)+ " " + print_memory_high_water_mark(comm);
+}
+
+void MemoryInfo::
+fill_memory_info_across_processors(MPI_Comm comm)
+{
+    size_t local_now=0, local_hwm=0;
+    stk::get_memory_usage(local_now, local_hwm);
+
+    // FIXME - make this a single reduction op
+    stk::all_reduce_max(comm, &local_now, &now[MAX], 1);
+    stk::all_reduce_min(comm, &local_now, &now[MIN], 1);
+    stk::all_reduce_sum(comm, &local_now, &now[SUM], 1);
+    now[AVG] = now[SUM] / size_t(stk::parallel_machine_size(comm));
+
+    //stk::all_reduce_max(comm, &local_hwm, &hwm[MAX], 1);
+    //stk::all_reduce_min(comm, &local_hwm, &hwm[MIN], 1);
+    //stk::all_reduce_sum(comm, &local_hwm, &hwm[SUM], 1);
+    //hwm[AVG] = hwm[SUM] / size_t(stk::parallel_machine_size(comm));
+}
+
+void MemoryInfo::
+write_memory_log_header(const std::string& logfile_name)
+{
+    std::ofstream logfile(logfile_name.c_str());
+    logfile << std::setw(12) << "#Stages \\ MB";
+    for (unsigned int i=0; i<INVALID_SLOT; i++)
+        logfile << std::setw(col_width) << header[i];
+    //for (unsigned int i=0; i<INVALID_SLOT; i++)
+    //    logfile << std::setw(col_width) << header[i];
+    logfile << std::endl;
+}
+
+void MemoryInfo::
+write_memory_log_data  (const std::string& logfile_name, ExecutionStage stage)
+{
+    static const double scale = 1.0 / (1024. * 1024.); // Memory in MB.
+
+    std::ofstream logfile(logfile_name.c_str(), std::fstream::app);
+    logfile << std::setw(12) << stages[stage] << " ";
+    for (unsigned int i=0; i<INVALID_SLOT; i++)
+        logfile << std::fixed << std::setprecision(2) << std::setw(col_width) << now[i] * scale;
+
+    //for (unsigned int i=0; i<INVALID_SLOT; i++)
+    //    logfile << std::fixed << std::setprecision(2) << std::setw(col_width) << hwm[i] * scale;
+    logfile << std::endl;
+}
+
+void write_memory_logfile(MPI_Comm comm, ExecutionStage stage, const std::string& memory_logfile_name)
+{
+    static MemoryInfo meminfo;
+
+    if (memory_logfile_name.size()==0) return;
+
+    if (stage==INITIALIZE)
+        meminfo.write_memory_log_header(memory_logfile_name);
+
+    meminfo.fill_memory_info_across_processors(comm);
+
+    if (stk::parallel_machine_rank(comm) == 0)
+        meminfo.write_memory_log_data(memory_logfile_name, stage);
 }
 
 void convert_stk_topology_to_ioss_name(

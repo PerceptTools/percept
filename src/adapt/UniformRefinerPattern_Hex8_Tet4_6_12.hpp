@@ -1,6 +1,7 @@
-// Copyright 2014 Sandia Corporation. Under the terms of
-// Contract DE-AC04-94AL85000 with Sandia Corporation, the
-// U.S. Government retains certain rights in this software.
+// Copyright 2002 - 2008, 2010, 2011 National Technology Engineering
+// Solutions of Sandia, LLC (NTESS). Under the terms of Contract
+// DE-NA0003525 with NTESS, the U.S. Government retains certain rights
+// in this software.
 //
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
@@ -164,10 +165,8 @@
           static unsigned loc_qfaces[6][4]; // iHexFaceOrd, iFaceNodeOrd
 
           static unsigned element_globalIds[8] = {0,0,0,0, 0,0,0,0};
-          //static std::vector<unsigned> element_globalIds(8);
           const percept::MyPairIterRelation elem_nodes (m_eMesh, element, stk::topology::NODE_RANK );
 
-          //std::cout << "tmp hex elem= " << element << std::endl;
           for (int inode=0; inode < 8; inode++)
             {
               stk::mesh::Entity node = elem_nodes[inode].entity();
@@ -200,15 +199,8 @@
               for (unsigned iFaceNodeOrd=0; iFaceNodeOrd < 4; iFaceNodeOrd++)
                 {
                   unsigned jFaceNodeOrd = (iFaceNodeOrd + indxMinVal) % 4;
-                  //qfaces[iHexFaceOrd][iFaceNodeOrd] = element_globalIds[face.node[jFaceNodeOrd]];
                   loc_qfaces[iHexFaceOrd][iFaceNodeOrd] = face.node[jFaceNodeOrd];
                 }
-              if (0)
-                std::cout << "tmp hex face[" << iHexFaceOrd << "] = "
-                          << element_globalIds[loc_qfaces[iHexFaceOrd][0]] << " "
-                          << element_globalIds[loc_qfaces[iHexFaceOrd][1]] << " "
-                          << element_globalIds[loc_qfaces[iHexFaceOrd][2]] << " "
-                          << element_globalIds[loc_qfaces[iHexFaceOrd][3]] << std::endl;
 
               // each quad face is now broken into tri faces as {0,1,2}, {0,2,3}
               loc_trifaces[iHexFaceOrd][0][0] = loc_qfaces[iHexFaceOrd][0];
@@ -356,27 +348,6 @@
 
             ft_element_pool++;
             element_pool++;
-          }
-
-        if (0 && new_elements.size() == 6)
-          {
-            for (unsigned ielem=0; ielem < 6; ielem++)
-              {
-                // destroy un-needed elems
-                // elems_to_destroy.push_back(*element_pool);  ++element_pool;
-                eMesh.get_bulk_data()->destroy_entity(*element_pool);
-                ++element_pool;
-              }
-            //nodes_to_destroy.push_back(CENTROID_N)
-            stk::mesh::Entity node = eMesh.get_bulk_data()->get_entity( stk::topology::NODE_RANK, CENTROID_N);
-            if (!m_eMesh.is_valid(node))
-              {
-                throw std::logic_error("UniformRefinerPattern_Hex8_Tet4_6_12:: node is null");
-              }
-            else
-              {
-                eMesh.get_bulk_data()->destroy_entity(node);
-              }
           }
       }
 

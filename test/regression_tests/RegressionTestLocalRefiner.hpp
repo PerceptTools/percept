@@ -1,6 +1,7 @@
-// Copyright 2014 Sandia Corporation. Under the terms of
-// Contract DE-AC04-94AL85000 with Sandia Corporation, the
-// U.S. Government retains certain rights in this software.
+// Copyright 2002 - 2008, 2010, 2011 National Technology Engineering
+// Solutions of Sandia, LLC (NTESS). Under the terms of Contract
+// DE-NA0003525 with NTESS, the U.S. Government retains certain rights
+// in this software.
 //
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
@@ -56,7 +57,6 @@
 
 #include <adapt/IEdgeBasedAdapterPredicate.hpp>
 #include <adapt/IElementBasedAdapterPredicate.hpp>
-#include <adapt/PredicateBasedElementAdapter.hpp>
 #include <adapt/PredicateBasedEdgeAdapter.hpp>
 
 #include <percept/function/ElementOp.hpp>
@@ -70,49 +70,17 @@
       //=============================================================================
       //=============================================================================
 
-      static void normalize(double input_normal[3], double normal[3])
-      {
-        double sum = std::sqrt(input_normal[0]*input_normal[0]+
-                               input_normal[1]*input_normal[1]+
-                               input_normal[2]*input_normal[2]);
-        normal[0] = input_normal[0] / sum;
-        normal[1] = input_normal[1] / sum;
-        normal[2] = input_normal[2] / sum;
-      }
+      void normalize(double input_normal[3], double normal[3]);
 
-      static void normalize(double input_output_normal[3])
-      {
-        normalize(input_output_normal, input_output_normal);
-      }
+      void normalize(double input_output_normal[3]);
 
-      static double distance(double c0[3], double c1[3])
-      {
-        return std::sqrt((c0[0]-c1[0])*(c0[0]-c1[0]) + (c0[1]-c1[1])*(c0[1]-c1[1]) + (c0[2]-c1[2])*(c0[2]-c1[2]) );
-      }
+      double distance(double c0[3], double c1[3]);
 
-      static void difference(double v01[3], double c0[3], double c1[3])
-      {
-        v01[0] = c0[0] - c1[0];
-        v01[1] = c0[1] - c1[1];
-        v01[2] = c0[2] - c1[2];
-      }
-      static double dot(double c0[3], double c1[3])
-      {
-        return c0[0]*c1[0] + c0[1]*c1[1] + c0[2]*c1[2];
-      }
+      void difference(double v01[3], double c0[3], double c1[3]);
 
-      static double plane_dot_product(double plane_point[3], double plane_normal[3], double point[3])
-      {
-        double normal[3]={0,0,0};
-        normalize(plane_normal, normal);
-        double dot = 0.0;
-        for (int i = 0; i < 3; i++)
-          {
-            dot += (point[i] - plane_point[i])*normal[i];
-          }
-        return dot;
-      }
+      double dot(double c0[3], double c1[3]);
 
+      double plane_dot_product(double plane_point[3], double plane_normal[3], double point[3]);
 
       class SetElementRefineFieldValue : public percept::ElementOp
       {
@@ -146,10 +114,8 @@
           double plane_normal[3] = {1, .5, -.5};
 
           const percept::MyPairIterRelation elem_nodes (m_eMesh, element, stk::topology::NODE_RANK );
-          //stk::mesh::Entity const *elem_nodes_e = m_eMesh.get_bulk_data()->begin_entities(element, stk::topology::NODE_RANK );
 
           unsigned num_node = elem_nodes.size();
-          //unsigned num_node = m_eMesh.get_bulk_data()->num_connectivity(element, stk::topology::NODE_RANK );
           RefineFieldType_type *f_data = stk::mesh::field_data(*static_cast<RefineFieldType *>(field), element);
           CoordinatesFieldType* coordField = m_eMesh.get_coordinates_field();
 
@@ -157,7 +123,6 @@
           for (unsigned inode=0; inode < num_node-1; inode++)
             {
               stk::mesh::Entity node_i = elem_nodes[ inode ].entity();
-              //mesh::Entity node_i = elem_nodes_e[ inode ];
               double *coord_data_i = m_eMesh.field_data(coordField, node_i);
 
               for (unsigned jnode=inode+1; jnode < num_node; jnode++)
@@ -263,101 +228,20 @@
         double plane_point[3]; // = {2 + shock_displacement,0,0};
         double shock_width;
         
-        PlaneShock()
-        {
-          plane_point_init[0]=0;
-          plane_point_init[1]=0;
-          plane_point_init[2]=0;
-          plane_point[0]=0;
-          plane_point[1]=0;
-          plane_point[2]=0;
-          plane_normal[0]=1;
-          plane_normal[1]=0;
-          plane_normal[2]=0;
-          shock_width = 0.0;
-        }
+        PlaneShock();
 
-        void setCurrentPlanePoint(double shock_displacement)
-        {
-          normalize(plane_normal);
-          plane_point[0] = plane_point_init[0] + shock_displacement*plane_normal[0];
-          plane_point[1] = plane_point_init[1] + shock_displacement*plane_normal[1];
-          plane_point[2] = plane_point_init[2] + shock_displacement*plane_normal[2];
-        }
+        void setCurrentPlanePoint(double shock_displacement);
 
+        double shock_function(double x);
       };
 
-      static double shock_width = 1./5.0;
+      double shock_diff(stk::mesh::FieldBase* nodal_refine_field, percept::PerceptMesh& eMesh,
+                        stk::mesh::Entity node0, stk::mesh::Entity node1, 
+                        double *coord0, double *coord1, PlaneShock& shock, double shock_displacement);
 
-      static double shock_function(double x)
-      {
-        // normalize by width
-        double width = shock_width; // 1./5.0;
-        x /= width;
-        return std::tanh(x);
-      }
-
-
-      static double shock_diff(stk::mesh::FieldBase* nodal_refine_field, percept::PerceptMesh& eMesh,
-                               stk::mesh::Entity node0, stk::mesh::Entity node1, double *coord0, double *coord1, PlaneShock& shock, double shock_displacement)
-      {
-        shock.setCurrentPlanePoint(shock_displacement);
-        double *plane_point = shock.plane_point;
-        double *plane_normal = shock.plane_normal;
-
-        double dot_0 = plane_dot_product(plane_point, plane_normal, coord0);
-        double dot_1 = plane_dot_product(plane_point, plane_normal, coord1);
-
-        double v01[3] = {0,0,0};
-        difference(v01, coord1, coord0);
-        normalize(v01);
-        normalize(plane_normal);
-        double v01dotn = std::abs(dot(v01, plane_normal));
-
-        double d01p = std::abs(dot_0)+std::abs(dot_1);
-        dot_0 = shock_function(dot_0);
-        dot_1 = shock_function(dot_1);
-
-        if (nodal_refine_field)
-          {
-            double *fd0 = eMesh.field_data(nodal_refine_field, node0);
-            double *fd1 = eMesh.field_data(nodal_refine_field, node1);
-            fd0[0] = dot_0;
-            fd1[0] = dot_1;
-          }
-
-        double d01 = distance(coord0, coord1);
-
-        return (1 + 0*d01 + 0*d01p + 0*v01dotn)*std::abs(dot_0 - dot_1);
-      }
-
-      static int shock_diff1(stk::mesh::FieldBase* nodal_refine_field, percept::PerceptMesh& eMesh,
-                               stk::mesh::Entity node0, stk::mesh::Entity node1, double *coord0, double *coord1, PlaneShock& shock, double shock_displacement)
-      {
-        shock.setCurrentPlanePoint(shock_displacement);
-        double *plane_point = shock.plane_point;
-        double *plane_normal = shock.plane_normal;
-
-        if (distance(coord0, coord1) < 1./200.)
-          return DO_UNREFINE;
-
-        double dot_0 = plane_dot_product(plane_point, plane_normal, coord0);
-        double dot_1 = plane_dot_product(plane_point, plane_normal, coord1);
-
-        if (nodal_refine_field)
-          {
-            double *fd0 = eMesh.field_data(nodal_refine_field, node0);
-            double *fd1 = eMesh.field_data(nodal_refine_field, node1);
-            fd0[0] = dot_0 < 0? -1 : 1;
-            fd1[0] = dot_1 < 0? -1 : 1;
-          }
-
-        if (dot_0*dot_1 < 1.e-6)
-          return DO_REFINE;
-        else
-          return DO_UNREFINE;
-
-      }
+      int shock_diff1(stk::mesh::FieldBase* nodal_refine_field, percept::PerceptMesh& eMesh,
+                      stk::mesh::Entity node0, stk::mesh::Entity node1, 
+                      double *coord0, double *coord1, PlaneShock& shock, double shock_displacement);
 
       // This can be used as an edge or element-based predicate
 
@@ -450,9 +334,6 @@
             }
           return mark;
         }
-
-        //double *fdata = eMesh.field_data( *static_cast<const ScalarFieldType *>(m_field) , entity );
-        //return m_selector(entity) && fdata[0] > 0;
       };
 
       // This can be used as an edge or element-based predicate
@@ -538,10 +419,8 @@
         virtual bool operator()(const stk::mesh::Entity element, stk::mesh::FieldBase *field,  const stk::mesh::BulkData& bulkData)
         {
           const percept::MyPairIterRelation elem_nodes (m_eMesh, element, stk::topology::NODE_RANK );
-          //stk::mesh::Entity const *elem_nodes_e = m_eMesh.get_bulk_data()->begin_entities(element, stk::topology::NODE_RANK );
 
           unsigned num_node = elem_nodes.size();
-          //unsigned num_node = m_eMesh.get_bulk_data()->num_connectivity(element, stk::topology::NODE_RANK );
           RefineFieldType_type *f_data = stk::mesh::field_data(*static_cast<RefineFieldType *>(field), element);
           CoordinatesFieldType* coordField = m_eMesh.get_coordinates_field();
 

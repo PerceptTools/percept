@@ -12,10 +12,10 @@
 //#include "simple_mesh_adapt_unstructured_cuda.cpp"
 
 
-#ifdef KOKKOS_HAVE_CUDA
+#ifdef KOKKOS_ENABLE_CUDA
   typedef Kokkos::Cuda   ExecSpaceNoG ;
   typedef Kokkos::CudaSpace   MemSpaceNoG ;
-#elif KOKKOS_HAVE_OPENMP
+#elif defined(KOKKOS_ENABLE_OPENMP)
   typedef Kokkos::OpenMP     ExecSpaceNoG ;
   typedef Kokkos::OpenMP     MemSpaceNoG ;
 #else
@@ -78,9 +78,9 @@ int main(int argc, char **argv)
 {	
 	Kokkos::initialize();
 
-	#ifdef KOKKOS_HAVE_CUDA
+	#ifdef KOKKOS_ENABLE_CUDA
 		std::cout << "Running Test with Kokkos::Cuda execution space and Kokkos::CudaSpace memory space" <<std::endl;
-	#elif KOKKOS_HAVE_OPENMP
+	#elif defined(KOKKOS_ENABLE_OPENMP)
 		std::cout << "Running Test with Kokkos::OpenMP execution space and Kokkos::OpenMP memory space" <<std::endl;
 	#else
 		std::cout << "Running Test with Kokkos::Serial execution space and Kokkos::HostSpace memory space" <<std::endl;

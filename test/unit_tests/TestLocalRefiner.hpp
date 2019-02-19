@@ -1,6 +1,7 @@
-// Copyright 2014 Sandia Corporation. Under the terms of
-// Contract DE-AC04-94AL85000 with Sandia Corporation, the
-// U.S. Government retains certain rights in this software.
+// Copyright 2002 - 2008, 2010, 2011 National Technology Engineering
+// Solutions of Sandia, LLC (NTESS). Under the terms of Contract
+// DE-NA0003525 with NTESS, the U.S. Government retains certain rights
+// in this software.
 //
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
@@ -24,12 +25,12 @@
       TestLocalRefiner(percept::PerceptMesh& eMesh, UniformRefinerPatternBase & bp, stk::mesh::FieldBase *proc_rank_field=0);
 
     protected:
-      virtual unsigned
+     virtual unsigned
       doForAllElements(unsigned irank, std::string function_info,
                        stk::mesh::EntityRank rank, NodeRegistry::ElementFunctionPrototype function,
                        unsigned elementType,
                        vector<NeededEntityType>& needed_entity_ranks,
-                       bool only_count=false, bool doAllElements=true);
+                       bool doAllElements=true) ;
 
 
       virtual void

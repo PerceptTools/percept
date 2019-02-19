@@ -1,6 +1,7 @@
-// Copyright 2014 Sandia Corporation. Under the terms of
-// Contract DE-AC04-94AL85000 with Sandia Corporation, the
-// U.S. Government retains certain rights in this software.
+// Copyright 2002 - 2008, 2010, 2011 National Technology Engineering
+// Solutions of Sandia, LLC (NTESS). Under the terms of Contract
+// DE-NA0003525 with NTESS, the U.S. Government retains certain rights
+// in this software.
 //
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
@@ -21,12 +22,13 @@ enum GeomEvalType{
 };
 
 struct GeometryHandle {
-  GeometryHandle(int id, GeomEvalType type) : m_id(id), m_type(type) {}
+  GeometryHandle(int id, GeomEvalType type, std::string attr) : m_id(id), m_type(type), attribute(attr) {}
 
-  GeometryHandle() : m_id(-1), m_type(INVALID) {}
+  GeometryHandle() : m_id(-1), m_type(INVALID), attribute("") {}
 
   int m_id;
   GeomEvalType m_type;
+  std::string attribute;
 };
 
 typedef double* KernelPoint;
@@ -45,7 +47,6 @@ public:
     }
 
     virtual bool debug_dump_file(const std::string& file_name) { return true; }
-    virtual std::string get_attribute(GeometryHandle geom) const = 0;
 
     virtual void snap_to(KernelPoint& point, GeometryHandle geom,
                     double *converged_tolerance = NULL,

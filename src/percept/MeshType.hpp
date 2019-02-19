@@ -1,6 +1,7 @@
-// Copyright 2014 Sandia Corporation. Under the terms of
-// Contract DE-AC04-94AL85000 with Sandia Corporation, the
-// U.S. Government retains certain rights in this software.
+// Copyright 2002 - 2008, 2010, 2011 National Technology Engineering
+// Solutions of Sandia, LLC (NTESS). Under the terms of Contract
+// DE-NA0003525 with NTESS, the U.S. Government retains certain rights
+// in this software.
 //
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
@@ -11,6 +12,7 @@
 #include <percept/Percept.hpp>
 
 #include <array>
+#include <memory>
 #include <stk_mesh/base/Field.hpp>
 #include <stk_mesh/base/Entity.hpp>
 #include <stk_mesh/base/Bucket.hpp>
@@ -20,11 +22,8 @@
 #include <percept/function/MDArray.hpp>
 #include <percept/structured/StructuredCellIndex.hpp>
 
-#if defined WITH_KOKKOS
 #include <Kokkos_Core.hpp>
 #include <Kokkos_DualView.hpp>
-//#include <Kokkos_ArithTraits.hpp>
-#endif
 
 namespace percept {
 
@@ -39,20 +38,20 @@ enum NodeClassifyType {
 };
 
 
-#if defined(KOKKOS_HAVE_CUDA)
+#if defined(KOKKOS_ENABLE_CUDA)
             typedef double Double; //madbrew: long double's are problematic on gpu's as GPU's only use up to 64 bits for floating point representation. In some cases, they simply degrade into doubles but in others they cause illegal memory access errors for cuda
 #else
             typedef long double Double;
 //            typedef double Double;
 #endif
 
-#if defined(WITH_KOKKOS)
-	#ifdef KOKKOS_HAVE_CUDA		
+	#ifdef KOKKOS_ENABLE_CUDA		
 	  typedef Kokkos::CudaSpace     MemSpace ;
   	  typedef Kokkos::LayoutLeft    DataLayout;
   	  typedef Kokkos::Cuda          ExecSpace;
   	  //can be built either with serial or openmp options via the openmp=on option
-#if KOKKOS_HAVE_OPENMP //if you built with an nvidia compiler and have openmp=on in your build command
+#if defined(KOKKOS_ENABLE_OPENMP) // if you built with an nvidia compiler and have
+                                // openmp=on in your build command
       typedef Kokkos::OpenMP     SecondaryExecSpace;
       typedef Kokkos::OpenMP     SecondaryMemSpace;
       typedef Kokkos::LayoutLeft SecondaryDataLayout;
@@ -62,8 +61,8 @@ enum NodeClassifyType {
       typedef Kokkos::LayoutRight   SecondaryDataLayout;
 #endif
 
-	#elif KOKKOS_HAVE_OPENMP
-  	  typedef Kokkos::OpenMP     ExecSpace;
+#elif defined(KOKKOS_ENABLE_OPENMP)
+          typedef Kokkos::OpenMP     ExecSpace;
   	  typedef Kokkos::OpenMP     MemSpace;
   	  typedef Kokkos::LayoutLeft DataLayout;
 
@@ -71,7 +70,7 @@ enum NodeClassifyType {
   	typedef Kokkos::OpenMP     SecondaryMemSpace;
   	typedef Kokkos::LayoutLeft SecondaryDataLayout;
 
-	#else
+        #else
   	  typedef Kokkos::Serial      ExecSpace;
   	  typedef Kokkos::HostSpace   MemSpace;
   	  typedef Kokkos::LayoutRight DataLayout;
@@ -143,7 +142,6 @@ enum NodeClassifyType {
     {
         return (in<0 ? (-1)*in : in );
     }
-#endif//HAVE_KOKKOS
 
 //using StructuredCellIndex = std::array<unsigned,4>;  // i,j,k, block
 class PerceptMesh;
@@ -168,12 +166,7 @@ struct SGridMeshGeometry {
 };
 
 struct MTSGridField {
-#if defined(WITH_KOKKOS)
     using Array4D = viewType;
-    // or for 3D only: Kokkos::View<double***[3]>;
-#else
-    using Array4D = MDArray;
-#endif
     std::vector<std::shared_ptr<Array4D> > m_block_fields;
     std::string m_name;
     MTSGridField(const std::string& nm) :
@@ -236,7 +229,7 @@ struct StructuredGrid {
              + ((index / sizes[L0]) % sizes[L1]);
      indx[L0] = block_sizes.node_min[L0] + (index % sizes[L0]);
 
-#if !KOKKOS_HAVE_CUDA // exceptions cannot be called from the GPU
+#if !defined(KOKKOS_ENABLE_CUDA) // exceptions cannot be called from the GPU
      unsigned int ii = indx[L0] - block_sizes.node_min[L0]
              + sizes[L0] * (indx[L1] - block_sizes.node_min[L1])
              + sizes[L0] * sizes[L1]
@@ -265,7 +258,7 @@ struct StructuredGrid {
              + ((index / sizes[L0]) % sizes[L1]);
      indx[L0] = block_sizes.cell_min[L0] + (index % sizes[L0]);
 
-#if !KOKKOS_HAVE_CUDA // exceptions cannot be called from the GPU
+#if !defined(KOKKOS_ENABLE_CUDA) // exceptions cannot be called from the GPU
      unsigned int ii = indx[L0] - block_sizes.cell_min[L0]
              + sizes[L0] * (indx[L1] - block_sizes.cell_min[L1])
              + sizes[L0] * sizes[L1]
@@ -288,7 +281,6 @@ struct StructuredGrid {
     enum {NELEM_TYPES = 10 };
   };
 
-#if defined(WITH_KOKKOS)
   KOKKOS_INLINE_FUNCTION
      std::pair<bool,int> get_fixed_flag_sgrid(StructuredGrid::MTNode node_ptr, StructuredGrid::MTSelector *boundarySelector)
       {
@@ -362,8 +354,6 @@ struct StructuredGrid {
         return ret;
       }
 
-#endif
-
   template<typename MeshType>
   unsigned get_num_nodes(PerceptMesh *eMesh, typename MeshType::MTElement element);
 
@@ -380,7 +370,7 @@ struct StructuredGrid {
   void MTcommFields(std::vector<const typename MeshType::MTField*>& fields, PerceptMesh *m_eMesh);
 
   template<typename MeshType>
-  void MTsum_fields(std::vector<typename MeshType::MTField*>& fields, PerceptMesh *m_eMesh);
+  void MTsum_fields(std::vector<const typename MeshType::MTField*>& fields, PerceptMesh *m_eMesh);
 
   /// gets @param field data from @param node into @param fld
   template<typename MeshType>

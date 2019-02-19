@@ -1,19 +1,10 @@
-// Copyright 2014 Sandia Corporation. Under the terms of
-// Contract DE-AC04-94AL85000 with Sandia Corporation, the
-// U.S. Government retains certain rights in this software.
+// Copyright 2002 - 2008, 2010, 2011 National Technology Engineering
+// Solutions of Sandia, LLC (NTESS). Under the terms of Contract
+// DE-NA0003525 with NTESS, the U.S. Government retains certain rights
+// in this software.
 //
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
-
-
-#include <stdexcept>
-#include <sstream>
-#include <vector>
-#include <cmath>
-#include <iostream>
-#include <fstream>
-#include <string>
-#include <typeinfo>
 
 #include <math.h>
 #if defined( STK_HAS_MPI )
@@ -22,42 +13,9 @@
 
 #include <gtest/gtest.h>
 
-#include <stk_util/environment/WallTime.hpp>
-#include <stk_util/diag/PrintTable.hpp>
-
-#include <Teuchos_ScalarTraits.hpp>
-
-#include <gtest/gtest.h>
-#include <boost/lexical_cast.hpp>
-#include <stk_io/IossBridge.hpp>
-
-#include <percept/Percept.hpp>
-#include <percept/Util.hpp>
-#include <percept/ExceptionWatch.hpp>
-
-#include <percept/function/StringFunction.hpp>
-#include <percept/function/FieldFunction.hpp>
-#include <percept/function/ConstantFunction.hpp>
 #include <percept/PerceptMesh.hpp>
 
-#include <adapt/UniformRefinerPattern.hpp>
-#include <adapt/Refiner.hpp>
-
-#include <adapt/sierra_element/StdMeshObjTopologies.hpp>
-#include <percept/RunEnvironment.hpp>
-
-#include <percept/fixtures/Fixture.hpp>
-#include <percept/fixtures/BeamFixture.hpp>
-#include <percept/fixtures/HeterogeneousFixture.hpp>
-#include <percept/fixtures/QuadFixture.hpp>
-#include <percept/fixtures/WedgeFixture.hpp>
-
-#include <adapt/IEdgeBasedAdapterPredicate.hpp>
-#include <adapt/ElementRefinePredicate.hpp>
-#include <adapt/PredicateBasedElementAdapter.hpp>
-#include <adapt/PredicateBasedEdgeAdapter.hpp>
-
-#include <percept/function/ElementOp.hpp>
+#include <adapt/TransitionElementAdapter.hpp>
 
 #include <regression_tests/RegressionTestLocalRefiner.hpp>
 
@@ -67,38 +25,30 @@
     {
       using namespace regression_tests;
 
-#if 1
       static const std::string path_sep = "._.";
       static const std::string input_files_loc="./input_files"+path_sep;
       static const std::string output_files_loc="./output_files"+path_sep;
-#else
-      static const std::string input_files_loc="./input_files/";
-      static const std::string output_files_loc="./output_files/";
-#endif
 
       //=============================================================================
       //=============================================================================
       //=============================================================================
-
 
       static void do_moving_shock_test_large_test(int num_time_steps, bool save_intermediate=false, bool delete_parents=false)
       {
         EXCEPTWATCH;
         stk::ParallelMachine pm = MPI_COMM_WORLD ;
 
-        //         shock_width = 1./50.; //1./25.0;
         //         shock_diff_criterion = 0.1;
-        shock_width = 1./500.; //1./25.0;
         double shock_diff_criterion = 0.1;
 
-        //const unsigned p_rank = stk::parallel_machine_rank( pm );
         const unsigned p_size = stk::parallel_machine_size( pm );
-        if (p_size==1 || p_size == 2 || p_size == 8 || p_size == 16)
           {
             percept::PerceptMesh eMesh;
             eMesh.open(input_files_loc+"OUO_large_testh1tet.g");
 
             Local_Tet4_Tet4_N break_tet_to_tet_N(eMesh);
+            //Local_Tet4_Tet4_N_HangingNode break_tet_to_tet_N(eMesh);
+
             int scalarDimension = 0; // a scalar
             stk::mesh::FieldBase* proc_rank_field    = eMesh.add_field("proc_rank", stk::topology::ELEMENT_RANK, scalarDimension);
             RefineFieldType *refine_field       = dynamic_cast<RefineFieldType *>(eMesh.add_field_int("refine_field", stk::topology::ELEMENT_RANK, scalarDimension));
@@ -123,23 +73,26 @@
             shock.plane_normal[0] = 0;
             shock.plane_normal[1] = .25/std::sqrt(.25*.25+1.);
             shock.plane_normal[2] = 1./std::sqrt(.25*.25+1.);
+            //   shock_width = 1./50.; //1./25.0;
+            shock.shock_width = 1./500.; //1./25.0;
 
             ShockBasedRefinePredicate srp(nodal_refine_field, eMesh, &univ_selector, refine_field, 0.0, shock, 0.0, shock_diff_criterion);
 
             PredicateBasedEdgeAdapter<ShockBasedRefinePredicate>
-              breaker(srp,
-                      eMesh, break_tet_to_tet_N, proc_rank_field);
+              breaker(srp, eMesh, break_tet_to_tet_N, proc_rank_field);
+            //TransitionElementAdapter<ShockBasedRefinePredicate>
+            //  breaker(srp, eMesh, break_tet_to_tet_N, proc_rank_field);
 
             breaker.setRemoveOldElements(false);
             breaker.setAlwaysInitializeNodeRegistry(false);
-            double threshold = 1.0;  // force rebal every time
+            const double threshold = 1.0;  // force rebal every time
             breaker.setDoRebalance(true, threshold);
 
             // x,y,z: [-.08,.08],[-.08,.08],[-.5,-.2]
-            double delta_shock_displacement = 0.2*0.08*(10./((double)num_time_steps));
+            const double delta_shock_displacement = 0.2*0.08*(10./((double)num_time_steps));
             double shock_displacement = 0.0;
-            int num_ref_passes = 2;
-            int num_unref_passes = 3;
+            const int num_ref_passes = 2;
+            const int num_unref_passes = 3;
 
             for (int istep = 0; istep < num_time_steps; istep++)
               {
@@ -191,28 +144,13 @@
             stk::diag::printTimersTable(sierra::Env::outputP0(), breaker.rootTimer(),
                                         stk::diag::METRICS_CPU_TIME | stk::diag::METRICS_WALL_TIME,
                                         false, eMesh.get_bulk_data()->parallel());
-
-            // end_demo
           }
       }
 
       TEST(heavy_localRefiner, break_tet_to_tet_N_5_EdgeBased_moving_shock_large_test)
       {
-        const bool do_full_demo = false;
-        if (do_full_demo)
-          {
-            int num_time_steps = 10;  // 10 for stress testing
-            for (int istep=1; istep <= num_time_steps; istep++)
-              do_moving_shock_test_large_test(istep, false, true);
-          }
-        else
-          // normal regression testing
-          {
-            int num_time_steps = 5;  // 30 for making animation
-            do_moving_shock_test_large_test(num_time_steps, true);
-            //int num_time_steps = 3;  // 10 for stress testing
-            //do_moving_shock_test_large_test(num_time_steps);
-          }
+        const int num_time_steps = 5;  // 30 for making animation
+        do_moving_shock_test_large_test(num_time_steps, true);
       }
 
     }

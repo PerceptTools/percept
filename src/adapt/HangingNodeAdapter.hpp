@@ -1,6 +1,7 @@
-// Copyright 2014 Sandia Corporation. Under the terms of
-// Contract DE-AC04-94AL85000 with Sandia Corporation, the
-// U.S. Government retains certain rights in this software.
+// Copyright 2002 - 2008, 2010, 2011 National Technology Engineering
+// Solutions of Sandia, LLC (NTESS). Under the terms of Contract
+// DE-NA0003525 with NTESS, the U.S. Government retains certain rights
+// in this software.
 //
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
@@ -20,17 +21,10 @@
 
 #include <stk_mesh/base/FieldParallel.hpp>
 
-#if DO_TIMING
 #define HNA_TIMING(code) do { code } while(0)
 #define HNA_TIMER(name) stk::diag::Timer timer ## name ( #name, Base::rootTimer());  stk::diag::TimeBlock tbTimer ## name (timer ## name)
 #define HNA_TIMER2(name,parentName) stk::diag::Timer timer ## name ( #name, timer ## parentName);  stk::diag::TimeBlock tbTimer ## name (timer ## name)
 #define HNA_TIMER2A(name,parentName) stk::diag::Timer timer ## name ( #name, parentName);  stk::diag::TimeBlock tbTimer ## name (timer ## name)
-#else
-#define HNA_TIMING(code) do {  } while(0)
-#define HNA_TIMER(name) do {} while(0)
-#define HNA_TIMER2(name,parentName) do {} while(0)
-#define HNA_TIMER2A(name,parentName) do {} while(0)
-#endif
 
   namespace percept {
 

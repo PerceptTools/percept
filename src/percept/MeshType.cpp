@@ -1,6 +1,7 @@
-// Copyright 2014 Sandia Corporation. Under the terms of
-// Contract DE-AC04-94AL85000 with Sandia Corporation, the
-// U.S. Government retains certain rights in this software.
+// Copyright 2002 - 2008, 2010, 2011 National Technology Engineering
+// Solutions of Sandia, LLC (NTESS). Under the terms of Contract
+// DE-NA0003525 with NTESS, the U.S. Government retains certain rights
+// in this software.
 //
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
@@ -93,13 +94,13 @@ namespace percept {
   }
 
   template<>
-  void MTsum_fields<STKMesh>(std::vector<typename STKMesh::MTField*>& fields, PerceptMesh *m_eMesh)
+  void MTsum_fields<STKMesh>(std::vector<const typename STKMesh::MTField*>& fields, PerceptMesh *m_eMesh)
   {
     stk::mesh::parallel_sum(*m_eMesh->get_bulk_data(), fields);
   }
 
   template<>
-  void MTsum_fields<StructuredGrid>(std::vector<typename StructuredGrid::MTField*>& fields, PerceptMesh *m_eMesh)
+  void MTsum_fields<StructuredGrid>(std::vector<const typename StructuredGrid::MTField*>& fields, PerceptMesh *m_eMesh)
   {
     m_eMesh->get_block_structured_grid()->sum_fields(fields);
   }
@@ -177,66 +178,5 @@ namespace percept {
     (*field->m_block_fields[iblock])(node[A0], node[A1], node[A2], index) = fld[index];
 
   }
-
-
-  ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-  // explicit instantiations
-  ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-  template
-  unsigned get_num_nodes<STKMesh>(PerceptMesh *eMesh, typename STKMesh::MTElement element);
-
-  template
-  const typename STKMesh::MTNode * get_nodes<STKMesh>(PerceptMesh *eMesh, typename STKMesh::MTElement element, std::vector<typename STKMesh::MTNode > *nodes );
-
-  template
-  unsigned get_num_nodes<StructuredGrid>(PerceptMesh *eMesh, typename StructuredGrid::MTElement element);
-
-  template
-  const typename StructuredGrid::MTNode * get_nodes<StructuredGrid>(PerceptMesh *eMesh, typename StructuredGrid::MTElement element, std::vector<typename StructuredGrid::MTNode> *nodes );
-
-  template
-  bool MTisGhostNode<STKMesh>(PerceptMesh *m_eMesh, typename STKMesh::MTNode node);
-
-  template
-  bool MTnode_locally_owned<STKMesh>(PerceptMesh *m_eMesh, typename STKMesh::MTNode node);
-
-  template
-  bool MTisGhostNode<StructuredGrid>(PerceptMesh *m_eMesh, typename StructuredGrid::MTNode node);
-
-  template
-  bool MTnode_locally_owned<StructuredGrid>(PerceptMesh *m_eMesh, typename StructuredGrid::MTNode node);
-
-  template
-  void MTcommFields<STKMesh>(std::vector<const typename STKMesh::MTField*>& fields, PerceptMesh *m_eMesh);
-
-  template
-  void MTcommFields<StructuredGrid>(std::vector<const typename StructuredGrid::MTField*>& fields, PerceptMesh *m_eMesh);
-
-  template
-  void MTsum_fields<STKMesh>(std::vector<typename STKMesh::MTField*>& fields, PerceptMesh *m_eMesh);
-
-  template
-  void MTsum_fields<StructuredGrid>(std::vector<typename StructuredGrid::MTField*>& fields, PerceptMesh *m_eMesh);
-
-  template
-  void get_field<STKMesh>(double * fld, unsigned size, PerceptMesh *eMesh, typename STKMesh::MTField *field, typename STKMesh::MTNode node);
-
-  template
-  void get_field<StructuredGrid>(double *fld, unsigned size, PerceptMesh *eMesh, typename StructuredGrid::MTField *field, typename StructuredGrid::MTNode node);
-
-  template
-  void get_field<STKMesh>(double *fld, unsigned size, int index, PerceptMesh *eMesh, typename STKMesh::MTField *field, typename STKMesh::MTNode node);
-
-  template
-  void set_field<STKMesh>(const double *fld, unsigned size, PerceptMesh *eMesh, typename STKMesh::MTField *field, typename STKMesh::MTNode node);
-
-  template
-  void set_field<STKMesh>(const double *fld, unsigned size, int index, PerceptMesh *eMesh, typename STKMesh::MTField *field, typename STKMesh::MTNode node);
-
-  template
-  void set_field<StructuredGrid>(const double *fld, unsigned size, PerceptMesh *eMesh, typename StructuredGrid::MTField *field, typename StructuredGrid::MTNode node);
-
-  template
-  void set_field<StructuredGrid>(const double *fld, unsigned size, int index, PerceptMesh *eMesh, typename StructuredGrid::MTField *field, typename StructuredGrid::MTNode node);
 
 }

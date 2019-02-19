@@ -1,6 +1,7 @@
-// Copyright 2014 Sandia Corporation. Under the terms of
-// Contract DE-AC04-94AL85000 with Sandia Corporation, the
-// U.S. Government retains certain rights in this software.
+// Copyright 2002 - 2008, 2010, 2011 National Technology Engineering
+// Solutions of Sandia, LLC (NTESS). Under the terms of Contract
+// DE-NA0003525 with NTESS, the U.S. Government retains certain rights
+// in this software.
 //
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
@@ -11,7 +12,7 @@
 #include <set>
 
 #undef NDEBUG
-//#define NDEBUG
+
 #include <cassert>
 
 #include "SweepMesher.hpp"
@@ -493,7 +494,7 @@ SHARDS_ARRAY_DIM_TAG_SIMPLE_IMPLEMENTATION( Tag1 )
       // Field restrictions:
       stk::mesh::Part & universal = m_metaData->universal_part();
 
-      put_field( *m_coordinates_field , universal );
+      put_field_on_mesh( *m_coordinates_field , universal , nullptr);
 
 
       for (unsigned ieletype = 0; ieletype < NUM_ELEM_TYPES; ieletype++)

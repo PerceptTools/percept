@@ -1,6 +1,7 @@
-// Copyright 2014 Sandia Corporation. Under the terms of
-// Contract DE-AC04-94AL85000 with Sandia Corporation, the
-// U.S. Government retains certain rights in this software.
+// Copyright 2002 - 2008, 2010, 2011 National Technology Engineering
+// Solutions of Sandia, LLC (NTESS). Under the terms of Contract
+// DE-NA0003525 with NTESS, the U.S. Government retains certain rights
+// in this software.
 //
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
@@ -10,7 +11,6 @@
 
 //#define HAVE_INTREPID_DEBUG 0
 
-#define DO_TIMING 1
 #define DO_MEMORY 0
 
 //------------------------------------------------------------------------------------------------------------------------
@@ -114,27 +114,6 @@
 #endif
 #endif
 
-
-//------------------------------------------------------------------------------------------------------------------------
-//------------------------------------------------------------------------------------------------------------------------
-//----- YAML configuration
-//------------------------------------------------------------------------------------------------------------------------
-//------------------------------------------------------------------------------------------------------------------------
-
-
-#define STK_ADAPT_ALLOW_YAML_CPP 1
-#ifndef STK_ADAPT_HAVE_YAML_CPP
-#define STK_ADAPT_HAVE_YAML_CPP (STK_ADAPT_ALLOW_YAML_CPP && defined(STK_BUILT_IN_SIERRA))
-#endif
-
-//------------------------------------------------------------------------------------------------------------------------
-//------------------------------------------------------------------------------------------------------------------------
-//----- Kokkos configuration
-//------------------------------------------------------------------------------------------------------------------------
-//------------------------------------------------------------------------------------------------------------------------
-
-//#undef WITH_KOKKOS
-#define WITH_KOKKOS
 
 #include <percept/ExceptionWatch.hpp>
 

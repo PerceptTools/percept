@@ -1,6 +1,7 @@
-// Copyright 2014 Sandia Corporation. Under the terms of
-// Contract DE-AC04-94AL85000 with Sandia Corporation, the
-// U.S. Government retains certain rights in this software.
+// Copyright 2002 - 2008, 2010, 2011 National Technology Engineering
+// Solutions of Sandia, LLC (NTESS). Under the terms of Contract
+// DE-NA0003525 with NTESS, the U.S. Government retains certain rights
+// in this software.
 //
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
@@ -259,85 +260,24 @@ namespace {
 
     }
 
-    int processCommandLine(Teuchos::CommandLineProcessor& clp_in, int argc, char** argv)
+    int processCommandLine(Teuchos::CommandLineProcessor& clp_in, int argc, char** argv, int &bad_option)
     {
       int parallel_rank = stk::parallel_machine_rank(sierra::Env::parallel_comm());
-      //int parallel_size = stk::parallel_machine_size(sierra::Env::parallel_comm());
 
-      bool found_help = false;
-      if (!parallel_rank) {
-        for (int i = 0; i < argc; ++i) {
-          const std::string s(argv[i]);
-          if ( s == "-h" || s == "-help" || s == "--help") { // || s == "-H" || s == "-Help" || s == "--Help") {
-            found_help = true;
-            //std::cout << "Found Help:: Usage: " << (*argv)[0] << " [options...]" << std::endl;
-          }
-        }
-      }
-
-      int error = processCLP(clp_in, parallel_rank, argc, argv);
-
-      if (found_help)
-        {
-#if defined( STK_HAS_MPI )
-          stk::parallel_machine_finalize();
-#endif
-          std::exit(0);
-        }
-      if (error)
-        {
-          std::cerr << std::endl;
-          std::cout << std::endl;
-          if ( !parallel_rank)
-            {
-              std::cout << "Command Line error: echo of args:" << std::endl;
-              for (int ii=0; ii < argc; ii++)
-                {
-                  std::cout << "failed = 1, arg[" << ii  << "] = " << (argv)[ii] << std::endl;
-                }
-            }
-#if defined( STK_HAS_MPI )
-          stk::parallel_machine_finalize();
-#endif
-          //stk::RuntimeDoomedSymmetric() << "parse_command_line";
-          exit(1);
-        }
-
-      /*
-      // Parse diagnostic messages to display
-      std::string dw_opt = "";
-      dw().setPrintMask(dw_option_mask.parse(dw_opt.c_str()));
-
-      // Parse timer metrics and classes to display
-      stk::diag::setEnabledTimerMetricsMask(stk::diag::METRICS_CPU_TIME | stk::diag::METRICS_WALL_TIME);
-      std::string timer_opt = "";
-      timerSet().setEnabledTimerMask(timer_option_mask.parse(timer_opt.c_str()));
-
-      // Set working directory
-      std::string m_workingDirectory = "./";
-      std::string directory_opt = "";
-      m_workingDirectory = directory_opt;
-
-      if (m_workingDirectory.length() && m_workingDirectory[m_workingDirectory.length() - 1] != '/')
-        m_workingDirectory += "/";
-
-      std::string output_description = build_log_description( m_workingDirectory, parallel_rank, parallel_size);
-
-      stk::bind_output_streams(output_description);
-      */
+      int error = processCLP(clp_in, parallel_rank, argc, argv, bad_option);
 
       // Start percept root timer
       timer().start();
       //m_processCommandLine_invoked = true;
 
-      return 0;
+      return error;
     }
 
     RunEnvironment::~RunEnvironment()
     {
       if (!m_processCommandLine_invoked)
         {
-          throw std::runtime_error("RunEnvironment:: you must now invoke processCommandLine after constructing a RunEnvironment");
+          std::runtime_error("RunEnvironment:: you must now invoke processCommandLine after constructing a RunEnvironment");
         }
       stk::report_deferred_messages(m_comm);
 
@@ -407,8 +347,9 @@ namespace {
 
     }
 
-    int processCLP(Teuchos::CommandLineProcessor& clp_in, int procRank, int argc, char* argv[])
+    int processCLP(Teuchos::CommandLineProcessor& clp_in, int procRank, int argc, char* argv[], int &bad_option)
     {
+      bad_option = 0;
       const bool m_debug = false;
 
       Teuchos::oblackholestream blackhole;
@@ -441,15 +382,40 @@ namespace {
            we can see what happened and act accordingly.
         */
         Teuchos::CommandLineProcessor::EParseCommandLineReturn parseReturn= Teuchos::CommandLineProcessor::PARSE_SUCCESSFUL ;
+        bool parse_error = true;
         try {
           parseReturn = clp_in.parse( argc, argv );
+          parse_error = false;
           //std::cout << "tmp srk parseReturn = " << parseReturn << std::endl;
         }
         catch (std::exception exc)
+        {
+          parse_error = true;
+          out << "RunEnvironment::processCLP error, exc= " << exc.what() << std::endl;
+        }
+        // figure out which argv option caused the problem and let the user know!
+        if (parse_error)
+        {
+          char *argv1 = argv[1];
+          for (int i = 1; i < argc; ++i)
           {
-            out << "RunEnvironment::processCLP error, exc= " << exc.what() << std::endl;
-            return 1;
-          }
+            // pass just one option
+            argv[1] = argv[i];
+            try 
+            {
+              parseReturn = clp_in.parse( 2, argv ); // just two args at a time
+            }
+            catch (...)
+            {
+               out << "Error processing argument " << i << "=\"" << argv[1] << "\"" << std::endl;
+               bad_option = i;
+            }
+            // restore
+            argv[i] = argv[1]; 
+         }
+         argv[1] = argv1;
+         return 1;
+        }
 
         if( parseReturn == Teuchos::CommandLineProcessor::PARSE_HELP_PRINTED ) {
 
@@ -742,4 +708,39 @@ namespace {
       clp_in.printHelpMessage("RunEnvironment",std::cout);
     }
 
+  const std::string &OptionDescription::get_help( HelpType help_type ) const
+  {
+    switch (help_type)
+    {
+      case LIST:
+      return keyword;
+      break;
+      case ONELINE:
+      default:
+      return help_oneline;
+      break;
+      case FULL: 
+      return help_extra;
+      break;
+    }
+  }
+
+  int get_help(ParserSystem &ps, const std::string &keyword, std::string &help_string, HelpType help_type )
+  {
+    auto h = ps.advanced_option_help.find(keyword);
+    if (h == ps.advanced_option_help.end())
+    {
+      h      = ps.basic_option_help.find(keyword);
+      if (h == ps.basic_option_help.end())
+      {
+        // keyword not found
+        help_string = std::string();
+        return 1;
+      }
+    } 
+    // get the string for the keyword
+    help_string = h->second.get_help( help_type ); 
+    return 0;
+  }
+ 
   } // namespace percept

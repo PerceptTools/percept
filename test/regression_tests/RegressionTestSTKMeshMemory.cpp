@@ -1,6 +1,7 @@
-// Copyright 2014 Sandia Corporation. Under the terms of
-// Contract DE-AC04-94AL85000 with Sandia Corporation, the
-// U.S. Government retains certain rights in this software.
+// Copyright 2002 - 2008, 2010, 2011 National Technology Engineering
+// Solutions of Sandia, LLC (NTESS). Under the terms of Contract
+// DE-NA0003525 with NTESS, the U.S. Government retains certain rights
+// in this software.
 //
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
@@ -42,13 +43,11 @@
 
 #define DO_MEMORY_ACCOUNTING
 
-typedef size_t MemorySizeType;
-
 struct MemoryInfo
 {
-  MemorySizeType m_rss_current;
-  MemorySizeType m_rss_high_water_mark;
-  static const MemorySizeType MB = 1024*1024;
+  size_t m_rss_current;
+  size_t m_rss_high_water_mark;
+  static const size_t MB = 1024*1024;
 
   MemoryInfo() { get_memory_usage(); }
 
@@ -67,7 +66,7 @@ struct MemoryInfo
 
 };
 
-inline double MegaByte(MemorySizeType x) { return  ((double)x/1024.0/1024.0); }
+inline double MegaByte(size_t x) { return  ((double)x/1024.0/1024.0); }
 
 std::ostream& operator<<(std::ostream& os, const MemoryInfo& mem)
 {
@@ -87,7 +86,6 @@ TEST(adapt, count_memory)
   if (p_size == 1)
     {
       const unsigned n = 20;
-      //const unsigned nx = n , ny = n , nz = p_size*n ;
       const unsigned nx = n , ny = n;
 
       percept::QuadFixture<double, shards::Triangle<3> > fixture( pm , nx , ny, false);
@@ -97,9 +95,7 @@ TEST(adapt, count_memory)
       fixture.generate_mesh();
 
       percept::PerceptMesh eMesh(&fixture.meta_data, &fixture.bulk_data);
-      //eMesh.print_info("quad mesh",2);
 
-      //const size_t num_new_tris = 2000*2000;
       const size_t num_new_tris = 20*20;
       const size_t num_nodes_per_tri = 3;
       const size_t num_new_nodes = num_new_tris*num_nodes_per_tri;
@@ -121,12 +117,9 @@ TEST(adapt, count_memory)
 
       eMesh.get_bulk_data()->modification_begin();
       eMesh.createEntities(stk::topology::ELEMENT_RANK, num_new_tris, new_elements);
-      //stk::mesh::fixup_ghosted_to_shared_nodes(*eMesh.get_bulk_data());
-      //eMesh.get_bulk_data()->modification_end();
 
       mem_delta_elem_0.get_increment();
 
-      //eMesh.get_bulk_data()->modification_begin();
       size_t i_node=0;
       for (size_t i=0; i<num_new_tris; ++i) {
 

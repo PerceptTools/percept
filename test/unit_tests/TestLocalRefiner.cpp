@@ -1,6 +1,7 @@
-// Copyright 2014 Sandia Corporation. Under the terms of
-// Contract DE-AC04-94AL85000 with Sandia Corporation, the
-// U.S. Government retains certain rights in this software.
+// Copyright 2002 - 2008, 2010, 2011 National Technology Engineering
+// Solutions of Sandia, LLC (NTESS). Under the terms of Contract
+// DE-NA0003525 with NTESS, the U.S. Government retains certain rights
+// in this software.
 //
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
@@ -19,7 +20,6 @@
 //#define STK_PERCEPT_HAS_GEOMETRY
 #undef STK_PERCEPT_HAS_GEOMETRY
 #if defined( STK_PERCEPT_HAS_GEOMETRY )
-#include <adapt/geometry/GeometryKernelOpenNURBS.hpp>
 #include <adapt/geometry/MeshGeometry.hpp>
 #include <adapt/geometry/GeometryFactory.hpp>
 #endif
@@ -43,35 +43,13 @@
                      stk::mesh::EntityRank rank, NodeRegistry::ElementFunctionPrototype function,
                      unsigned elementType,
                      vector<NeededEntityType>& needed_entity_ranks,
-                     bool only_count, bool doAllElements)
-    //bool only_count=false, bool doAllElements=true)
+                     bool doAllElements)
     {
       EXCEPTWATCH;
       unsigned num_elem = 0;
 
-      int progress_meter_num_total = 0;
-      if (m_doProgress)
-        {
-          m_doProgress = false;
-          progress_meter_num_total = doForAllElements(irank, function_info, rank, function, elementType, needed_entity_ranks,  true, doAllElements);
-          m_doProgress = true;
-          ProgressMeterData pd(ProgressMeterData::INIT, 0.0, "NodeRegistry passes");
-          notifyObservers(&pd);
-        }
-      int progress_meter_when_to_post = progress_meter_num_total / m_progress_meter_frequency;
-      if (0 == progress_meter_when_to_post)
-        progress_meter_when_to_post = 1;
-      double d_progress_meter_num_total = progress_meter_num_total;
-
       percept::PerceptMesh& eMesh = m_eMesh;
 
-#if 0
-      stk::mesh::MetaData& metaData = *eMesh.get_fem_meta_data();
-      const std::vector< stk::mesh::Part * > & parts = metaData.get_parts();
-      unsigned nparts = parts.size();
-      if (1) std::cout << "Number of parts = " << nparts << std::endl;
-      CoordinatesFieldType* coordField = eMesh.get_coordinates_field();
-#endif
       stk::mesh::BulkData& bulkData = *eMesh.get_bulk_data();
 
       const stk::mesh::BucketVector & buckets = bulkData.buckets( rank );
@@ -103,26 +81,12 @@
                 if (!elementIsGhost)
                   ++num_elem;
 
-                if (!only_count && (doAllElements || elementIsGhost))
+                if (doAllElements || elementIsGhost)
                   {
                     refineMethodApply(function, element, needed_entity_ranks, cell_topo_data);
                   }
-
-                if (m_doProgress && (num_elem % progress_meter_when_to_post == 0) )
-                  {
-                    double progress_meter_percent = 100.0*((double)num_elem)/d_progress_meter_num_total;
-                    ProgressMeterData pd(ProgressMeterData::RUNNING, progress_meter_percent, "NodeRegistry passes");
-                    notifyObservers(&pd);
-                  }
               }
-
           }
-        }
-
-      if (m_doProgress)
-        {
-          ProgressMeterData pd(ProgressMeterData::FINI, 0.0, "NodeRegistry passes");
-          notifyObservers(&pd);
         }
 
       return num_elem;

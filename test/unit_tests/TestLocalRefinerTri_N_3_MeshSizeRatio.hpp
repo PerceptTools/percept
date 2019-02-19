@@ -1,6 +1,7 @@
-// Copyright 2014 Sandia Corporation. Under the terms of
-// Contract DE-AC04-94AL85000 with Sandia Corporation, the
-// U.S. Government retains certain rights in this software.
+// Copyright 2002 - 2008, 2010, 2011 National Technology Engineering
+// Solutions of Sandia, LLC (NTESS). Under the terms of Contract
+// DE-NA0003525 with NTESS, the U.S. Government retains certain rights
+// in this software.
 //
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
@@ -8,7 +9,7 @@
 #ifndef adapt_TestLocalRefinerTri_N_3_MeshSizeRatio_hpp
 #define adapt_TestLocalRefinerTri_N_3_MeshSizeRatio_hpp
 
-#include <adapt/IElementAdapter.hpp>
+#include <percept/function/ElementOp.hpp>
 
 #include <stk_mesh/base/GetBuckets.hpp>
 
@@ -122,58 +123,35 @@
       }
     }
 
-    //========================================================================================================================
-    //========================================================================================================================
-    //========================================================================================================================
-    /**
-     * A test implementation as a use case for MeshSizeRatio
-     */
-    class TestLocalRefinerTri_N_3_MeshSizeRatio : public IElementAdapter
+    class SetRefineFieldElementRatioField : public percept::ElementOp
     {
+      percept::PerceptMesh& m_eMesh;
     public:
-      TestLocalRefinerTri_N_3_MeshSizeRatio
-      (percept::PerceptMesh& eMesh,
-       UniformRefinerPatternBase & bp,
-       ScalarFieldType * elem_ratio_field,
-       stk::mesh::FieldBase *proc_rank_field=0);
-
-    protected:
-
-      /// Client supplies these methods - given an element, which edge,
-      // and the nodes on the edge, return instruction on what to do to the edge,
-      ///    DO_NOTHING (nothing), DO_REFINE (refine), DO_UNREFINE
-      virtual int markElement(const stk::mesh::Entity element);
-
+      SetRefineFieldElementRatioField(percept::PerceptMesh& eMesh, ScalarFieldType * elem_ratio_field) : 
+        m_eMesh(eMesh),
+        m_elem_ratio_field(elem_ratio_field),
+        m_Rup(sqrt(2.0))
+      {}
+      
+      virtual bool operator()(const stk::mesh::Entity element, stk::mesh::FieldBase *field,  const stk::mesh::BulkData& bulkData)
+      {
+        // TEST simplest case: ratio > Rup
+        const double & ratio = *( stk::mesh::field_data( *m_elem_ratio_field , element) );
+        
+        RefineFieldType_type *f_data = stk::mesh::field_data(*static_cast<RefineFieldType *>(field), element);
+        
+        if (ratio > m_Rup) {
+          f_data[0] = 1;
+        }
+        return false;
+      }
+      virtual void init_elementOp() {}
+      virtual void fini_elementOp() {}
+  protected:
+    
       ScalarFieldType * m_elem_ratio_field;
       const double m_Rup;
     };
-
-    // This is a very specialized test that is used in unit testing only
-
-    TestLocalRefinerTri_N_3_MeshSizeRatio::TestLocalRefinerTri_N_3_MeshSizeRatio
-    (percept::PerceptMesh& eMesh,
-     UniformRefinerPatternBase &  bp,
-     ScalarFieldType * elem_ratio_field,
-     stk::mesh::FieldBase *proc_rank_field)
-      :
-      IElementAdapter(eMesh, bp, proc_rank_field),
-      m_elem_ratio_field(elem_ratio_field),
-      m_Rup(sqrt(2.0))
-    {}
-
-    int
-    TestLocalRefinerTri_N_3_MeshSizeRatio::markElement(const stk::mesh::Entity element)
-    {
-      int mark=0;
-
-      // TEST simplest case: ratio > Rup
-      const double & ratio = *( stk::mesh::field_data( *m_elem_ratio_field , element) );
-
-      if (ratio > m_Rup)
-        mark |= DO_REFINE;
-
-      return mark;
-    }
   }
 
 #endif

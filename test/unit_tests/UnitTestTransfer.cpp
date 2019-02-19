@@ -1,6 +1,7 @@
-// Copyright 2014 Sandia Corporation. Under the terms of
-// Contract DE-AC04-94AL85000 with Sandia Corporation, the
-// U.S. Government retains certain rights in this software.
+// Copyright 2002 - 2008, 2010, 2011 National Technology Engineering
+// Solutions of Sandia, LLC (NTESS). Under the terms of Contract
+// DE-NA0003525 with NTESS, the U.S. Government retains certain rights
+// in this software.
 //
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
@@ -60,7 +61,7 @@ struct TransferFixture
 
     stk::mesh::MetaData * metaData = & mesh_data.meta_data();
     scalar_field = & (metaData->declare_field<stk::mesh::Field<double> >(stk::topology::NODE_RANK, "scalar"));
-    stk::mesh::put_field( *scalar_field, metaData->universal_part());
+    stk::mesh::put_field_on_mesh( *scalar_field, metaData->universal_part(), nullptr);
 
     mesh_data.populate_bulk_data();
 

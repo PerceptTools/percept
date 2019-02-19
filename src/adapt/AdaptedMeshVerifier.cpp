@@ -1,6 +1,7 @@
-// Copyright 2014 Sandia Corporation. Under the terms of
-// Contract DE-AC04-94AL85000 with Sandia Corporation, the
-// U.S. Government retains certain rights in this software.
+// Copyright 2002 - 2008, 2010, 2011 National Technology Engineering
+// Solutions of Sandia, LLC (NTESS). Under the terms of Contract
+// DE-NA0003525 with NTESS, the U.S. Government retains certain rights
+// in this software.
 //
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
@@ -724,17 +725,6 @@ namespace percept
                                             << std::endl;
                                   eMesh.print(parent);
                                   eMesh.print(neigh);
-
-                                  if (1)
-                                    {
-                                      stk::mesh::EntityId ids[] = {0,0 };
-                                      ids[0] = eMesh.identifier(face_or_edge_v_0[0]);
-                                      ids[1] = eMesh.identifier(face_or_edge_v_0[1]);
-                                      std::sort(&ids[0],&ids[0]+2);
-                                      s_nodeRegistry->query(eMesh.identifier(parent), stk::topology::EDGE_RANK, 0, "parent", ids);
-                                      s_nodeRegistry->query(eMesh.identifier(neigh), stk::topology::EDGE_RANK, 0, "neigh", ids);
-                                      s_nodeRegistry->query(eMesh.identifier(parent_neigh), stk::topology::EDGE_RANK, 0, "parent_neigh", ids);
-                                    }
 
                                   if (1)
                                     {

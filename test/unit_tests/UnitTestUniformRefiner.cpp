@@ -1,6 +1,7 @@
-// Copyright 2014 Sandia Corporation. Under the terms of
-// Contract DE-AC04-94AL85000 with Sandia Corporation, the
-// U.S. Government retains certain rights in this software.
+// Copyright 2002 - 2008, 2010, 2011 National Technology Engineering
+// Solutions of Sandia, LLC (NTESS). Under the terms of Contract
+// DE-NA0003525 with NTESS, the U.S. Government retains certain rights
+// in this software.
 //
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
@@ -30,6 +31,7 @@
 #include <adapt/UniformRefinerPattern_def.hpp>
 
 #include <percept/fixtures/SingleTetFixture.hpp>
+#include <percept/fixtures/PyramidFixture.hpp>
 
 #include <stk_unit_tests/stk_mesh_fixtures/HexFixture.hpp>
 
@@ -234,7 +236,7 @@
 
         stk::mesh::fixtures::HexFixture hf(MPI_COMM_WORLD,3,3,3);
         ProcIdFieldType & processorIdField = hf.m_meta.declare_field<ProcIdFieldType>(stk::topology::ELEMENT_RANK, "PROC_ID");
-        stk::mesh::put_field( processorIdField , stk::topology::ELEMENT_RANK, hf.m_meta.universal_part());
+        stk::mesh::put_field_on_mesh( processorIdField , stk::topology::ELEMENT_RANK, hf.m_meta.universal_part());
 
         percept::PerceptMesh eMesh(&hf.m_meta,&hf.m_bulk_data,false);
         percept::Hex8_Hex8_8 break_quad(eMesh);
@@ -279,7 +281,7 @@
         {
           stk::mesh::fixtures::HexFixture hf(MPI_COMM_WORLD,3,3,3);
           ProcIdFieldType & processorIdField = hf.m_meta.declare_field<ProcIdFieldType>(stk::topology::ELEMENT_RANK, "PROC_ID");
-          stk::mesh::put_field( processorIdField , hf.m_meta.universal_part());
+          stk::mesh::put_field_on_mesh( processorIdField , hf.m_meta.universal_part(), nullptr);
 
           // to get any output we must tell I/O about this part
           stk::io::put_io_part_attribute( hf.m_meta.universal_part());
@@ -1189,6 +1191,270 @@
         // end_demo
 
       }
+
+      //======================================================================================================================
+      //======================================================================================================================
+      //======================================================================================================================
+
+      /// Convert a pyr mesh using 2 tets per pyr
+
+      void test_refine_pyr5_tet4_2(unsigned nnodes, unsigned npyr, double coord[][3], stk::mesh::EntityIdVector *nid, const std::string& outfilename)
+      {
+        // sidesets in fixture don't work for second case below, turned off for now
+        //PyramidFixture mesh(MPI_COMM_WORLD, false, false);
+        HeterogeneousFixture mesh(MPI_COMM_WORLD, false, false);
+
+        bool isCommitted = false;
+        PerceptMesh eMesh(&mesh.m_metaData, &mesh.m_bulkData, isCommitted);
+
+        Pyramid5_Tet4_2 break_pyr_to_tet(eMesh);
+
+        int scalarDimension = 0; // a scalar
+        stk::mesh::FieldBase* proc_rank_field = eMesh.add_field("proc_rank", stk::topology::ELEMENT_RANK, scalarDimension);
+
+        eMesh.commit();
+        //mesh.init(nnodes, npyr, coord, nid);
+        mesh.init(nnodes, coord, 0, NULL, 0, NULL, 0, NULL, npyr, nid);
+        mesh.populate();
+
+        eMesh.save_as(outfilename+".0.e");
+
+        UniformRefiner breaker(eMesh, break_pyr_to_tet, proc_rank_field);
+        breaker.setRemoveOldElements(true);
+
+        breaker.doBreak();
+
+        eMesh.save_as(outfilename+".1.e");
+      }
+
+      TEST(unit1_uniformRefiner, pyr5_tet4_2)
+      {
+        {
+          std::string outfilename("pyr5_tet4_2_2pyr_shared_tri_face");
+          
+          unsigned nnodes = 7;
+          unsigned npyr = 2; 
+          double coord[ 7 ][ 3 ] = {
+            
+            { 0 , 0 , -1 } , { 1 , 0 , -1 } ,  { 2 , 0 , -1 } ,
+            
+            { 0 , 1 , -1 } , { 1 , 1 , -1 } , { 2 , 1 , -1 } ,
+            
+            { 1 , 1 , -2 }
+          };
+         stk::mesh::EntityIdVector nid[2] {
+           { 1 , 4 , 5 , 2 , 7 } ,
+           { 2 , 5 , 6 , 3 , 7 } 
+         };
+          
+          test_refine_pyr5_tet4_2(nnodes, npyr, coord, nid, outfilename);
+        }
+
+        {
+          std::string outfilename("pyr5_tet4_2_2pyr_shared_quad_face");
+
+          unsigned nnodes = 6;
+          unsigned npyr = 2; 
+          double coord[ 6 ][ 3 ] = {
+
+            { 0 , 0 , 0 } , { 1 , 0 , 0 } ,
+            
+            { 1 , 1 , 0 } , { 0 , 1 , 0 } ,
+            
+            { 0 , 0 , 1 } , { 1 , 1 , -1 }
+          };
+          stk::mesh::EntityIdVector nid[2] {
+            { 1 , 2 , 3 , 4 , 5 } ,
+            { 4 , 3 , 2 , 1 , 6 } 
+          };
+          
+          test_refine_pyr5_tet4_2(nnodes, npyr, coord, nid, outfilename);
+        }
+      }
+      
+      //======================================================================================================================
+      //======================================================================================================================
+      //======================================================================================================================
+
+      // test convert wedge6 into 3 tet4
+
+      void test_refine_wedge6_tet4_3(unsigned nnodes, unsigned nwedge, double coord[][3], stk::mesh::EntityIdVector *nid, const std::string& outfilename)
+      {
+        // sidesets in fixture don't work for second case below, turned off for now
+        HeterogeneousFixture mesh(MPI_COMM_WORLD, false, false);
+
+        bool isCommitted = false;
+        PerceptMesh eMesh(&mesh.m_metaData, &mesh.m_bulkData, isCommitted);
+        
+        Wedge6_Tet4_3 break_wedge_to_tet(eMesh);
+
+        int scalarDimension = 0; // a scalar
+        stk::mesh::FieldBase* proc_rank_field = eMesh.add_field("proc_rank", stk::topology::ELEMENT_RANK, scalarDimension);
+
+        //eMesh.setProperty("FindValidCentroid_off", "true");
+        eMesh.commit();
+        mesh.init(nnodes, coord, 0, NULL, 0, NULL, nwedge, nid, 0, NULL);
+        mesh.populate();
+
+        eMesh.save_as(outfilename+".0.e");
+
+        UniformRefiner breaker(eMesh, break_wedge_to_tet, proc_rank_field);
+        breaker.setRemoveOldElements(true);
+
+        breaker.doBreak();
+
+        eMesh.save_as(outfilename+".1.e");
+      }
+
+      TEST(unit1_uniformRefiner, wedge6_tet4_3)
+      {
+        {
+          std::string outfilename("wedge5_tet4_3_1wedge");
+          
+          unsigned nnodes = 6;
+          unsigned nwedge = 1; 
+          double coord[ 6 ][ 3 ] = {
+            
+            { 0 , 0 , 0 } , { 1 , 0 , 0 } ,  { 0 , 1 , 0 } ,
+            
+            { 0 , 0 , 1 } , { 1 , 0 , 1 } ,  { 0 , 1 , 1 }
+
+          };
+          stk::mesh::EntityIdVector nid[1] {
+            { 6 , 5 , 4 , 3 , 2 , 1 }
+          };
+          
+          test_refine_wedge6_tet4_3(nnodes, nwedge, coord, nid, outfilename);
+        }
+        
+        {
+          std::string outfilename("wedge5_tet4_3_2wedge_shared_quad_face");
+          
+          unsigned nnodes = 8;
+          unsigned nwedge = 2; 
+          double coord[ 8 ][ 3 ] = {
+            
+            { 0 , 0 , 0 } , { 1 , 0 , 0 } ,  { 0 , 1 , 0 } ,
+            
+            { 0 , 0 , 1 } , { 1 , 0 , 1 } ,  { 0 , 1 , 1 } ,
+            
+            { -1 , 1 , 0 } , { -1 , 1 , 1 }
+          };
+          stk::mesh::EntityIdVector nid[2] {
+            { 3 , 1 , 2 , 6 , 4 , 5 } ,
+            { 3 , 7 , 1 , 6 , 8 , 4 } 
+          };
+          
+          test_refine_wedge6_tet4_3(nnodes, nwedge, coord, nid, outfilename);
+        }
+        
+        {
+          std::string outfilename("wedge5_tet4_3_2wedge_shared_tri_face");
+          
+          unsigned nnodes = 9;
+          unsigned nwedge = 2; 
+          double coord[ 9 ][ 3 ] = {
+            
+            { 0 , 0 , -1 } , { 1 , 0 , -1 } ,  { 0 , 1 , -1 } ,
+
+            { 0 , 0 , 0 } , { 1 , 0 , 0 } ,  { 0 , 1 , 0 } ,
+            
+            { 0 , 0 , 1 } , { 1 , 0 , 1 } ,  { 0 , 1 , 1 }             
+          };
+          stk::mesh::EntityIdVector nid[2] {
+            { 5 , 4 , 6 , 2 , 1 , 3 } ,
+            { 9 , 8 , 7 , 6 , 5 , 4 } 
+          };
+          
+          test_refine_wedge6_tet4_3(nnodes, nwedge, coord, nid, outfilename);
+        }
+        
+        {
+          std::string outfilename("wedge5_tet4_3_3wedge_shared_quad_faces");
+          
+          unsigned nnodes = 10;
+          unsigned nwedge = 3; 
+          double coord[ 10 ][ 3 ] = {
+            
+            { 0 , 0 , 0 } , { 1 , 0 , 0 } ,  { 0 , 1 , 0 } ,
+            
+            { 0 , 0 , 1 } , { 1 , 0 , 1 } ,  { 0 , 1 , 1 } ,
+            
+            { -1 , 1 , 0 } , { -1 , 1 , 1 } ,
+            
+            { 1 , -1 , 0 } , { 1 , -1 , 1 }
+          };
+          stk::mesh::EntityIdVector nid[3] {
+            { 2 , 3 , 1 , 5 , 6 , 4 } ,
+            { 7 , 1 , 3 , 8 , 4 , 6 } ,
+            { 1 , 9 , 2 , 4 , 10 , 5 }
+          };
+          
+          test_refine_wedge6_tet4_3(nnodes, nwedge, coord, nid, outfilename);
+        }
+        
+       }
+
+      void test_convert_pyramid5_wedge6_tet4(unsigned nnodes, 
+                                             unsigned nwedge, stk::mesh::EntityIdVector *nid_wedge, 
+                                             unsigned npyramid, stk::mesh::EntityIdVector *nid_pyramid, 
+                                             double coord[][3], const std::string& outfilename)
+      {
+        // sidesets in fixture don't work for second case below, turned off for now
+        HeterogeneousFixture mesh(MPI_COMM_WORLD, false, false);
+
+        bool isCommitted = false;
+        PerceptMesh eMesh(&mesh.m_metaData, &mesh.m_bulkData, isCommitted);
+        
+        Hex8_Wedge6_Pyramid5_Tet4 break_pattern(eMesh);
+
+        int scalarDimension = 0; // a scalar
+        stk::mesh::FieldBase* proc_rank_field = eMesh.add_field("proc_rank", stk::topology::ELEMENT_RANK, scalarDimension);
+
+        eMesh.commit();
+        mesh.init(nnodes, coord, 0, NULL, 0, NULL, nwedge, nid_wedge, npyramid, nid_pyramid);
+        mesh.populate();
+
+        eMesh.save_as(outfilename+".0.e");
+
+        UniformRefiner breaker(eMesh, break_pattern, proc_rank_field);
+        breaker.setRemoveOldElements(true);
+
+        breaker.doBreak();
+
+        eMesh.save_as(outfilename+".1.e");
+      }
+
+      TEST(unit1_uniformRefiner, convert_pyramid5_wedge6_tet4)
+      {
+        {
+          std::string outfilename("convert_pyramid5_wedge5_tet4_1_2");
+          
+          unsigned nnodes = 10;
+          unsigned nwedge = 2; 
+          unsigned npyramid = 1; 
+          double coord[ 10 ][ 3 ] = {
+            
+            { 0 , 0 , -1 } , { 1 , 0 , -1 } ,  { 0 , 1 , -1 } ,
+
+            { 0 , 0 , 0 } , { 1 , 0 , 0 } ,  { 0 , 1 , 0 } ,
+            
+            { 0 , 0 , 1 } , { 1 , 0 , 1 } ,  { 0 , 1 , 1 } ,
+
+            { -1 , 0.5 , 0.5 }
+          };
+          stk::mesh::EntityIdVector nid_wedge[2] {
+            { 5 , 4 , 6 , 2 , 1 , 3 } ,
+            { 9 , 8 , 7 , 6 , 5 , 4 } 
+          };
+          stk::mesh::EntityIdVector nid_pyramid[1] {
+            { 4 , 7 , 9 , 6 , 10 }
+          };
+          
+          test_convert_pyramid5_wedge6_tet4(nnodes, nwedge, nid_wedge, npyramid, nid_pyramid, coord, outfilename);
+        }
+
+       }
 
       //======================================================================================================================
       //======================================================================================================================

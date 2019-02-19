@@ -1,6 +1,7 @@
-// Copyright 2014 Sandia Corporation. Under the terms of
-// Contract DE-AC04-94AL85000 with Sandia Corporation, the
-// U.S. Government retains certain rights in this software.
+// Copyright 2002 - 2008, 2010, 2011 National Technology Engineering
+// Solutions of Sandia, LLC (NTESS). Under the terms of Contract
+// DE-NA0003525 with NTESS, the U.S. Government retains certain rights
+// in this software.
 //
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
@@ -54,13 +55,6 @@ namespace percept {
         {
           if (needed_entity_rank == Base::m_eMesh.edge_rank())
             {
-              int nmarks=0;
-              for (unsigned iedge = 0; iedge < 9; ++iedge)
-                {
-                  if (markInfoVec[iedge]) ++nmarks;
-                }
-              //VERIFY_OP_ON(nmarks, ==, 9, "hmmm");
-
               // unmark the vertical edges
               for (unsigned iedge = 6; iedge < 9; ++iedge)
                 {
@@ -71,14 +65,9 @@ namespace percept {
             {
               markInfoVec.assign(markInfoVec.size(), false);
             }
-          else
-            {
-              //markInfoVec.assign(markInfoVec.size(), false);
-            }
         }
-      //if (elem_is_marked && Base::m_eMesh.bucket(element).topology() != stk::topology::PYRAMID_5)
-      if (1 && elem_is_marked && Base::m_eMesh.bucket(element).topology() != stk::topology::WEDGE_6
-          && ( (needed_entity_rank == Base::m_eMesh.edge_rank())
+      if (elem_is_marked && Base::m_eMesh.bucket(element).topology() != stk::topology::WEDGE_6
+          && ( (   needed_entity_rank == Base::m_eMesh.edge_rank())
                || (needed_entity_rank == Base::m_eMesh.side_rank()) ) )
         {
           stk::mesh::Entity non_wedge = element;
@@ -97,7 +86,6 @@ namespace percept {
                   bool ien = Base::m_eMesh.is_edge_neighbor(non_wedge, wedge, &edge_0, &edge_1);
                   if ((ifn && face_1 < 3) || (ien && edge_1 >= 6))
                     {
-                      //markInfoVec[face_0] = false;
                       markInfoVec.assign(markInfoVec.size(), false);
                     }
                 }
@@ -112,11 +100,6 @@ namespace percept {
       std::vector<stk::mesh::Entity> vec;
       VERIFY_OP_ON(m_wedge_selector, !=, 0, "must supply wedge selector to use TEA_SpecialWedgeRefinement");
       stk::mesh::get_selected_entities(*m_wedge_selector , eMesh.get_bulk_data()->buckets(eMesh.element_rank()), vec);
-
-      if (m_base_debug && Base::m_eMesh.get_rank()==0)
-        std::cout << "P[" << Base::m_eMesh.get_rank() << " TEA_SpecialWedgeRefinement::enforce_boundary_layer_refine_pattern nelem= " << vec.size()
-                  << " selector= " << *m_wedge_selector
-                  << std::endl;
 
       for (unsigned iElement = 0; iElement < vec.size(); iElement++)
         {
@@ -234,7 +217,6 @@ namespace percept {
 
       neighbors.clear();
       Base::get_node_neighbors(element, neighbors);
-      bool ldebug = false;
 
       for (LocalSetType::iterator it = neighbors.begin(); it != neighbors.end(); ++it)
         {
@@ -255,14 +237,6 @@ namespace percept {
           int edge_0=-1, edge_1=-1;
           isEdgeN = eMesh.is_edge_neighbor(element, neigh, &edge_0, &edge_1, 0);
 
-          if (ldebug)
-            {
-              std::cout << "P[" << eMesh.get_rank() << "] element= " << eMesh.id(element) << " er= " << refine_field_elem[0]
-                        << " neigh= " << eMesh.id(neigh) << " nr= " << refine_field_neigh[0]
-                        << " isFaceN= " << isFaceN << " face_0= " << face_0
-                        << " refine_or_unrefine= " << refine_or_unrefine
-                        << std::endl;
-            }
           int markVal = 0;
           if (isFaceN && face_0 >= 3)
             {
@@ -339,7 +313,6 @@ namespace percept {
 
           neighbors.clear();
           Base::get_node_neighbors(element, neighbors);
-          bool ldebug = false;
 
           bool element_changed = false;
           for (LocalSetType::iterator it = neighbors.begin(); it != neighbors.end(); ++it)
@@ -357,14 +330,6 @@ namespace percept {
               int face_0 = -1, face_1 = -1;
               isFaceN = eMesh.is_face_neighbor(element, neigh, &face_0, &face_1);
 
-              if (ldebug)
-                {
-                  std::cout << "P[" << eMesh.get_rank() << "] element= " << eMesh.id(element) << " er= " << refine_field_elem[0]
-                            << " neigh= " << eMesh.id(neigh) << " nr= " << refine_field_neigh[0]
-                            << " isFaceN= " << isFaceN << " face_0= " << face_0
-                            << " refine_or_unrefine= " << refine_or_unrefine
-                            << std::endl;
-                }
               int markVal = 0;
               if (isFaceN && face_0 >= 3)
                 {
@@ -445,9 +410,6 @@ namespace percept {
       VERIFY_OP_ON(m_wedge_selector, !=, 0, "must supply wedge selector to use TEA_SpecialWedgeRefinement");
       stk::mesh::get_selected_entities(*m_wedge_selector , eMesh.get_bulk_data()->buckets(eMesh.element_rank()), vec);
 
-      // if (m_base_debug && Base::m_eMesh.get_rank()==0)
-      //   std::cout << "P[" << Base::m_eMesh.get_rank() << "] TEA_SpecialWedgeRefinement::enforce_boundary_layer_refine_pattern nelem= " << vec.size() << std::endl;
-
       did_change = 0;
 
       for (unsigned iElement = 0; iElement < vec.size(); iElement++)
@@ -476,10 +438,6 @@ namespace percept {
         std::cout << "P[" << Base::m_eMesh.get_rank() << "] TEA_SpecialWedgeRefinement::enforce_boundary_layer_refine_pattern nelem= " << vec.size() << " # marked first pass= " << global_did_change << std::endl;
 
       if (!global_did_change) return 0;
-
-      if (0) return global_did_change;
-
-      //did_change = 0;
 
       {
         std::vector< const stk::mesh::FieldBase *> fields;
@@ -514,10 +472,6 @@ namespace percept {
             did_change += local_did_change;
         }
 
-      if (m_debug_local)
-        std::cout << "P[" << Base::m_eMesh.get_rank() << "] TEA_SpecialWedgeRefinement::enforce_boundary_layer_refine_pattern iter= " << iter << " before 2-face check did_change= " << did_change
-                  << std::endl;
-
       {
         std::vector< const stk::mesh::FieldBase *> fields;
         fields.push_back(refine_field);
@@ -527,10 +481,6 @@ namespace percept {
       }
 
       stk::all_reduce( pm, stk::ReduceSum<1>( &did_change ) );
-
-      if (m_base_debug && eMesh.get_rank()==0)
-        std::cout << "P[" << Base::m_eMesh.get_rank() << "] TEA_SpecialWedgeRefinement::enforce_boundary_layer_refine_pattern did_change= " << did_change
-                  << std::endl;
 
       return did_change;
     }

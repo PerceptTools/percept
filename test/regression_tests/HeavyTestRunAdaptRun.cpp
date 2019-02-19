@@ -1,6 +1,7 @@
-// Copyright 2014 Sandia Corporation. Under the terms of
-// Contract DE-AC04-94AL85000 with Sandia Corporation, the
-// U.S. Government retains certain rights in this software.
+// Copyright 2002 - 2008, 2010, 2011 National Technology Engineering
+// Solutions of Sandia, LLC (NTESS). Under the terms of Contract
+// DE-NA0003525 with NTESS, the U.S. Government retains certain rights
+// in this software.
 //
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
@@ -17,7 +18,6 @@
 
 #include <adapt/main/RunAdaptRun.hpp>
 #include <adapt/ElementRefinePredicate.hpp>
-#include <adapt/PredicateBasedElementAdapter.hpp>
 #include <adapt/TransitionElementAdapter.hpp>
 #include <adapt/RefinerUtil.hpp>
 
@@ -71,7 +71,7 @@ namespace percept {
           eMesh.register_and_set_refine_fields();
           eMesh.add_registered_refine_fields_as_input_fields();
           ErrorFieldType * error_field = &eMesh.get_fem_meta_data()->declare_field<ErrorFieldType>(stk::topology::ELEMENT_RANK, "error_indicator");
-          stk::mesh::put_field( *error_field , eMesh.get_fem_meta_data()->universal_part(), 1);
+          stk::mesh::put_field_on_mesh( *error_field , eMesh.get_fem_meta_data()->universal_part(), 1, nullptr);
           stk::io::set_field_role( *error_field, Ioss::Field::TRANSIENT);
           eMesh.add_input_field(error_field);
           UniformRefinerPatternBase *localBreakPattern = 0;
@@ -163,7 +163,7 @@ namespace percept {
 
           // for plotting, use doubles, for internal use, use int
           RefineLevelType& refine_level       = eMesh.get_fem_meta_data()->declare_field<RefineLevelType>(stk::topology::ELEMENT_RANK, "refine_level");
-          stk::mesh::put_field( refine_level , eMesh.get_fem_meta_data()->universal_part());
+          stk::mesh::put_field_on_mesh( refine_level , eMesh.get_fem_meta_data()->universal_part(), nullptr);
           stk::io::set_field_role(refine_level, Ioss::Field::TRANSIENT);
 
           eMesh.register_and_set_refine_fields();
@@ -175,7 +175,7 @@ namespace percept {
 
           std::cout << "het_local initial number elements= " << eMesh.get_number_elements() << std::endl;
 
-          eMesh.save_as( output_files_loc+"het_local_"+post_fix(p_size)+".e.0");
+          eMesh.save_as( output_files_loc+"het_local_"+percept::heavy_tests::post_fix(p_size)+".e.0");
 
           stk::mesh::Selector univ_selector(eMesh.get_fem_meta_data()->universal_part());
 
@@ -297,9 +297,9 @@ namespace percept {
 
           SetElementRefineFieldValue set_ref_field_val_unref_all(eMesh, -1);
 
-          eMesh.save_as(output_files_loc+file+"_tmp_square_sidesets_local_unref_"+post_fix(p_size)+".e");
+          eMesh.save_as(output_files_loc+file+"_tmp_square_sidesets_local_unref_"+percept::heavy_tests::post_fix(p_size)+".e");
 
-          eMesh.save_as(output_files_loc+file+"_sidesets_final_local_"+post_fix(p_size)+".e.s-"+toString(num_time_steps) );
+          eMesh.save_as(output_files_loc+file+"_sidesets_final_local_"+percept::heavy_tests::post_fix(p_size)+".e.s-"+toString(num_time_steps) );
 
           for (int iunref=0; iunref < (num_unref_passes? 10 : 0); iunref++)
             {
@@ -327,85 +327,13 @@ namespace percept {
           int nel = eMesh.get_number_elements();
           if (eMesh.get_rank() == 0)
             std::cout << "local final number elements= " << nel << std::endl;
-          eMesh.save_as(output_files_loc+file+"_sidesets_final_unrefed_local_"+post_fix(p_size)+".e."+toString(num_time_steps) );
+          eMesh.save_as(output_files_loc+file+"_sidesets_final_unrefed_local_"+percept::heavy_tests::post_fix(p_size)+".e."+toString(num_time_steps) );
 
           delete breaker_p;
 
           // end_demo
         }
     }
-
-    TEST(heavy_rar, tet_wedge_boundary_layer_special)
-    {
-      bool do_test = true;
-      stk::ParallelMachine pm = MPI_COMM_WORLD ;
-      const unsigned p_size = stk::parallel_machine_size( pm );
-      if (p_size < 8) return;
-
-      int nref = 1;
-      int nunref = 1;
-
-      if (!do_test) return;
-
-      // test 1
-      if (1)
-        {
-          PerceptMesh eMesh;
-          //eMesh.open(input_files_loc+"heterogeneous_sideset_0.e");
-          eMesh.open("sphere_tet4_wedge_nobl.g");
-          eMesh.output_active_children_only(false);
-
-          double bbox[] = {0.01,0.06,-0.07,0.07,-0.07,0.07}; // all
-          //double bbox[] = {1,2,1,2,-1,0};  // just one wedge
-          std::vector<double> vbbox(&bbox[0], &bbox[0]+6);
-
-          do_het_local_corner_refine_sidesets<Local_Hybrid_3D>(eMesh, 1, vbbox, "tet_wedge", false, true, nref, nunref);
-        }
-    }
-
-    TEST(heavy_rar, tet_wedge_boundary_layer_special_rebalance)
-    {
-      bool do_test = true;
-      stk::ParallelMachine pm = MPI_COMM_WORLD ;
-      const unsigned p_size = stk::parallel_machine_size( pm );
-      if (p_size < 8) return;
-
-      int nref = 1;
-      int nunref = 0;
-
-      if (!do_test) return;
-
-      // test 1
-      if (1)
-        {
-          PerceptMesh eMesh;
-          //eMesh.open(input_files_loc+"heterogeneous_sideset_0.e");
-          eMesh.open("sphere_tet4_wedge_nobl.g");
-          eMesh.output_active_children_only(false);
-          //eMesh.register_and_set_refine_fields();
-
-          double bbox[] = {0.01,0.06,-0.07,0.07,-0.07,0.07}; // all
-          //double bbox[] = {1,2,1,2,-1,0};  // just one wedge
-          std::vector<double> vbbox(&bbox[0], &bbox[0]+6);
-          bool save_intermediate=false;
-          bool delete_parents=false;
-          do_het_local_corner_refine_sidesets<Local_Hybrid_3D>(eMesh, 1, vbbox, "tet_wedge", save_intermediate, delete_parents, nref, nunref);
-
-          if (1)
-            {
-              bool debug = true;
-              percept::RebalanceMesh rb(eMesh, eMesh.m_weights_field, debug);
-              double imb_before = rb.compute_imbalance();
-              double imb_after = rb.rebalance();
-              if (eMesh.get_rank() == 0)
-                {
-                  std::cout << "imbalance before= " << imb_before << " imbalance after= " << imb_after << std::endl;
-                }
-            }
-
-        }
-    }
-
 
   } // namespace unit_tests
 } // namespace percept

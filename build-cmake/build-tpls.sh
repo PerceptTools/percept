@@ -65,7 +65,9 @@ if [ $do_build_opennurbs -eq 1 ]
 then
 
   cd $percept_build_dir/packages/opennurbs
-  make
+  make 
+  cp libopenNURBS.a $percept_build_dir/install/lib/
+  cp opennurbs.h $percept_build_dir/install/include/
 
 fi
 
@@ -108,10 +110,10 @@ then
   cd $percept_build_dir/packages/yaml-cpp-0.5.3
   mkdir -p build
   cd build
-  ###cmake -DCMAKE_CXX_COMPILER=mpicxx -DCMAKE_CC_COMPILER=mpicc -DCMAKE_INSTALL_PREFIX=$percept_build_dir/install ..
-  cmake -DCMAKE_INSTALL_PREFIX=$percept_build_dir/install ..
+  cmake -DCMAKE_CXX_COMPILER=mpicxx -DCMAKE_CC_COMPILER=mpicc -DCMAKE_INSTALL_PREFIX=$percept_build_dir/install ..
+  ##cmake -DCMAKE_INSTALL_PREFIX=$percept_build_dir/install ..
   make clean
-  make  $do_parallel_build
+  make $do_parallel_build
   make install
 fi
 

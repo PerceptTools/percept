@@ -1,6 +1,7 @@
-// Copyright 2014 Sandia Corporation. Under the terms of
-// Contract DE-AC04-94AL85000 with Sandia Corporation, the
-// U.S. Government retains certain rights in this software.
+// Copyright 2002 - 2008, 2010, 2011 National Technology Engineering
+// Solutions of Sandia, LLC (NTESS). Under the terms of Contract
+// DE-NA0003525 with NTESS, the U.S. Government retains certain rights
+// in this software.
 //
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
@@ -11,6 +12,7 @@
 #include <percept/structured/StructuredBlock.hpp>
 #include <percept/structured/BlockStructuredGrid.hpp>
 #include <percept/PerceptUtils.hpp>
+
 
 namespace percept {
 
@@ -91,11 +93,7 @@ namespace percept {
       {
         nfield = iter->second;
       }
-#if defined(WITH_KOKKOS)
-    Kokkos::Experimental::resize(*nfield.get(), Asizes[0], Asizes[1], Asizes[2], fourth_dim);
-#else
-    nfield->resize(Asizes[0], Asizes[1], Asizes[2], fourth_dim);
-#endif
+    Kokkos::resize(*nfield.get(), Asizes[0], Asizes[1], Asizes[2], fourth_dim);
     return nfield;
   }
 
@@ -123,20 +121,14 @@ namespace percept {
 
     unsigned Asizes[3] = {sgi->m_sizes.node_size[A0], sgi->m_sizes.node_size[A1], sgi->m_sizes.node_size[A2]};
 
-#if defined(WITH_KOKKOS)
-    Kokkos::Experimental::resize(sgi->m_sgrid_coords, Asizes[0], Asizes[1], Asizes[2], 3);
-#else
-    sgi->m_sgrid_coords.resize(Asizes[0], Asizes[1], Asizes[2], 3);
-#endif
+    Kokkos::resize(sgi->m_sgrid_coords, Asizes[0], Asizes[1], Asizes[2], 3);
 
     unsigned indx[3]{0,0,0};
 
     // FIXME indexing from 0
 
-#if defined(WITH_KOKKOS)
     Array4D::HostMirror interimNodes;
     interimNodes = Kokkos::create_mirror_view(*sgi->m_sgrid_coords_impl);
-#endif
 
     for (indx[L2] = 0; indx[L2] < sizes[L2]; ++indx[L2])
       {
@@ -148,18 +140,12 @@ namespace percept {
                 double xyz[3] = {  ( double(indx[A0])/double(sizes[A0]-1) ), double(indx[A1])/double(sizes[A1]-1), double(indx[A2])/double(sizes[A2]-1)};
                 for (unsigned ic = 0; ic < 3; ++ic)
                   {
-#if defined(WITH_KOKKOS)
                     interimNodes(indx[A0], indx[A1], indx[A2], ic) = dim_width[ic]*xyz[ic] + dim_offset[ic];
-#else
-                    sgi->m_sgrid_coords(indx[A0], indx[A1], indx[A2], ic) = dim_width[ic]*xyz[ic] + dim_offset[ic];
-#endif
                   }
               }
           }
       }
-#if defined(WITH_KOKKOS)
     Kokkos::deep_copy( *sgi->m_sgrid_coords_impl, interimNodes);
-#endif
 
     // bc's
     int isize[3] = {(int)sizes[0], (int)sizes[1], (int)sizes[2]};
@@ -191,6 +177,20 @@ namespace percept {
   }
 
 
+  void StructuredBlock::multi_dim_indices_from_local_offset(uint64_t local_offset, std::array<unsigned,3>& indx)
+  {
+    const int L0 = m_loop_ordering[0], L1 = m_loop_ordering[1], L2 = m_loop_ordering[2];
+    const unsigned sizes[3] = {
+        1+ m_sizes.node_max[L0] - m_sizes.node_min[L0],
+        1+ m_sizes.node_max[L1] - m_sizes.node_min[L1],
+        1+ m_sizes.node_max[L2] - m_sizes.node_min[L2]
+        };
+
+    indx[L2] = m_sizes.node_min[L2] + (local_offset / (sizes[L0]*sizes[L1] ));
+    indx[L1] = m_sizes.node_min[L1] + ((local_offset / sizes[L0]) % sizes[L1] );
+    indx[L0] = m_sizes.node_min[L0] + (local_offset % sizes[L0]);
+  }
+
   void StructuredBlock::read_cgns()
   {
     stk::diag::Timer     my_timer(m_name, rootTimerStructured());
@@ -203,11 +203,7 @@ namespace percept {
     unsigned sizes[3] = {m_sizes.node_size[0], m_sizes.node_size[1], m_sizes.node_size[2]};
     unsigned Asizes[3] = {m_sizes.node_size[A0], m_sizes.node_size[A1], m_sizes.node_size[A2]};
 
-#if defined(WITH_KOKKOS)
-    Kokkos::Experimental::resize(m_sgrid_coords, Asizes[0], Asizes[1], Asizes[2], 3);
-#else
-    m_sgrid_coords.resize(Asizes[0], Asizes[1], Asizes[2], 3);
-#endif
+    Kokkos::resize(m_sgrid_coords, Asizes[0], Asizes[1], Asizes[2], 3);
 
     auto &block = *m_sblock;
     std::vector<double> coord_tmp[3];
@@ -220,10 +216,8 @@ namespace percept {
 
     unsigned indx[3]{0,0,0};
 
-#if defined(WITH_KOKKOS)
     Array4D::HostMirror interimNodes;
     interimNodes = Kokkos::create_mirror_view(*m_sgrid_coords_impl);
-#endif
 
     for (indx[L2] = 0; indx[L2] < sizes[L2]; ++indx[L2])
       {
@@ -234,34 +228,26 @@ namespace percept {
                 auto ilo = local_offset(indx[A0], indx[A1], indx[A2], &Asizes[0]);
                 for (unsigned ic = 0; ic < 3; ++ic)
                   {
-#if defined(WITH_KOKKOS)
                     interimNodes(indx[A0], indx[A1], indx[A2], ic) = coord_tmp[ic][ilo];
-#else
-                    m_sgrid_coords(indx[A0], indx[A1], indx[A2], ic) = coord_tmp[ic][ilo];
-#endif
-                    //std::cout << "coord= " << ic << " " << ilo << " " << coord_tmp[ic][ilo] << std::endl;
                   }
               }
           }
       }
-#if defined(WITH_KOKKOS)
+
     {
       stk::diag::Timer     my_copy_timer("deep_copy_to_device", my_timer);
       stk::diag::TimeBlock my_timeblock2(my_copy_timer);
 
       Kokkos::deep_copy(*m_sgrid_coords_impl,interimNodes);
     }
-#endif
   }
 
   void StructuredBlock::print(std::ostream& out, int level)
   {
-
-#if defined(WITH_KOKKOS)
     Array4D::HostMirror interimNodes;
     interimNodes = Kokkos::create_mirror_view(*m_sgrid_coords_impl);
     Kokkos::deep_copy(interimNodes,*m_sgrid_coords_impl);
-#endif
+
     out << "StructuredBlock: iblock= " << m_iblock << " name= " << m_name << " base= " << m_base << " zone= " << m_zone << std::endl;
     out << "node_min         = " << m_sizes.node_min[0] << " " << m_sizes.node_min[1] << " " << m_sizes.node_min[2] << std::endl;
     out << "node_max         = " << m_sizes.node_max[0] << " " << m_sizes.node_max[1] << " " << m_sizes.node_max[2] << std::endl;
@@ -299,13 +285,8 @@ namespace percept {
                   {
                     for (unsigned ic = 0; ic < 3; ++ic)
                       {
-#if defined(WITH_KOKKOS)
                     	out << "coord: " << indx[A0] << " " << indx[A1] << " " << indx[A2] << " "
                     	                            <<interimNodes(indx[A0], indx[A1], indx[A2], ic) << std::endl;
-#else
-                        out << "coord: " << indx[A0] << " " << indx[A1] << " " << indx[A2] << " "
-                            << m_sgrid_coords(indx[A0], indx[A1], indx[A2], ic) << std::endl;
-#endif
                       }
                   }
               }
@@ -315,11 +296,9 @@ namespace percept {
 
   void StructuredBlock::dump_vtk(const std::string& file_prefix)
   {
-#if defined(WITH_KOKKOS)
     Array4D::HostMirror interimNodes;
     interimNodes = Kokkos::create_mirror_view(*m_sgrid_coords_impl);
     Kokkos::deep_copy(interimNodes,*m_sgrid_coords_impl);
-#endif
 
     const unsigned L0 = m_loop_ordering[0], L1 = m_loop_ordering[1], L2 = m_loop_ordering[2];
     const unsigned A0 = m_access_ordering[0], A1 = m_access_ordering[1], A2 = m_access_ordering[2];
@@ -353,6 +332,11 @@ namespace percept {
 
         {
 
+          std::ios_base::fmtflags old_flags = out.flags();
+          int old_precision = out.precision();
+          out.precision(4);
+          out << std::fixed;
+
           unsigned sizes[3] = {m_sizes.node_size[0], m_sizes.node_size[1], m_sizes.node_size[2]};
           unsigned indx[3]{0,0,0};
 
@@ -365,16 +349,18 @@ namespace percept {
                       out << "         ";
                       for (unsigned ic = 0; ic < 3; ++ic)
                         {
-#if defined(WITH_KOKKOS)
-                    	  out << " " << interimNodes(indx[A0], indx[A1], indx[A2], ic);
-#else
-                    	  out << " " << m_sgrid_coords(indx[A0], indx[A1], indx[A2], ic);
-#endif
+                    	  double val = interimNodes(indx[A0], indx[A1], indx[A2], ic);
+
+                    	  if (std::fabs(val)<std::numeric_limits<double>::epsilon()) val = 0.0;
+                    	  out << std::setw(16) << val;
                         }
                       out << "\n";
                     }
                 }
             }
+
+          out.flags(old_flags);
+          out.precision(old_precision);
         }
 
         out <<

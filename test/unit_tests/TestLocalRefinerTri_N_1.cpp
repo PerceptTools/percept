@@ -1,6 +1,7 @@
-// Copyright 2014 Sandia Corporation. Under the terms of
-// Contract DE-AC04-94AL85000 with Sandia Corporation, the
-// U.S. Government retains certain rights in this software.
+// Copyright 2002 - 2008, 2010, 2011 National Technology Engineering
+// Solutions of Sandia, LLC (NTESS). Under the terms of Contract
+// DE-NA0003525 with NTESS, the U.S. Government retains certain rights
+// in this software.
 //
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
@@ -21,7 +22,6 @@
 
 #undef STK_PERCEPT_HAS_GEOMETRY
 #if defined( STK_PERCEPT_HAS_GEOMETRY )
-#include <adapt/geometry/GeometryKernelOpenNURBS.hpp>
 #include <adapt/geometry/MeshGeometry.hpp>
 #include <adapt/geometry/GeometryFactory.hpp>
 #endif

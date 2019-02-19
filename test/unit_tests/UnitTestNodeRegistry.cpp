@@ -1,6 +1,7 @@
-// Copyright 2014 Sandia Corporation. Under the terms of
-// Contract DE-AC04-94AL85000 with Sandia Corporation, the
-// U.S. Government retains certain rights in this software.
+// Copyright 2002 - 2008, 2010, 2011 National Technology Engineering
+// Solutions of Sandia, LLC (NTESS). Under the terms of Contract
+// DE-NA0003525 with NTESS, the U.S. Government retains certain rights
+// in this software.
 //
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
@@ -316,7 +317,7 @@ TEST(nodeRegistry, test_parallel_1_0)
     eMesh.get_bulk_data()->modification_begin();
     if (p_size == 1)
       {
-        stk::mesh::Entity elem0 = eMesh.get_bulk_data()->declare_element(elem_num_local_hex20, {&block_hex_20});
+        stk::mesh::Entity elem0 = eMesh.get_bulk_data()->declare_element(elem_num_local_hex20, stk::mesh::ConstPartVector{&block_hex_20});
         for(unsigned node_ord = 0 ; node_ord < 20; ++node_ord)
         {
           stk::mesh::Entity new_node = eMesh.get_bulk_data()->declare_node(node_ord+1000);
@@ -327,7 +328,7 @@ TEST(nodeRegistry, test_parallel_1_0)
       {
         if (p_rank == 0)
         {
-          stk::mesh::Entity elem1 = eMesh.get_bulk_data()->declare_element(elem_num_local_hex20, {&block_hex_20});
+          stk::mesh::Entity elem1 = eMesh.get_bulk_data()->declare_element(elem_num_local_hex20, stk::mesh::ConstPartVector{&block_hex_20});
           for(unsigned node_ord = 0 ; node_ord < 20; ++node_ord)
           {
             stk::mesh::Entity new_node = eMesh.get_bulk_data()->declare_node(node_ord+2000);
@@ -336,7 +337,7 @@ TEST(nodeRegistry, test_parallel_1_0)
         }
         if (p_rank == 1)
         {
-          stk::mesh::Entity elem2 = eMesh.get_bulk_data()->declare_element(elem_num_ghost_hex20, {&block_hex_20});
+          stk::mesh::Entity elem2 = eMesh.get_bulk_data()->declare_element(elem_num_ghost_hex20, stk::mesh::ConstPartVector{&block_hex_20});
           for(unsigned node_ord = 0 ; node_ord < 20; ++node_ord)
           {
             stk::mesh::Entity new_node = eMesh.get_bulk_data()->declare_node(node_ord+3000);
@@ -416,7 +417,6 @@ TEST(nodeRegistry, test_parallel_1_0)
 
     // end_demo
 
-#if STK_ADAPT_HAVE_YAML_CPP
     if (p_size == 1)
       {
         if (1) {
@@ -495,7 +495,7 @@ TEST(nodeRegistry, test_parallel_1_0)
 
         //exit(1);
       }
-#endif
+
     // start_demo_nodeRegistry_test_parallel_1_quadratic_elem
 
     // change element to be a serendipity quadratic element

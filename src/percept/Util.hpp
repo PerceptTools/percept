@@ -1,6 +1,7 @@
-// Copyright 2014 Sandia Corporation. Under the terms of
-// Contract DE-AC04-94AL85000 with Sandia Corporation, the
-// U.S. Government retains certain rights in this software.
+// Copyright 2002 - 2008, 2010, 2011 National Technology Engineering
+// Solutions of Sandia, LLC (NTESS). Under the terms of Contract
+// DE-NA0003525 with NTESS, the U.S. Government retains certain rights
+// in this software.
 //
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
@@ -139,7 +140,17 @@ namespace shards {
         vec.resize(std::distance(vec.begin(), del));
       }
 
+      // return true if input starts with the fragment
       static bool startsWith(const std::string& input, const std::string& fragment) { return input.substr(0, fragment.length()) == fragment; }
+      static bool startsWith(const char* input, const char* fragment) 
+      {
+        for (int i = 0; fragment[i] != '\0'; ++i)
+        {
+          if (input[i] != fragment[i]) // e.g. input[i] == '\0'
+            return false;
+        }
+        return true; 
+      }
       //static std::string convert_to_mm(double d, int precision=15, std::string mm_prec="`15");
       static std::string convert_to_mm(double d, int precision=6, std::string mm_prec="");
       static std::string convertToMathematica(double d, int precision=6, std::string mm_prec="") {
@@ -303,7 +314,7 @@ namespace shards {
                                                                throw std::runtime_error(msg_loc.str()); } } } while (0)
 
 
-#ifdef NDEBUG
+#if defined(NDEBUG) || defined(__CUDA_ARCH__)
 
 #define VERIFY_1(message)  do {} while(0)
 #define VERIFY(expr, val1, val2, message)  do {} while(0)

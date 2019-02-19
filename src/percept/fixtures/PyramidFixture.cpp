@@ -1,6 +1,7 @@
-// Copyright 2014 Sandia Corporation. Under the terms of
-// Contract DE-AC04-94AL85000 with Sandia Corporation, the
-// U.S. Government retains certain rights in this software.
+// Copyright 2002 - 2008, 2010, 2011 National Technology Engineering
+// Solutions of Sandia, LLC (NTESS). Under the terms of Contract
+// DE-NA0003525 with NTESS, the U.S. Government retains certain rights
+// in this software.
 //
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
@@ -31,6 +32,7 @@
 #include <stk_io/IossBridge.hpp>
 #include <stk_mesh/base/MeshUtils.hpp>
 #include <percept/FieldTypes.hpp>
+#include <percept/PerceptUtils.hpp>
 
 //----------------------------------------------------------------------
 
@@ -49,7 +51,7 @@
 
     PyramidFixture::PyramidFixture( stk::ParallelMachine comm, bool doCommit, bool do_sidesets ) :
       m_spatial_dimension(3)
-      , m_metaData(m_spatial_dimension, stk::mesh::entity_rank_names() )
+      , m_metaData(m_spatial_dimension, entity_rank_names_and_family_tree())
       , m_bulkData(m_metaData , comm )
       , m_block_pyramid(    m_metaData.declare_part_with_topology( "block_4", stk::topology::PYRAMID_5 ))
       , m_sideset_quad(0), m_sideset_quad_subset(0)
@@ -58,7 +60,7 @@
       , m_centroid_field(    m_metaData.declare_field< CoordinatesFieldType >( stk::topology::ELEMENT_RANK, "centroid" ))
       , m_temperature_field( m_metaData.declare_field< ScalarFieldType >( stk::topology::NODE_RANK, "temperature" ))
       , m_volume_field( m_metaData.declare_field< ScalarFieldType >( stk::topology::ELEMENT_RANK, "volume" ))
-    {
+    {      
       // Define where fields exist on the mesh:
       stk::mesh::Part & universal = m_metaData.universal_part();
 
@@ -78,11 +80,11 @@
           stk::io::put_io_part_attribute(*m_sideset_tri);
           m_metaData.declare_part_subset(*m_sideset_tri, *m_sideset_tri_subset);
         }
-      put_field( m_coordinates_field , universal );
-      put_field( m_centroid_field , universal );
-      put_field( m_temperature_field, universal );
+      put_field_on_mesh( m_coordinates_field , universal, nullptr);
+      put_field_on_mesh( m_centroid_field , universal, nullptr);
+      put_field_on_mesh( m_temperature_field, universal, nullptr);
 
-      put_field( m_volume_field, m_block_pyramid );
+      put_field_on_mesh( m_volume_field, m_block_pyramid, nullptr);
 
       stk::io::put_io_part_attribute(  m_block_pyramid );
 

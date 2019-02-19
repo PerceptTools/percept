@@ -1,6 +1,7 @@
-// Copyright 2014 Sandia Corporation. Under the terms of
-// Contract DE-AC04-94AL85000 with Sandia Corporation, the
-// U.S. Government retains certain rights in this software.
+// Copyright 2002 - 2008, 2010, 2011 National Technology Engineering
+// Solutions of Sandia, LLC (NTESS). Under the terms of Contract
+// DE-NA0003525 with NTESS, the U.S. Government retains certain rights
+// in this software.
 //
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
@@ -271,8 +272,8 @@ void io_example( stk::ParallelMachine comm,
   //int SpatialDim = 3;
   enum { SpatialDim = 3 };
 
-  stk::mesh::put_field(
-    coordinates_field ,  universal , SpatialDim );
+  stk::mesh::put_field_on_mesh(
+    coordinates_field ,  universal , SpatialDim , nullptr);
 
   //--------------------------------
 
@@ -283,8 +284,8 @@ void io_example( stk::ParallelMachine comm,
     meta_data.declare_field< VectorFieldType >( stk::topology::ELEMENT_RANK, "ind_coarse2" );
 
   mesh::Part * block_1 = meta_data.get_part("block_1");
-  stk::mesh::put_field(
-                       elem_centroid_field2 , *block_1 , SpatialDim );
+  stk::mesh::put_field_on_mesh(
+                       elem_centroid_field2 , *block_1 , SpatialDim , nullptr);
 
 
 
@@ -317,9 +318,9 @@ void io_example( stk::ParallelMachine comm,
 
   // NOTE: 'out_region' owns 'dbo' pointer at this time...
   Ioss::Region out_region(dbo, "results_output");
-
-  stk::io::define_output_db(out_region, bulk_data, {}, &in_region);
-  stk::io::write_output_db(out_region,  bulk_data);
+  stk::io::OutputParams params(out_region, bulk_data);
+  stk::io::define_output_db(params, {}, &in_region);
+  stk::io::write_output_db(params);
 
   // ------------------------------------------------------------------------
   /** \todo REFACTOR A real app would register a subset of the
@@ -411,8 +412,8 @@ void process_nodeblocks(Ioss::Region &region, stk::mesh::MetaData &meta)
   stk::mesh::Field<double,stk::mesh::Cartesian> & coord_field =
     meta.declare_field<stk::mesh::Field<double,stk::mesh::Cartesian> >(stk::topology::NODE_RANK, "coordinates");
 
-  stk::mesh::put_field( coord_field, meta.universal_part(),
-                        spatial_dim);
+  stk::mesh::put_field_on_mesh( coord_field, meta.universal_part(),
+                        spatial_dim, nullptr);
 
   /** \todo IMPLEMENT truly handle fields... For this case we are
    * just defining a field for each transient field that is present
@@ -494,7 +495,7 @@ void process_nodesets(Ioss::Region &region, stk::mesh::MetaData &meta)
       assert(part != NULL);
       assert(entity->field_exists("distribution_factors"));
 
-      stk::mesh::put_field(distribution_factors_field, *part);
+      stk::mesh::put_field_on_mesh(distribution_factors_field, *part, nullptr);
 
       /** \todo IMPLEMENT truly handle fields... For this case we
        * are just defining a field for each transient field that is
@@ -542,8 +543,8 @@ void process_surface_entity(Ioss::SideSet *entity, stk::mesh::MetaData &meta,
         }
         stk::io::set_distribution_factor_field(*fb_part, *distribution_factors_field);
         int face_node_count = fb->topology()->number_nodes();
-        stk::mesh::put_field(*distribution_factors_field,
-                             *fb_part, face_node_count);
+        stk::mesh::put_field_on_mesh(*distribution_factors_field,
+                             *fb_part, face_node_count, nullptr);
       }
 
       /** \todo IMPLEMENT truly handle fields... For this case we
@@ -591,7 +592,7 @@ void process_nodeblocks(Ioss::Region &region, stk::mesh::BulkData &bulk)
   Ioss::NodeBlock *nb = node_blocks[0];
 
   std::vector<stk::mesh::Entity> nodes;
-  stk::io::get_entity_list(nb, stk::topology::NODE_RANK, bulk, nodes);
+  stk::io::get_input_entity_list(nb, stk::topology::NODE_RANK, bulk, nodes);
 
   /** \todo REFACTOR Application would probably store this field
    * (and others) somewhere after the declaration instead of
@@ -780,7 +781,7 @@ void get_field_data(stk::mesh::BulkData &bulk, stk::mesh::Part &part,
                     Ioss::Field::RoleType filter_role)
 {
   std::vector<stk::mesh::Entity> entities;
-  stk::io::get_entity_list(io_entity, part_type, bulk, entities);
+  stk::io::get_input_entity_list(io_entity, part_type, bulk, entities);
 
   stk::mesh::MetaData & meta = stk::mesh::MetaData::get(part);
   const std::vector<stk::mesh::FieldBase*> &fields = meta.get_fields();
@@ -848,7 +849,8 @@ void put_field_data(stk::mesh::BulkData &bulk, stk::mesh::Part &part,
                     Ioss::Field::RoleType filter_role)
 {
   std::vector<stk::mesh::Entity> entities;
-  stk::io::get_entity_list(io_entity, part_type, bulk, entities);
+  stk::io::OutputParams params(bulk);
+  stk::io::get_output_entity_list(io_entity, part_type, params, entities);
 
   stk::mesh::MetaData & meta = stk::mesh::MetaData::get(part);
   const std::vector<stk::mesh::FieldBase*> &fields = meta.get_fields();

@@ -1,6 +1,7 @@
-// Copyright 2014 Sandia Corporation. Under the terms of
-// Contract DE-AC04-94AL85000 with Sandia Corporation, the
-// U.S. Government retains certain rights in this software.
+// Copyright 2002 - 2008, 2010, 2011 National Technology Engineering
+// Solutions of Sandia, LLC (NTESS). Under the terms of Contract
+// DE-NA0003525 with NTESS, the U.S. Government retains certain rights
+// in this software.
 //
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
@@ -18,7 +19,7 @@
 
 #include <set>
 #include <typeinfo>
-
+#include <Kokkos_Macros.hpp>
   namespace percept {
 
     void NodeRegistry_KOKKOS::init_entity_repo()
@@ -55,22 +56,8 @@
             throw std::runtime_error("Something went horribly wrong, map size is greater than capacity");
         if( ( (current_cap - current_size) < m_waste_tolerance ) || current_size == 128) //since the map always sizes itself to the closest multiple of 128, 128 is the minimum size. No need to resize
             return; //if the map is already full or an acceptable amount of space is being wasted, then do not resize
-        SubDimCellToDataMap_KOKKOS new_map(current_size);
 
-        Kokkos::parallel_for(Kokkos::RangePolicy<ExecSpace>(0,current_cap),KOKKOS_LAMBDA (unsigned iMapIndx) {
-            /*const*/ SubDimCell_SDCEntityType key = m_cell_2_data_map.key_at(iMapIndx);
-            unsigned iData = m_cell_2_data_map.find(key);
-            if(iData == Kokkos::UnorderedMapInvalidIndex){
-                (void)iData;
-            }
-            else{
-                SubDimCellData value = m_cell_2_data_map.value_at(iData);
-                Kokkos::UnorderedMapInsertResult insert_result = new_map.insert(key,value);
-                if(insert_result.failed())
-                    printf("Failed to insert result from old map index %d\n",iMapIndx);
-            }
-        });
-        m_cell_2_data_map = new_map;//finally reassign the map
+        m_cell_2_data_map.rehash(current_size);
     }
 
     void NodeRegistry_KOKKOS::
@@ -520,7 +507,13 @@
       threadSafeiNode_mir(0) = 0;
       Kokkos::deep_copy(threadSafeiNode,threadSafeiNode_mir);
 
-      Kokkos::parallel_for(Kokkos::RangePolicy<ExecSpace>(0,m_cell_2_data_map.capacity()),KOKKOS_LAMBDA (unsigned iMapIndx)
+      // Malachi Phillips Jun 21, 2018
+      //
+      // This needs a capture by *this in order to work on __device__
+      //
+      // Capture by *this cannot work on __host__, unless using a complaint c++17 compiler
+      //
+      Kokkos::parallel_for(Kokkos::RangePolicy<Kokkos::DefaultHostExecutionSpace>(0,m_cell_2_data_map.capacity()), [&] (const unsigned int iMapIndx)
       {
           const SubDimCell_SDCEntityType& subDimEntity = m_cell_2_data_map.key_at(iMapIndx);
           unsigned iData = m_cell_2_data_map.find(subDimEntity);
@@ -536,20 +529,22 @@
               else{
                   stk::mesh::EntityId owning_elementId = data.get<SDC_DATA_OWNING_ELEMENT_KEY>().id();
 
+#ifndef __CUDACC__
                   if (!owning_elementId)
                   {
-                      throw std::logic_error("logic: hmmm #5.4.0");
+                    throw std::logic_error("logic: hmmm #5.4.0");
                   }
+#endif
 
                   stk::mesh::EntityRank erank = data.get<SDC_DATA_OWNING_ELEMENT_KEY>().rank();
                   stk::mesh::Entity owning_element = get_entity_element(*m_eMesh.get_bulk_data(), erank, owning_elementId);
 
                   if (!m_eMesh.is_valid(owning_element))
                   {
-                      // FIXME
+#ifndef __CUDACC__
                       if (!s_use_new_ownership_check)
                           throw std::logic_error("logic: hmmm #5.4");
-                      //              continue; //continue doesn't work the same way in pf
+#endif
                   }
 
                   else if (s_use_new_ownership_check && m_eMesh.isGhostElement(owning_element))
@@ -564,7 +559,9 @@
                   {
                       if (nodeIds_onSE.m_entity_id_vector.size() != nodeIds_onSE.size())
                       {
+#ifndef __CUDACC__
                           throw std::logic_error("NodeRegistry_KOKKOS:: createNewNodesInParallel logic err #0.0");
+#endif
                       }
 
                       for (unsigned ii = 0; ii < nodeIds_onSE.size(); ii++)
@@ -572,22 +569,26 @@
                           unsigned localiNode = Kokkos::atomic_fetch_add<unsigned>(&threadSafeiNode(0),1);  //fetches old value then increments the index in a thread safe manner
 
                           VERIFY_OP(localiNode, < , num_nodes_needed, "UniformRefiner::doBreak() too many nodes");
+#ifndef __CUDACC__
                           if ( DEBUG_NR_UNREF)
                           {
                               std::cout << "tmp createNewNodesInParallel: old node id= " << (m_eMesh.is_valid(nodeIds_onSE[ii]) ? toString(m_eMesh.identifier(nodeIds_onSE[ii])) : std::string("null")) << std::endl;
                               std::cout << "tmp createNewNodesInParallel: new node=";
                               m_eMesh.print_entity(std::cout, new_nodes[localiNode]);
                           }
+#endif
 
                           // if already exists from a previous iteration/call to doBreak, don't reset it and just use the old node
                           if (m_eMesh.is_valid(nodeIds_onSE[ii]))
                           {
+#ifndef __CUDACC__
                               if (DEBUG_NR_UNREF)
                               {
                                   std::cout << "tmp createNewNodesInParallel: old node id is no-null, re-using it= " << (m_eMesh.is_valid(nodeIds_onSE[ii]) ? toString(m_eMesh.identifier(nodeIds_onSE[ii])) : std::string("null")) << std::endl;
                                   std::cout << "tmp createNewNodesInParallel: new node=";
                                   m_eMesh.print_entity(std::cout, new_nodes[localiNode]);
                               }
+#endif
                           }
                           else
                           {

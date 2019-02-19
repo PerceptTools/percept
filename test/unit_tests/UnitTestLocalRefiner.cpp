@@ -1,6 +1,7 @@
-// Copyright 2014 Sandia Corporation. Under the terms of
-// Contract DE-AC04-94AL85000 with Sandia Corporation, the
-// U.S. Government retains certain rights in this software.
+// Copyright 2002 - 2008, 2010, 2011 National Technology Engineering
+// Solutions of Sandia, LLC (NTESS). Under the terms of Contract
+// DE-NA0003525 with NTESS, the U.S. Government retains certain rights
+// in this software.
 //
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
@@ -21,6 +22,7 @@
 
 #include <adapt/UniformRefinerPattern.hpp>
 #include <adapt/UniformRefiner.hpp>
+#include <adapt/ExcludeWedgesNotConnectedToPyramids.hpp>
 
 #include <unit_tests/TestLocalRefinerTri.hpp>
 #include <unit_tests/TestLocalRefinerTri1.hpp>
@@ -31,15 +33,14 @@
 #include <unit_tests/TestLocalRefinerTri_N_3.hpp>
 
 #include <unit_tests/TestLocalRefinerTri_N_3_IEdgeAdapter.hpp>
-#include <unit_tests/TestLocalRefinerTri_N_3_IElementAdapter.hpp>
 
 #include <unit_tests/TestLocalRefinerTri_N_4_IEdgeAdapter.hpp>
 
 #include <unit_tests/TestLocalRefinerTri_N_3_MeshSizeRatio.hpp>
 #include <unit_tests/TestLocalRefinerTri_N_3_EdgeBasedAnisotropic.hpp>
 
+#include <adapt/TransitionElementAdapter.hpp>
 #include <adapt/ElementRefinePredicate.hpp>
-#include <adapt/PredicateBasedElementAdapter.hpp>
 #include <adapt/TriangulateTri.hpp>
 
 #include <unit_tests/TestLocalRefinerTet_N_1.hpp>
@@ -49,6 +50,7 @@
 #include <unit_tests/TestLocalRefinerTet_N_3_1.hpp>
 #include <unit_tests/TestLocalRefinerTet_N_4.hpp>
 
+#include <regression_tests/RegressionTestLocalRefiner.hpp>
 
 #include <gtest/gtest.h>
 
@@ -94,6 +96,53 @@
 
   namespace percept {
     namespace unit_tests {
+
+      class SetRefineFieldLineIntersection : public percept::ElementOp
+      {
+        percept::PerceptMesh& m_eMesh;
+      public:
+        SetRefineFieldLineIntersection(percept::PerceptMesh& eMesh) : m_eMesh(eMesh) {
+        }
+
+        virtual bool operator()(const stk::mesh::Entity element, stk::mesh::FieldBase *field,  const stk::mesh::BulkData& bulkData)
+        {
+        // vertical line position
+        const double vx = 0.21;
+
+        // horizontal line position
+        const double vy = 1.21;
+
+        RefineFieldType_type *f_data = stk::mesh::field_data(*static_cast<RefineFieldType *>(field), element);
+        const percept::MyPairIterRelation elem_nodes (m_eMesh, element, stk::topology::NODE_RANK);
+
+        for (unsigned inode=0; inode < elem_nodes.size(); inode++)
+          {
+            stk::mesh::Entity node = elem_nodes[inode].entity();
+            stk::mesh::Entity node1 = elem_nodes[(inode + 1) % 3].entity();
+            double *coord0 = stk::mesh::field_data( *m_eMesh.get_coordinates_field(), node );
+            double *coord1 = stk::mesh::field_data( *m_eMesh.get_coordinates_field(), node1 );
+
+            // choose to refine or not
+            if (
+                ( std::fabs(coord0[0]-coord1[0]) > 1.e-3 &&
+                  ( (coord0[0] < vx && vx < coord1[0]) || (coord1[0] < vx && vx < coord0[0]) )
+                  )
+                ||
+                ( std::fabs(coord0[1]-coord1[1]) > 1.e-3 &&
+                  ( (coord0[1] < vy && vy < coord1[1]) || (coord1[1] < vy && vy < coord0[1]) )
+                  )
+                )
+              {
+                f_data[0] = 1;
+                break;
+              }
+          }
+            
+        return false;  // don't terminate the loop
+        }
+        virtual void init_elementOp() {}
+        virtual void fini_elementOp() {}
+      };
 
       static int print_infoLevel = 0;
       static std::string post_fix[4] = {"np0", "np1", "np2", "np3"};
@@ -1480,8 +1529,7 @@
       //=============================================================================
       //=============================================================================
 
-#if 1
-      TEST(unit_localRefiner, break_tri_to_tri_N_3_1_IElementAdapter)
+      TEST(unit_localRefiner, break_tri_to_tri_N_3_1_TEA)
       {
         EXCEPTWATCH;
         stk::ParallelMachine pm = MPI_COMM_WORLD ;
@@ -1501,57 +1549,53 @@
             bool isCommitted = false;
             percept::PerceptMesh eMesh(&fixture.meta_data, &fixture.bulk_data, isCommitted);
 
-            Local_Tri3_Tri3_N break_tri_to_tri_N(eMesh);
+            Local_Tri3_Tri3_N_HangingNode break_tri_to_tri_N(eMesh);
             int scalarDimension = 0; // a scalar
             stk::mesh::FieldBase* proc_rank_field = eMesh.add_field("proc_rank", stk::topology::ELEMENT_RANK, scalarDimension);
             eMesh.add_field("proc_rank_edge", eMesh.edge_rank(), scalarDimension);
+            eMesh.register_and_set_refine_fields();
             eMesh.commit();
 
             fixture.generate_mesh();
 
             //eMesh.print_info("local tri mesh",2);
-            save_or_diff(eMesh, output_files_loc+"local_tri_N_3_1_IElementAdapter_0_"+post_fix[p_size]+".e");
+            save_or_diff(eMesh, output_files_loc+"local_tri_N_3_1_TEA_0_"+post_fix[p_size]+".e");
 
-            TestLocalRefinerTri_N_3_IElementAdapter breaker(eMesh, break_tri_to_tri_N, proc_rank_field);
+            SetRefineFieldLineIntersection set_ref_field(eMesh);
+            elementOpLoop(*eMesh.get_bulk_data(), set_ref_field, eMesh.m_refine_field);
+
+            stk::mesh::Selector univ_selector(eMesh.get_fem_meta_data()->universal_part());
+
+            ElementRefinePredicate erp(eMesh, &univ_selector, eMesh.m_refine_field, 0.0);
+            TransitionElementAdapter<ElementRefinePredicate> breaker(erp, eMesh, break_tri_to_tri_N, proc_rank_field);
+
             breaker.setRemoveOldElements(false);
             breaker.setAlwaysInitializeNodeRegistry(false);
             for (int ipass=0; ipass < 4; ipass++)
               {
+                elementOpLoop(*eMesh.get_bulk_data(), set_ref_field, eMesh.m_refine_field);
                 std::cout << "P[" << eMesh.get_rank() << "] ipass= " << ipass << std::endl;
                 breaker.doBreak();
                 std::cout << "P[" << eMesh.get_rank() << "] done... ipass= " << ipass << std::endl;
-                eMesh.save_as(output_files_loc+"local_tri_N_3_1_IElementAdapter_1_ipass"+toString(ipass)+"_"+post_fix[p_size]+".e");
+                eMesh.save_as(output_files_loc+"local_tri_N_3_1_TEA_1_ipass"+toString(ipass)+"_"+post_fix[p_size]+".e");
               }
 
-            //eMesh.dump_elements_compact();
-
-            //eMesh.print_info("local tri mesh refined", 2);
-            //save_or_diff(eMesh, output_files_loc+"local_tri_N_3_1_IElementAdapter_1_"+post_fix[p_size]+".e");
-            eMesh.save_as(output_files_loc+"local_tri_N_3_1_IElementAdapter_1_"+post_fix[p_size]+".e");
-
-            //MPI_Barrier( MPI_COMM_WORLD );
-#if 1
+            eMesh.save_as(output_files_loc+"local_tri_N_3_1_TEA_1_"+post_fix[p_size]+".e");
 
             for (int iunref_pass=0; iunref_pass < 4; iunref_pass++)
               {
                 std::cout << "P[" << eMesh.get_rank() << "] iunref_pass= " << iunref_pass << std::endl;
-                //ElementUnrefineCollection elements_to_unref = breaker.buildUnrefineList();
                 ElementUnrefineCollection elements_to_unref(*eMesh.get_bulk_data()); 
                 breaker.buildUnrefineList(elements_to_unref);
                 breaker.unrefineTheseElements(elements_to_unref);
-                eMesh.save_as(output_files_loc+"local_tri_N_3_1_IElementAdapter_1_unref_ipass"+toString(iunref_pass)+"_"+post_fix[p_size]+".e");
-                //breaker.unrefineAll();
+                eMesh.save_as(output_files_loc+"local_tri_N_3_1_TEA_1_unref_ipass"+toString(iunref_pass)+"_"+post_fix[p_size]+".e");
               }
 
             // FIXME
-            eMesh.save_as( output_files_loc+"local_tri_N_3_1_IElementAdapter_1_unref_"+post_fix[p_size]+".e");
-            //save_or_diff(eMesh, output_files_loc+"local_tri_N_3_1_IElementAdapter_1_unref_"+post_fix[p_size]+".e");
-#endif
-            // end_demo
+            eMesh.save_as( output_files_loc+"local_tri_N_3_1_TEA_1_unref_"+post_fix[p_size]+".e");
           }
-
       }
-#endif
+
 #if 1
       //=============================================================================
       //=============================================================================
@@ -1617,7 +1661,6 @@
       //=============================================================================
       //=============================================================================
 
-#if 1
       class SetRefineField : public percept::ElementOp
       {
         percept::PerceptMesh& m_eMesh;
@@ -1712,25 +1755,25 @@
             bool isCommitted = false;
             percept::PerceptMesh eMesh(&fixture.meta_data, &fixture.bulk_data, isCommitted);
 
-            Local_Tri3_Tri3_N break_tri_to_tri_N(eMesh);
+            Local_Tri3_Tri3_N_HangingNode break_tri_to_tri_N(eMesh);
             int scalarDimension = 0; // a scalar
             stk::mesh::FieldBase* proc_rank_field = eMesh.add_field("proc_rank", stk::topology::ELEMENT_RANK, scalarDimension);
-            RefineFieldType *refine_field = dynamic_cast<RefineFieldType *>(eMesh.add_field_int("refine_field", stk::topology::ELEMENT_RANK, scalarDimension));
+
+            eMesh.register_and_set_refine_fields();
+
             eMesh.commit();
 
             fixture.generate_mesh();
 
             SetRefineField set_ref_field(eMesh);
-            elementOpLoop(*eMesh.get_bulk_data(), set_ref_field, refine_field);
+            elementOpLoop(*eMesh.get_bulk_data(), set_ref_field, eMesh.m_refine_field);
 
             save_or_diff(eMesh, output_files_loc+"local_tri_N_5_ElementBased_0_"+post_fix[p_size]+".e");
 
             stk::mesh::Selector univ_selector(eMesh.get_fem_meta_data()->universal_part());
 
-            ElementRefinePredicate erp(eMesh, &univ_selector, refine_field, 0.0);
-            PredicateBasedElementAdapter<ElementRefinePredicate>
-              breaker(erp,
-                      eMesh, break_tri_to_tri_N, proc_rank_field);
+            ElementRefinePredicate erp(eMesh, &univ_selector, eMesh.m_refine_field, 0.0);
+            TransitionElementAdapter<ElementRefinePredicate> breaker(erp, eMesh, break_tri_to_tri_N, proc_rank_field);
 
             breaker.setRemoveOldElements(false);
             breaker.setAlwaysInitializeNodeRegistry(false);
@@ -1743,14 +1786,10 @@
               }
 
             eMesh.save_as(output_files_loc+"local_tri_N_5_ElementBased_1_"+post_fix[p_size]+".e");
-            //breaker.deleteParentElements();
-            //eMesh.save_as(output_files_loc+"local_tri_N_5_ElementBased_1_"+post_fix[p_size]+"_no_parent_elems.e");
 
-#if 1
             for (int iunref_pass=0; iunref_pass < 4; iunref_pass++)
               {
                 std::cout << "P[" << eMesh.get_rank() << "] iunref_pass= " << iunref_pass << std::endl;
-                //ElementUnrefineCollection elements_to_unref = breaker.buildUnrefineList();
                 ElementUnrefineCollection elements_to_unref(*eMesh.get_bulk_data()); 
                 breaker.buildUnrefineList(elements_to_unref);
 
@@ -1759,18 +1798,12 @@
               }
 
             eMesh.save_as( output_files_loc+"local_tri_N_5_ElementBased_1_unref_"+post_fix[p_size]+".e");
-#endif
-            // end_demo
           }
-
       }
-#endif
 
       //=============================================================================
       //=============================================================================
       //=============================================================================
-
-
 
       static void set_node_coords(percept::PerceptMesh& eMesh, percept::MyPairIterRelation& elem_nodes, double tri_coords[3][3])
       {
@@ -1860,10 +1893,11 @@
 	  bool isCommitted = false;
 	  percept::PerceptMesh eMesh(&fixture.meta_data, &fixture.bulk_data, isCommitted);
 
-	  Local_Tri3_Tri3_N break_tri_to_tri_N(eMesh);
+	  Local_Tri3_Tri3_N_HangingNode break_tri_to_tri_N(eMesh);
 	  int scalarDimension = 0;
 	  stk::mesh::FieldBase* proc_rank_field = eMesh.add_field("proc_rank", stk::topology::ELEMENT_RANK, scalarDimension);
-	  eMesh.add_field("proc_rank_edge", eMesh.edge_rank(), scalarDimension);
+
+          eMesh.register_and_set_refine_fields();
 
 	  // field for elem mesh size ratio (non-dimensional)
 	  ScalarFieldType * elem_ratio_field =
@@ -1874,15 +1908,14 @@
 
 	  fixture.generate_mesh();
 
-	  //eMesh.print_info("local tri mesh",2);
 	  save_or_diff(eMesh, output_files_loc+"local_tri_N_MeshSizeRatio_0_"+post_fix[p_size]+".e");
 
-	  // main class used to drive the test
-	  TestLocalRefinerTri_N_3_MeshSizeRatio breaker (
-            eMesh,
-	    break_tri_to_tri_N,
-	    elem_ratio_field,
-	    proc_rank_field);
+          SetRefineFieldElementRatioField set_ref_field(eMesh, elem_ratio_field);
+          
+          stk::mesh::Selector univ_selector(eMesh.get_fem_meta_data()->universal_part());
+
+          ElementRefinePredicate erp(eMesh, &univ_selector, eMesh.m_refine_field, 0.0);
+          TransitionElementAdapter<ElementRefinePredicate> breaker(erp, eMesh, break_tri_to_tri_N, proc_rank_field);
 
 	  breaker.setRemoveOldElements(false);
 	  breaker.setAlwaysInitializeNodeRegistry(false);
@@ -1892,6 +1925,8 @@
 
 	    // compute exact elem interp error and then elem mesh size ratio (elem loop)
 	    compute_elem_mesh_size_ratio(eMesh, elem_ratio_field, global_error_tol);
+
+            elementOpLoop(*eMesh.get_bulk_data(), set_ref_field, eMesh.m_refine_field);
 
 	    std::cout << "P[" << eMesh.get_rank() << "] ipass= " << ipass << std::endl;
 	    breaker.doBreak();
@@ -2086,8 +2121,131 @@
 
       }
 
+      TEST(unit_localRefiner, pyramid5_wedge6_mesh_special_convert_to_tets)
+      {
+        stk::ParallelMachine pm = MPI_COMM_WORLD ;
 
+        const unsigned p_size = stk::parallel_machine_size( pm );
+        if (p_size >1) return;
 
+        PerceptMesh eMesh;
+        // mesh with 3 wedges, 1 pyramid, sideset on exterior faces
+        // result should be 1 wedge, 2 tets from the pyramid, and 6 tets from 2 of the wedges
+        eMesh.open("pyr_wedge_ss.g");
+
+        Hex8_Wedge6_Pyramid5_Tet4 break_pattern(eMesh);
+
+        eMesh.register_and_set_refine_fields();
+
+        int scalarDimension = 0; // a scalar
+        stk::mesh::FieldBase* proc_rank_field = eMesh.add_field("proc_rank", stk::topology::ELEMENT_RANK, scalarDimension);
+
+        // NEW
+        stk::mesh::Part* exclude_part = &eMesh.get_fem_meta_data()->declare_part("exclude_part", eMesh.element_rank());
+
+        eMesh.commit();
+
+        eMesh.set_respect_spacing(false);
+
+        // NEW
+        stk::mesh::PartVector pv(1, exclude_part);
+        excludeWedgesNotConnectedToPyramids(eMesh, pv);
+
+        UniformRefiner breaker(eMesh, break_pattern, proc_rank_field);
+        breaker.setRemoveOldElements(false); // important
+
+        // NEW
+        breaker.setExcludeParts(pv);
+
+        breaker.setAlwaysInitializeNodeRegistry(false);
+        eMesh.output_active_children_only(true);
+
+        breaker.doBreak();
+
+        eMesh.save_as("pyr_wedge_ss_rm_pyramids.g");
+
+        breaker.deleteParentElements(); // important
+
+        std::vector<size_t> count;        
+        stk::mesh::count_entities(stk::mesh::Selector(eMesh.get_fem_meta_data()->universal_part()) , *eMesh.get_bulk_data(), count);
+        EXPECT_EQ(count[eMesh.element_rank()], (size_t)9);
+        EXPECT_EQ(count[eMesh.node_rank()],    (size_t)12);
+        
+        // wedges (unrefined)
+        stk::mesh::count_entities(*eMesh.get_fem_meta_data()->get_part("block_2") , *eMesh.get_bulk_data(), count);
+        EXPECT_EQ(count[eMesh.element_rank()], (size_t)1);
+        
+        // pyramids (unrefined)
+        stk::mesh::count_entities(*eMesh.get_fem_meta_data()->get_part("block_4") , *eMesh.get_bulk_data(), count);
+        EXPECT_EQ(count[eMesh.element_rank()], (size_t)0);
+        
+        // tets from wedges
+        stk::mesh::count_entities(*eMesh.get_fem_meta_data()->get_part("block_2.Tetrahedron_4._urpconv") , *eMesh.get_bulk_data(), count);
+        EXPECT_EQ(count[eMesh.element_rank()], (size_t)6);
+        
+        // tets from pyramids
+        stk::mesh::count_entities(*eMesh.get_fem_meta_data()->get_part("block_4.Tetrahedron_4._urpconv") , *eMesh.get_bulk_data(), count);
+        EXPECT_EQ(count[eMesh.element_rank()], (size_t)2);
+      }
+      
+      TEST(unit_localRefiner, pyramid5_wedge6_mesh_generate)
+      {
+        stk::ParallelMachine pm = MPI_COMM_WORLD ;
+
+        const unsigned p_size = stk::parallel_machine_size( pm );
+        if (p_size >1) return;
+
+        std::string outfilename("special_pyramid5_wedge5_tet4_1_2");
+        
+        unsigned nnodes = 12;
+        unsigned nwedge = 3;
+        unsigned npyramid = 1; 
+        double coord[][ 3 ] = {
+          
+          { 0 , 0 , -1 } , { 1 , 0 , -1 } ,  { 0 , 1 , -1 } ,
+          
+          { 0 , 0 , 0 } , { 1 , 0 , 0 } ,  { 0 , 1 , 0 } ,
+          
+          { 0 , 0 , 1 } , { 1 , 0 , 1 } ,  { 0 , 1 , 1 } ,
+          
+          { -1 , 0.5 , 0.5 } ,
+          
+          { 1 , 1 , 0 } , { 1 , 1 , 1 }
+          
+        };
+        stk::mesh::EntityIdVector nid_wedge[3] {
+          { 1 , 2 , 3 , 4 , 5 , 6 } ,
+          { 4 , 5 , 6 , 7 , 8 , 9 } ,
+          { 11 , 6 , 5 , 12 , 9 , 8 }
+        };
+        stk::mesh::EntityIdVector nid_pyramid[1] {
+          { 4 , 7 , 9 , 6 , 10 }
+        };
+          
+        // sidesets in fixture don't work for second case below, turned off for now
+        HeterogeneousFixture mesh(MPI_COMM_WORLD, false, false);
+        
+        bool isCommitted = false;
+        PerceptMesh eMesh(&mesh.m_metaData, &mesh.m_bulkData, isCommitted);
+        
+        eMesh.commit();
+        mesh.init(nnodes, coord, 0, NULL, 0, NULL, nwedge, nid_wedge, npyramid, nid_pyramid);
+        mesh.populate();
+        
+        std::vector<size_t> count;        
+        stk::mesh::count_entities(stk::mesh::Selector(eMesh.get_fem_meta_data()->universal_part()) , *eMesh.get_bulk_data(), count);
+        EXPECT_EQ(count[eMesh.element_rank()], (size_t)4);
+        EXPECT_EQ(count[eMesh.node_rank()],    (size_t)12);
+        
+        // wedges (unrefined)
+        stk::mesh::count_entities(*eMesh.get_fem_meta_data()->get_part("block_2") , *eMesh.get_bulk_data(), count);
+        EXPECT_EQ(count[eMesh.element_rank()], (size_t)3);
+        
+        // pyramids (unrefined)
+        stk::mesh::count_entities(*eMesh.get_fem_meta_data()->get_part("block_4") , *eMesh.get_bulk_data(), count);
+        EXPECT_EQ(count[eMesh.element_rank()], (size_t)1);
+      }
+      
     } // namespace unit_tests
   } // namespace percept
 

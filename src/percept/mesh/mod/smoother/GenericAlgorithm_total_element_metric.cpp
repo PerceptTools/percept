@@ -48,11 +48,7 @@ GenericAlgorithm_total_element_metric(SmootherMetricImpl<STKMesh> *metric, Perce
           }
       }
   }
-#if defined(WITH_KOKKOS)
-  Kokkos::Experimental::resize(element_invalid_flags, elements.size());
-#else
-  element_invalid_flags.resize(elements.size());
-#endif
+  Kokkos::resize(element_invalid_flags, elements.size());
 }
 
 template<>
@@ -73,18 +69,14 @@ GenericAlgorithm_total_element_metric(SmootherMetricImpl<StructuredGrid> *metric
   bsg->get_elements(elements);
   topos.resize(elements.size(), static_cast<const typename StructuredGrid::MTCellTopology *>(0));
 
-#if defined(WITH_KOKKOS)
-  Kokkos::Experimental::resize(element_invalid_flags, elements.size());
-#else
-  element_invalid_flags.resize(elements.size());
-#endif
+  Kokkos::resize(element_invalid_flags, elements.size());
 }
 
 template<typename MeshType>
 void GenericAlgorithm_total_element_metric<MeshType>::
 run(unsigned iBlock)
 {
-#if defined WITH_KOKKOS && !(KOKKOS_HAVE_CUDA)
+#if !defined(KOKKOS_ENABLE_CUDA)
   stk::diag::Timer root_timer("GATM", rootTimerStructured());
   stk::diag::TimeBlock root_block(root_timer);
 
@@ -168,7 +160,7 @@ SGridGenericAlgorithm_total_element_metric(PerceptMesh *eMesh, Double mtot_in, s
                             - block_sizes[iBlock].cell_min[1])
                     * (1 + block_sizes[iBlock].cell_max[2]
                             - block_sizes[iBlock].cell_min[2]);
-            Kokkos::Experimental::resize(
+            Kokkos::resize(
                     element_invalid_flags_per_block[iBlock],
                     total_elems_this_block);
         }
@@ -317,11 +309,7 @@ operator()(const unsigned& index,Double& mtot_loc) const
 ///////////////////////////////////////////////////////////////////////
 
 template<>
-#if defined(WITH_KOKKOS)
 KOKKOS_INLINE_FUNCTION
-#else
-inline
-#endif
 void GenericAlgorithm_total_element_metric<STKMesh>::
 operator()(const unsigned& index, Double& mtot_loc)
 {
@@ -339,11 +327,7 @@ operator()(const unsigned& index, Double& mtot_loc)
 }
 
 template<>
-#if defined(WITH_KOKKOS)
 KOKKOS_INLINE_FUNCTION
-#else
-inline
-#endif
 void GenericAlgorithm_total_element_metric<StructuredGrid>::
 
 operator()(const unsigned& index, Double& mtot_loc)

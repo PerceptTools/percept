@@ -61,6 +61,7 @@
 #include <stk_mesh/base/MeshUtils.hpp>
 #include <stk_mesh/base/FEMHelpers.hpp>
 #include "stk_unit_test_utils/ReadWriteSidesetTester.hpp"
+#include "stk_unit_test_utils/FaceTestingUtils.hpp"
 
 
   namespace percept
@@ -204,7 +205,11 @@
         for(const SideSetIdAndElemIdSides& sset : expectedRefinedSideset)
 	{
 	    stk::mesh::SideSet sideSet = get_stk_side_set(bulk, sset.sideSet);
-            bulk.create_sideset(sset.id) = sideSet;
+
+	    stk::mesh::Part *surface_part = stk::unit_test_util::get_surface_part_with_id(meta, sset.id);
+
+	    ThrowRequire(nullptr != surface_part);
+            bulk.create_sideset(stk::io::get_sideset_parent(*surface_part)) = sideSet;
 	}
 
         stk::mesh::EntityVector faces;
@@ -455,14 +460,18 @@
         stk::mesh::get_selected_entities(meta.locally_owned_part(), bulk.buckets(meta.side_rank()), faces);
 
         ASSERT_EQ(0u, faces.size());
-        EXPECT_TRUE(bulk.get_sideset_ids().empty());
+        EXPECT_TRUE(bulk.get_number_of_sidesets() == 0);
 
         SideSetIdAndElemIdSidesVector refinedSideset = get_refined_sideset_from_parent(inputMesh, originalSideset);
 
         for(const SideSetIdAndElemIdSides& sset : refinedSideset)
         {
             stk::mesh::SideSet sideSet = get_stk_side_set(bulk, sset.sideSet);
-            bulk.create_sideset(sset.id) =  sideSet;
+
+            stk::mesh::Part *surface_part = stk::unit_test_util::get_surface_part_with_id(meta, sset.id);
+
+            ThrowRequire(nullptr != surface_part);
+            bulk.create_sideset(stk::io::get_sideset_parent(*surface_part)) =  sideSet;
             bulk.create_side_entities(sideSet, parts);
         }
 
@@ -498,7 +507,7 @@
 
         inputMesh.load_mesh_and_fill_sideset_data();
 
-        EXPECT_TRUE(inputMesh.get_bulk().get_sideset_ids().empty());
+        EXPECT_TRUE(inputMesh.get_bulk().get_number_of_sidesets() == 0);
         test_refine_sideset(inputMesh, parts, originalSideset, expectedRefinedSideset);
       }
 
@@ -591,7 +600,7 @@
 
               if(stk::mesh::INVALID_CONNECTIVITY_ORDINAL != ordinalAndPermutation.first)
               {
-                  sideset.push_back({element, ordinalAndPermutation.first});
+                  sideset.add({element, ordinalAndPermutation.first});
                   break;
               }
           }

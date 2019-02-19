@@ -1,6 +1,7 @@
-// Copyright 2014 Sandia Corporation. Under the terms of
-// Contract DE-AC04-94AL85000 with Sandia Corporation, the
-// U.S. Government retains certain rights in this software.
+// Copyright 2002 - 2008, 2010, 2011 National Technology Engineering
+// Solutions of Sandia, LLC (NTESS). Under the terms of Contract
+// DE-NA0003525 with NTESS, the U.S. Government retains certain rights
+// in this software.
 //
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
@@ -11,8 +12,13 @@
 #include <Teuchos_RCPStdSharedPtrConversions.hpp>
 #include <adapt/AdaptHelperFunctions.hpp>
 #include <adapt/FixSideSets.hpp>
+#include <adapt/ExcludeWedgesNotConnectedToPyramids.hpp>
+
+#include <percept/PerceptUtils.hpp>
 
 #include <stk_util/registry/ProductRegistry.hpp>
+
+#include <sys/ioctl.h>
 
 #if defined(STK_BUILT_IN_SIERRA)
 #include <AuditLog.h>
@@ -40,150 +46,24 @@
 
 namespace percept {
 
-  MeshAdapt::MeshAdapt() 
+  MeshAdapt::MeshAdapt() :
+    m_timerSet(sierra::Diag::TIMER_ALL),
+    m_timer(stk::diag::createRootTimer("MeshAdapt", m_timerSet))
   {
-
-
-
-#if !MESH_ADAPT_CPP11_MVI
-#define CPP11MVITYPE(x)
-#define CPP11MVI(x) = x
-#define CPP11MVI_3(x,y,z)
-#define CPP11MVIEQ(x) x
-#define CPP11MV1_ARRAY_INIT(type, var, sz, tmpvar, arrInit) do {type tmpvar[sz] = arrInit; for (unsigned itmp=0; itmp < sz; itmp++) { var[itmp] = tmpvar[itmp]; } } while(0)
-
-#include "MeshAdaptMemberVarInit.hpp"
-
-#undef CPP11MVITYPE
-#undef CPP11MVI
-#undef CPP11MVI_3
-#undef CPP11MVIEQ
-#undef CPP11MV1_ARRAY_INIT
-
-
-
-#endif
-
+    m_timer.start();
   }
 
-  MemorySizeType MeshAdapt::memory_dump(int dump_level, const stk::ParallelMachine& comm, stk::mesh::BulkData& bulkData, NodeRegistry* node_reg, std::string msg)
+  void print_timer_table(stk::diag::Timer &timer)
   {
-    MemorySizeType returned_total_memory = 0;
-    MemorySizeType rss_current_0 = 0;
-    MemorySizeType rss_high_water_mark_0 = 0;
-    stk::get_memory_usage(rss_current_0, rss_high_water_mark_0);
-
-    const MemorySizeType MB = 1024*1024;
-
-    stk::all_reduce( comm, stk::ReduceSum<1>( &rss_current_0 ) );
-    stk::all_reduce( comm, stk::ReduceSum<1>( &rss_high_water_mark_0 ) );
-
-
-    MemorySizeType node_reg_mem = 0;
-    if (node_reg)
-      node_reg_mem = node_reg->get_memory_usage();
-    MemorySizeType node_reg_mem_sum = node_reg_mem;
-    MemorySizeType node_reg_mem_max = node_reg_mem;
-    stk::all_reduce( comm, stk::ReduceSum<1>( &node_reg_mem_sum ) );
-    stk::all_reduce( comm, stk::ReduceMax<1>( &node_reg_mem_max ) );
-
-    // TODO: 2014-09-11 compute_memory_usage is deprecated in recent versions of stk, replace
-    //stk::mesh::MemoryUsage mem_usage;
-    //stk::mesh::compute_memory_usage(bulkData, mem_usage);
-    //MemorySizeType mem_total_bytes_sum = mem_usage.total_bytes;
-    //MemorySizeType mem_total_bytes_max = mem_usage.total_bytes;
-    //stk::all_reduce( comm, stk::ReduceSum<1>( &mem_total_bytes_sum ) );
-    //stk::all_reduce( comm, stk::ReduceMax<1>( &mem_total_bytes_max ) );
-    if (bulkData.parallel_rank() == 0)
+    std::ostringstream str;
+    timer.stop();
+    stk::diag::printTimersTable(str, timer,
+                                stk::diag::METRICS_ALL, false,
+                                MPI_COMM_WORLD);
+    if (0 == stk::parallel_machine_rank(MPI_COMM_WORLD))
       {
-        if (dump_level > 1)
-
-          {
-            /*
-              std::cout << "P[" << bulkData.parallel_rank() << "] AdaptMain::memory_dump stk_mesh counted memory usage at stage [" << msg << "] "
-              " parallel sum, max memory [MB]= " << ((double)mem_total_bytes_sum)/MB << " , " << ((double)mem_total_bytes_max)/MB << std::endl;
-              if (dump_level > 2)
-              stk::mesh::print_memory_usage(mem_usage, std::cout);
-            */
-
-            std::cout << "P[" << bulkData.parallel_rank() << "] AdaptMain::memory_dump rss total (sum all proc) at stage [" << msg << "] = "
-                      << " current high-water-mark [MB]= " << ((double)rss_current_0)/MB
-                      << " , " << ((double)rss_high_water_mark_0)/MB
-                      << std::endl;
-          }
-
-        {
-          std::cout << "AdaptMain::memory_dump summary for " << msg << ": "
-            //<< "stk_mesh [sum]"     << ((double)mem_total_bytes_sum)/MB << "MB , "
-                    << "NodeRegistry [sum]" << ((double)node_reg_mem_sum)/MB << "MB , "
-                    << "rss[sum] [MB]"      << ((double)rss_current_0)/MB << "MB"
-                    << std::endl;
-        }
-
+        std::cout << str.str() << std::endl;
       }
-    //if (rss_current_0 )
-    returned_total_memory = rss_current_0;
-    //else
-    //  returned_total_memory = mem_total_bytes_sum+node_reg_mem_sum;
-
-    return returned_total_memory;
-  }
-
-  //extern void test_memory(int, int);
-  void MeshAdapt::test_memory(MemorySizeType n_elements, MemorySizeType n_nodes)
-  {
-    vector<stk::mesh::Entity> new_elements;
-    vector<stk::mesh::Entity> new_nodes;
-
-    eMeshP->reopen();
-    //stk::mesh::Part& part = eMeshP->get_fem_meta_data()->declare_part("elems", stk::topology::ELEMENT_RANK);
-    stk::mesh::Part& part = eMeshP->get_fem_meta_data()->declare_part_with_topology("elems", stk::topology::HEX_8);
-
-    eMeshP->commit();
-
-    eMeshP->get_bulk_data()->modification_begin();
-
-    std::cout << "creating " << n_elements << " elements..." <<std::endl;
-    eMeshP->createEntities( stk::topology::ELEMENT_RANK, n_elements, new_elements);
-    std::cout << "... done creating " << n_elements << " elements" << std::endl;
-
-    std::cout << "creating " << n_nodes << " nodes..." <<std::endl;
-    eMeshP->createEntities( stk::topology::NODE_RANK, n_nodes, new_nodes);
-    std::cout << "... done creating " << n_nodes << " nodes" << std::endl;
-
-    MemorySizeType num_prints = std::min(static_cast<MemorySizeType>(100ul), n_elements);
-    MemorySizeType print_mod = n_elements/num_prints;
-    MemorySizeType i_node = 0;
-    int n_node_per_element = 8;
-    for (MemorySizeType i_element = 0; i_element < n_elements; i_element++)
-      {
-        if (!i_element || (i_element % print_mod == 0))
-          {
-            std::cout << "declare_relation for i_element = " << i_element << " [" << n_elements << "] = " << ((double)i_element)/((double)n_elements)*100 << "%"
-                      << std::endl;
-          }
-
-        stk::mesh::Entity element = new_elements[i_element];
-        std::vector<stk::mesh::Part*> add_parts(1,&part);
-        std::vector<stk::mesh::Part*> remove_parts;
-        eMeshP->get_bulk_data()->change_entity_parts( element, add_parts, remove_parts );
-
-        for (int j_node = 0; j_node < n_node_per_element; j_node++)
-          {
-            stk::mesh::Entity node = new_nodes[i_node];
-
-            eMeshP->get_bulk_data()->declare_relation(element, node, j_node);
-
-            i_node++;
-            if (i_node >= n_nodes-1)
-              i_node = 0;
-          }
-      }
-
-    std::cout << " doing modification_end ... " << std::endl;
-    stk::mesh::fixup_ghosted_to_shared_nodes(*eMeshP->get_bulk_data());
-    eMeshP->get_bulk_data()->modification_end();
-    std::cout << " done modification_end ... " << std::endl;
   }
 
   // Determine the basename and refinement level from a given an ExodusII file name.
@@ -210,664 +90,1006 @@ namespace percept {
     return std::make_pair(basename, level);
   }
 
-  void MeshAdapt::checkInput(std::string option, std::string value, std::string allowed_values, Teuchos::CommandLineProcessor& clp)
+  int MeshAdapt::checkInput(const std::string &option, const std::string &value, const std::string &allowed_values)
   {
-    //if (value.length() == 0) return;
     std::vector<std::string> vals = Util::split(allowed_values, ", ");
-    for (unsigned i = 0; i < vals.size(); i++)
-      {
-        if (vals[i] == value)
-          return;
-      }
-    std::ostringstream oss;
-    oss << "\nCommand line syntax error: bad option for " << option << " (= " << value << ") \n allowed values = " << allowed_values;
-    //throw std::runtime_error(oss.str());
+    for (auto &s : vals)
     {
-      std::cout << oss.str() << std::endl;
-      printHelp(clp);
-      std::cout << oss.str() << std::endl;
-      exit(1);
+      if (s == value)
+        return 0;
     }
-
+    
+    if (p_rank==0) std::cout << "\n" << syntax_error
+                             << "bad value for option, " << option << "=" << value 
+                             << "\n  allowed values = " << allowed_values << std::endl;
+    return 1;
   }
 
-  void MeshAdapt::print_simple_usage(int argc, char **argv)
+  void MeshAdapt::exit_safely(int exit_code)
   {
-    std::string exe_name(argv[0]);
-    std::cout << "usage: " << argv[0] <<
-      " convert input_mesh_filename [output_mesh_filename]" << std::endl;
-    std::cout << "       " << argv[0] <<
-      " [refine|enrich] input_mesh_filename  [output_mesh_filename] [number_levels]" << std::endl;
-    std::cout << "       " << argv[0] <<
-      " adapt input_mesh_filename [analysis_results_filename]" << std::endl;
+
+#if defined( STK_HAS_MPI )
+    stk::parallel_machine_finalize();
+#endif
+
+    Kokkos::finalize();
+
+    std::exit(exit_code);
+  }      
+
+  void MeshAdapt::fill_help_strings(int argc, char **argv)
+  {
+    std::stringstream ss;
+    ss << 
+      "Simple syntax:\n" << 
+      "       " << argv[0] << " [refine|enrich] input_mesh_filename  [output_mesh_filename] [number_levels]\n"
+      "       " << argv[0] << " convert input_mesh_filename [output_mesh_filename]\n"
+      "       " << argv[0] << " adapt input_mesh_filename [analysis_results_filename]\n";
+    simple_usage_string = ss.str();
+
+    simple_std_help = "\n" + simple_usage_string + "\n" + "Standard syntax requirements:\n    " + operation_error + 
+                      "\n    " + default_operation +
+                      "\n    " + syntax_example;
+
+    help_instructions = "Run '" + std::string(argv[0]) + " --help' for help.";
   }
 
   int MeshAdapt::check_for_simple_options(int argc, char **argv)
   {
-    first_extra_option_index = -1;
-    int simple = 0;
     for (int i = 1; i < argc; i++)
       {
-        std::string sargv = std::string(argv[i]);
-        if (sargv == "adapt" ||
-            sargv  == "refine"  ||
-            sargv == "enrich"  ||
-            sargv == "convert")
-          {
-            for (int j = i+1; j < argc; j++)
-              {
-                if (Util::startsWith(sargv, "--"))
-                  {
-                    first_extra_option_index = j;
-                    break;
-                  }
-              }
-            return i;
-          }
+        char *s = argv[i];
+        if (strcmp( s, "adapt")  == 0 ||
+            strcmp( s, "refine") == 0 ||
+            strcmp( s, "enrich") == 0 ||
+            strcmp( s, "convert")== 0 )
+        {
+          return i;
+        }
       }
-    return simple;
+    return 0;
   }
 
-  int MeshAdapt::adapt_main_simple_options(int argc_in, char **argv_in)
+  void MeshAdapt::to_vec_char( vector<char>& v, const char *s )
   {
-    first_extra_option_index = -1;
-    int simple_options_index = check_for_simple_options(argc_in, argv_in);
+    v.clear();
+    while ( *s != '\0' )
+      v.push_back( *s++ );
+    v.push_back( '\0' );
+  }
+  void MeshAdapt::to_vec_char( vector<char>& v, const std::string &s )
+  {
+    v.clear(); 
+    v.reserve(s.size());
+    std::copy( s.begin(), s.end(), std::back_inserter(v) );
+    v.push_back('\0');
+  }
 
-    int argc = argc_in;
-    if (argc < 2 + simple_options_index ||
-        argc > 4 + simple_options_index ) {
-      if (first_extra_option_index == -1 || first_extra_option_index == simple_options_index + 1)
-        print_simple_usage(argc_in, argv_in);
-      return 1;
+  void MeshAdapt::default_output_files(std::string input_mesh_s, std::string operation, int number_refines,
+    std::string &output_mesh_s, std::string &previous_adapted_mesh_s, std::string &next_adapted_mesh_s)
+  {
+
+    output_mesh_s = input_mesh_s;
+    previous_adapted_mesh_s.clear();
+    next_adapted_mesh_s.clear();
+
+    // auto-generate next mesh file name, based on input mesh file name
+    size_t dot_index = input_mesh_s.find_last_of(".");
+    std::string suffix = input_mesh_s.substr(dot_index);
+
+    // set previous and next adapted mesh, even if operation==refine, because maybe rar-info was given
+    std::pair<std::string,int> basename_and_level = get_basename_and_level(input_mesh_s);
+    std::string basename(basename_and_level.first);
+    int input_level = basename_and_level.second;
+    if (input_level > 0) 
+      previous_adapted_mesh_s = basename + std::to_string(input_level) + "_ft" + suffix;
+    // else leave previous_adapted_mesh="";
+    std::string next_level(std::to_string(input_level + 1));
+    next_adapted_mesh_s = basename + next_level + "_ft" + suffix;
+
+    if (operation == "adapt") 
+    {      
+      output_mesh_s = basename + next_level + suffix;
+    }
+    else 
+    {
+      // add correct-English suffix adapt->_adapted, refine->_refined3, etc.
+      bool ends_in_e = !operation.empty() && operation[operation.length()-1] == 'e';
+      std::string new_suffix = "_" + operation + (ends_in_e ? "d" : "ed" );
+      if ( operation == "refine" )
+        new_suffix += "_" + std::to_string(number_refines);
+      new_suffix += suffix;
+
+      Util::replace(output_mesh_s, suffix, new_suffix);
     }
 
-    std::vector<std::string> argv(argc);
-    for (int i = 0; i < argc; i++)
-      argv[i] = (const char *)argv_in[i];
+  }
 
-    std::string exe_name        = argv[0];
-    std::string option          = argv[0+simple_options_index];
-    if (option != "adapt" && option != "refine" && option != "enrich" && option != "convert") {
-      print_simple_usage(argc_in, argv_in);
-      return 1;
-    }
-    std::string input_mesh = argv[1+simple_options_index];
-    std::string number_refines = (argc == 3+simple_options_index? argv[2+simple_options_index] : "1");
-    int nref=0;
-
+  bool MeshAdapt::is_number(std::string &s, int &i)
+  {
     bool isInt = false;
-    try {
-      nref = boost::lexical_cast<int>(number_refines);
-      (void)nref;
-      isInt = true;
-    }
-    catch( ... )
+    {
+      try {
+        i = boost::lexical_cast<int>(s);
+        (void)i;
+        isInt = true;
+      }
+      catch( ... )
       {
       }
+      if (!isInt)
+        i = 1;
+    }
+    return isInt;
+  }
 
-    std::string output_mesh = input_mesh;
-    std::string extension = input_mesh.substr(input_mesh.length()-2,input_mesh.length());
-    if (debug) std::cout << " extension= " << extension << std::endl;
-    std::string new_ext = "";
-    new_ext += "_";
-    if (option == "refine")
-      new_ext += "refined_"+number_refines+extension;
-    else
-      new_ext += option+"ed_"+extension;
+  void find_next_nonoption( int argc, char **argv, int &i )
+  {
+    while ( i < argc && Util::startsWith(argv[i], "--") )
+      ++i;
+  }
 
-    std::string previous_adapted_mesh("");
-    std::string next_adapted_mesh("");
+  int MeshAdapt::adapt_main_simple_options(int argc, char **argv, bool &parsing_ok, bool &do_adapt)
+  {    
+    parsing_ok = false;
+    do_adapt = false;
 
-    //
-    // determine name of output mesh, and other auxiliary meshes
-    //
+    int simple_options_index = check_for_simple_options(argc, argv);
+    if (simple_options_index == 0)
+      return 0; // simple options were not specified, try standard syntax
+
+    // simple options were specified, return 1 later
+
+    // check_for_simple_options above ensures option is one of "adapt", "refine", "enrich" or "convert"
+    std::string option = argv[simple_options_index];
+
+    // too few or too many options?
+    // we return 1 because we found the simple syntax
+    // we set parsing_ok = false to trigger an error message, and set do_adapt = false
+
+    // input file
+    int next_i = simple_options_index+1;
+    find_next_nonoption( argc, argv, next_i );
+    std::string input_mesh_s    ( argc > next_i ? argv[next_i++] : std::string() );
+    // next option could be output_file, analysis_results_filename, or number_levels
+    // we could have both output_file and number_levels, or only one of them
+    find_next_nonoption( argc, argv, next_i );
+    std::string output_mesh_s   ( argc > next_i ? argv[next_i++] : std::string() );
+    find_next_nonoption( argc, argv, next_i );
+    std::string number_refines_s( argc > next_i ? argv[next_i++] : std::string() );
+
+    if (input_mesh_s.empty())
+    {
+      if (p_rank==0) std::cout << "Error: simple syntax \"" << option << "\" was specified, but the input mesh was missing." << std::endl;
+      return 1; 
+    }
+
+    // if only one option was specified, was it output_mesh or number_refines?
+    int nref(1); // integer version of number_refines
+    {
+      bool number_refines_is_number = is_number(number_refines_s,nref);
+      // if number_refines_is_number, then leave it as is
+      if (!number_refines_is_number)
+      {
+        int num2;
+        bool output_mesh_is_number = is_number(output_mesh_s,num2);
+        // the wrong one was a number, swap them
+        if (output_mesh_is_number)
+        {
+          nref = num2;
+          output_mesh_s.swap(number_refines_s);
+        }
+        // neither was a number, default number_refines ="1"
+        else 
+        {
+          nref = 1;
+          number_refines_s = "1";
+        }
+      }
+    }
+
+    // generate default names
+    std::string def_output_mesh_s;
+    default_output_files(input_mesh_s, option, nref, def_output_mesh_s, previous_adapted_mesh, next_adapted_mesh);
     if (option == "adapt") {
-      std::pair<std::string,int> basename_and_level = get_basename_and_level(input_mesh);
-      std::string basename(basename_and_level.first);
-      int input_level = basename_and_level.second;
 
-      size_t dot_index = input_mesh.find_last_of(".");
-      std::string suffix = input_mesh.substr(dot_index+1);
+      // set input mesh name to analysis mesh, if it was specified
+      // i.e. interpret output_mesh as the analysis mesh, not the output mesh
+      if (!output_mesh_s.empty())
+        input_mesh_s = output_mesh_s; // ??? should we clear the output_mesh_s or replace it with the default??
 
-      if (input_level > 0) {
-        previous_adapted_mesh = basename + std::to_string(input_level) + "_ft." + suffix;
-      }
-      std::string next_level(std::to_string(input_level + 1));
-      next_adapted_mesh = basename + next_level + "_ft." + suffix;
-      output_mesh = basename + next_level + "." + suffix;
+      // use the default output mesh name, based on the input mesh, not the analysis mesh
+      output_mesh_s = def_output_mesh_s;
+      if (p_rank==0) std::cout << "defaulting to output_mesh_filename \"" << output_mesh_s << "\"" << std::endl;
 
-      // set to name of analysis mesh, if it exists
-      if (argc >= 2 + simple_options_index)
-        input_mesh = argv[2+simple_options_index];
-
-      number_refines = "1";
+      number_refines_s = "1";
+      nref = 1;
     }
-    else {
-      if (!isInt && (argc == 3+simple_options_index)) {
-        output_mesh = number_refines;
-        number_refines = (argc == 4+simple_options_index? argv[3+simple_options_index] : "1");
-        if (Util::startsWith(number_refines, "--"))
-          number_refines = "";
-        std::cout << "tmp output_mesh= " << output_mesh << std::endl;
-        std::cout << "tmp number_refines= " << number_refines << std::endl;
-      }
-      else {
-        Util::replace(output_mesh, extension, new_ext);
+    else 
+    {
+      if (output_mesh_s.empty())
+      {
+        output_mesh_s = def_output_mesh_s;
+        if (p_rank==0) std::cout << "defaulting to output_mesh_filename \"" << output_mesh_s << "\"" << std::endl;
       }
     }
-    if (debug) std::cout << " output_mesh= " << output_mesh << std::endl;
 
-    std::vector<std::string> argv_new;
-    for (int i = 0; i < simple_options_index; i++)
-      argv_new.push_back(argv[i]);
-    argv_new.push_back("--input_mesh="+input_mesh);
-    argv_new.push_back("--output_mesh="+output_mesh);
+
+    // build a new set of normal options, based on interpretation of the simple options
+
+    // create non-const char* for the converted-sytax options
+    // ok to use these until the vectors go out of scope
+    std::vector<char> in_mesh;  to_vec_char( in_mesh, "--input_mesh=" + input_mesh_s );
+
+    std::vector<char> out_mesh; to_vec_char( out_mesh, "--output_mesh=" + output_mesh_s );
+
+    std::vector<char> num_refines; to_vec_char( num_refines, "--number_refines=" + number_refines_s );
+
+    std::vector<char> ref;        to_vec_char(ref, "--refine=DEFAULT");
+    std::vector<char> spacing;    to_vec_char(spacing, "--respect_spacing=0");
+    std::vector<char> rar;        to_vec_char(rar,  "--RAR_info=\"adapt.yaml\"");
+    std::vector<char> rich;       to_vec_char(rich, "--enrich=DEFAULT");
+    std::vector<char> cvrt;       to_vec_char(cvrt, "--convert=Hex8_Tet4_24");
+    std::vector<char> ioss_read;  to_vec_char(ioss_read,   "--ioss_read_options=\"large\"");
+    std::vector<char> ioss_write; to_vec_char(ioss_write, "--ioss_write_options=\"large\"");
+
+    std::vector<char *> argv_new;
+    argv_new.reserve(argc + 11); 
+    argv_new.push_back( argv[0] );
+
+    // ok to use until the above vectors go out of scope
+    argv_new.push_back( &in_mesh[0] ); 
+    argv_new.push_back( &out_mesh[0] ); 
     if (option == "refine")
-      argv_new.push_back("--refine=DEFAULT");
+      argv_new.push_back( &ref[0] );
     else if (option == "adapt") {
-      argv_new.push_back("--refine=DEFAULT");
-      argv_new.push_back("--respect_spacing=0");
-      if (previous_adapted_mesh != "")
-        argv_new.push_back("--previous_adapted_mesh=" + previous_adapted_mesh);
-      argv_new.push_back("--next_adapted_mesh=" + next_adapted_mesh);
-      argv_new.push_back("--RAR_info=\"adapt.yaml\"");
+      argv_new.push_back( &ref[0] );
+      argv_new.push_back( &spacing[0] );
+      argv_new.push_back( &rar[0] );
     }
     else if (option == "enrich")
-      argv_new.push_back("--enrich=DEFAULT");
+      argv_new.push_back( &rich[0] );
     else
-      argv_new.push_back("--convert=Hex8_Tet4_24");
-    argv_new.push_back("--load_balance=0");
-    argv_new.push_back("--remove_original_elements=1");
-    argv_new.push_back("--number_refines="+number_refines);
-    argv_new.push_back("--ioss_read_options=\"large\"");
-    argv_new.push_back("--ioss_write_options=\"large\"");
+      argv_new.push_back( &cvrt[0] );
+    argv_new.push_back( &num_refines[0] );
+    argv_new.push_back( &ioss_read[0] );
+    argv_new.push_back( &ioss_write[0] );
 
-    if (first_extra_option_index > 0)
-      {
-        for (int i = first_extra_option_index; i < argc; ++i)
-          {
-            argv_new.push_back(argv[i]);
-          }
-      }
-    if ( debug) std::cout << "new argv = \n" << argv_new << std::endl;
-    int argc_new = argv_new.size();
-    char **argv_new_cstr = new char*[argc_new];
-    for (int i = 0; i < argc_new; i++)
-      {
-        argv_new_cstr[i] = (char *)argv_new[i].c_str();
-      }
-    int ret_val = adapt_main_full_options(argc_new, argv_new_cstr);
-    delete[] argv_new_cstr;
-    return ret_val;
+    // push all standard (non-simple) options *after* so they take precedence over the auto-derived ones
+    for (int i = 1; i < argc; ++i)
+    {
+      if (Util::startsWith(argv[i], "--"))
+        argv_new.push_back(argv[i]);
+    }
+
+
+    // if we got to here, then we found simple options and should return 1,
+    adapt_main_full_options(argv_new.size(), &argv_new[0], parsing_ok, do_adapt);
+
+    if (!parsing_ok)
+      if (p_rank==0) std::cout << syntax_error << "malformed simple syntax for \"" << option << "\"" << std::endl;
+
+    return 1; 
   }
 
-  void MeshAdapt::dump_args(int argc, char **argv)
+  void MeshAdapt::print_syntax_error_instructions(bool generic_syntax_error)
   {
-    std::cout << "argc = " << argc << std::endl;
-    for (int i = 0; i < argc; i++)
-      {
-        std::cout << "argv[" << i << "]= " << argv[i] << std::endl;
-      }
-  }
-
-  void MeshAdapt::check_args(int argc, char **argv)
-  {
-    std::string errors="";
-    for (int i = 1; i < argc; i++)
-      {
-        std::string av(argv[i]);
-        if (av == "--help" || av == "--Help" || av == "-h" || av == "--h" ||
-            av == "-H" || av == "--H" || av == "--version" || av == "-v") continue;
-        size_t equal_pos = av.find("=",0);
-        if (equal_pos == std::string::npos)
-          {
-            errors += "ERROR in options: no '=' found in option: "+av+"\n";
-          }
-        if (av.length() < equal_pos+2)
-          {
-            errors += "ERROR in options: no value given after '=', found in option: "+av+"\n";
-          }
-      }
-    if (errors.length())
-      {
-        std::cout << "ERRORS found in options: debug dump of options= " << std::endl;
-        dump_args(argc, argv);
-        std::cout << errors << std::endl;
-        throw std::runtime_error(errors);
-      }
+    if (generic_syntax_error) 
+      if (p_rank==0) std::cout << "\n" << syntax_error << "\n";
+    if (p_rank==0) std::cout << help_instructions << "\n" << std::endl;
   }
 
   int MeshAdapt::adapt_main(int argc, char **argv)
   {
-    // allow positional arguments, etc.
-    if (check_for_simple_options(argc, argv))
-      return adapt_main_simple_options(argc, argv);
-    else
-      {
-        check_args(argc, argv);
-        return adapt_main_full_options(argc, argv);
-      }
+    bool parsing_ok = false;
+    bool do_adapt = false;
+    try
+    {
+      init(argc, argv);
+      if (!adapt_main_simple_options(argc, argv, parsing_ok, do_adapt))
+        adapt_main_full_options(argc, argv, parsing_ok, do_adapt);
+    }
+    catch(...)
+    {
+      print_syntax_error_instructions();
+      return 1;        
+    }
+    
+    if (!parsing_ok)
+    {
+      print_syntax_error_instructions();
+      return 1;                
+    }
+    if (do_adapt)
+    {
+      // call actual mesh adaptation
+      return adapt_main_do_adapt();
+    }
+    return 0; // all is well, we printed some sort of help
   }
 
-  int MeshAdapt::setup_options(Teuchos::CommandLineProcessor& clp, const stk::ParallelMachine& comm, int argc, char **argv)
+  bool MeshAdapt::check_optionstring( const char *s, const char *h, bool &found_h, std::string &value_h, std::string default_value )
   {
-    bool found_Help = false;
-    bool found_print_version = false;
-    for (int i = 0; i < argc; ++i) {
-      const std::string s(argv[i]);
-      if ( s == "-H" || s == "-Help" || s == "--Help" || s == "--H") {
-        found_Help = true;
+    // found_h = false; don't set it to false if it is already true
+    bool found_this_time = false;
+    const int h_len = strlen(h);
+    if (strncmp(s,h,h_len) == 0)
+    {
+      if ( s[h_len] == '\0' || s[h_len] == '=' )
+      {
+        found_h = true;
+        found_this_time = true;
+        if (s[h_len] == '=')        
+          value_h = &s[h_len+1]; // copy string from character after = to end
+        // else, leave value_h at its default value, whatever that is
+
+        // if value_h is empty, regardless of why it is empty, replace it with COMMON
+        if (value_h.empty())
+          value_h = default_value;
       }
-      if (s == "--version" || s == "-v")
-        found_print_version = true;
     }
 
-    clp.setOption("help"                     , &help                     , "print this usage message");
+    return found_this_time;
+  }
 
-    // version
-    clp.setOption("version"                  , &print_version            , "print version and exit");
+  bool match_prefix( const std::string &s, const std::string &pre )
+  {
+    const auto len = pre.length();
+    return ( s.length()>=len && s.substr(0,len) == pre );
+  }
 
-    // files
-    clp.setOption("input_mesh"               , &input_mesh               , "input mesh name");
-    clp.setOption("output_mesh"              , &output_mesh              , "output mesh name");
-    clp.setOption("load_balance"             , &load_balance             , "load balance (decomp/slice/spread) input mesh file");
-    clp.setOption("previous_adapted_mesh"    , &previous_adapted_mesh    , "previous adapted mesh name for offline adaptivity (INTERNAL USE)");
-    clp.setOption("next_adapted_mesh"        , &next_adapted_mesh        , "next adapted mesh name for offline adaptivity (INTERNAL USE)");
-    clp.setOption("save_intermediate_meshes" , &save_intermediate_meshes ,
-                                  "save meshes in refinement sequence to 'refined_mesh_I.e' for each I <= number_refines\n"
-                                  "  Note: if < 0, save in animation format: refined_mesh.e, refined_mesh.e-s0001, ...");
+  bool MeshAdapt::check_help_options(int argc, char **argv, 
+    bool &found_print_version, bool &found_help_list, bool &found_help, bool &found_help_full) 
+  {
 
-    // operation type
-    clp.setOption("refine"                   , &refine                   , refine_options.c_str());
-    clp.setOption("number_refines"           , &number_refines           ,
-                                  "number of refinement passes"
-                                  "\n  Note: must be set to be >= max of any 'N' in the --blocks=<block-name>:Nx,... option."
-                                  "\n  Note: if the :Nx optional specification is not used for a block, it is equivalent"
-                                  "\n    to specifying :<number_refines>x for that block.");
-    clp.setOption("convert"                  , &convert                  , convert_options.c_str());
-    clp.setOption("enrich"                   , &enrich                   , enrich_options.c_str());
-
-    // run-adapt-run
-    clp.setOption("RAR_info"                 , &adapt_input              , "name of input file for advanced usage");
-
-    // spacing
-#if !defined(NO_GEOM_SUPPORT)
-    clp.setOption("respect_spacing"          , &respect_spacing          , "respect the initial mesh spacing during refinement");
-#endif
-
-    // query/control
-    clp.setOption("verify_meshes"            , &verify_meshes            , "verify positive volumes for input and output meshes, set to 1 for finite element volume checks, FV for finite volume checks");
-    clp.setOption("query_only"               , &query_only               , "query only, no refinement done");
-    clp.setOption("progress_meter"           , &progress_meter           , "progress meter on or off");
-    clp.setOption("print_timers"             , &print_timers             , "print more detailed timing info");
-    clp.setOption("print_info"               , &print_info               , ">= 0  (higher values print more info)");
-    clp.setOption("skin_mesh"                , &skin_mesh                , "produce a boundary sideset for any exposed boundaries");
-    clp.setOption("dihedral_angle_check"     , &dihedral_angle_check     ,
-                                  ">= 0  check dihedral angles of a tetrahedral mesh, print those that are larger than 90 deg. (higher values print more info)\n");
-    clp.setOption("print_memory_usage"       , &print_memory_usage       , "print memory usage");
-    clp.setOption("precheck_memory_usage"    , &precheck_memory_usage    ,
-                                  "before refinement, check there's enough memory by using an estimated number of bytes per element (1000)\n"
-                                  "\nIf set to 1, we internally estimate how many cores/node using a list of SNL hostnames, but it can be set\n"
-                                  "explicitly to the number of cores/node, e.g. on chama, cores/node is 16");
-    clp.setOption("estimate_memory_usage"    , &estimate_memory_usage    ,
-                                  " use internal or memory_multipliers_file values to estimate memory needed.\n"
-                                  "   if query_only=1, use multipliers from memory_multipliers_file to estimate memory to be used in refinements, if memory_multipliers_file is set.\n"
-                                  "   if query_only=1, and no memory_multipliers_file is set, use internal values for memory_multipliers.\n"
-                                  "   If query_only=0, print actual memory data and estimates.");
-
-    // properties
-    clp.setOption("property_map"             , &property_map             , "YAML-based list of string: string pairs, e.g. {smoother_type: Newton, smoother_niter: 200, smoother_tol: 1.e-3}");
-
-    // geometry
-    clp.setOption("input_geometry"           , &input_geometry           , "input geometry name");
-    clp.setOption("smooth_geometry"          , &smooth_geometry          , "smooth geometry - moves nodes after geometry projection to try to avoid bad meshes");
-    clp.setOption("smoother_niter"           , &smoother_niter           , "mesh smoother number of iterations");
-    clp.setOption("smoother_tol"             , &smoother_tol             , "mesh smoother convergence tolerance");
-    clp.setOption("smooth_surfaces"          , &smooth_surfaces          , "allow nodes to move on surfaces when smoothing");
-    clp.setOption("dump_geometry_file"       , &dump_geometry_file       , "debug print geometry (OpenNURBS 3dm) file contents");
-    clp.setOption("fit_geometry_file"        , &fit_geometry_file        , "for 2D meshes, create an OpenNURBS 3dm file fitting cubic splines to all boundaries");
-    clp.setOption("fit_angle"                , &fit_angle                ,
-                                  "for 2D meshes, specify angle criterion for determining corners - defined by the\n"
-                                  "   angle between the two adjacent faces, so a flat surface has angle 180.\n"
-                                  "   Specified in degrees - if the included angle is less than fit_angle, the\n"
-                                  "   node is considered a corner and a hard corner will be enforced.");
-    clp.setOption("fit_3d_file"              , &fit_3d_file              ,
-                                  "for 3D meshes, fit bi-cubics to mesh surface geometry, store in fields for evaluation\n"
-                                  "  specify a YAML file to read with control information on which surfaces\n"
-                                  "  to fit and how to treat seams in the surface using an angle criterion\n"
-                                  "  a sample YAML file will be printed if fit_3d_file is set to sample.yaml.\n"
-                                  "Note: if the YAML file has 'QA: ... data ...' set, then the surfaces will be\n"
-                                  "  converted to shells, and all seams will be detected and put in a\n"
-                                  "  special edge part and saved to the file specified - this is\n"
-                                  "  for QA'ing of the input data before doing the actual fit.");
-
-    clp.setOption("convert_geometry_parts_OpenNURBS"  , &convert_geometry_parts_OpenNURBS , "remove beam and shell elements, place nodes in similarly-named nodesets, save to specified new file in this option");
-
-    // smoothing
-    clp.setOption("smooth_use_reference_mesh", &smooth_use_reference_mesh, "for most cases, set to 1 (default) - can be used for smoothing with no reference mesh");
-    clp.setOption("fix_all_block_boundaries" , &fix_all_block_boundaries , "when smoothing without geometry, fix all inner and outer block boundaries");
-
-    // mesh query
-    clp.setOption("compute_hmesh"            , &compute_hmesh            , "compute mesh parameter using method eigens|edges");
-    clp.setOption("print_hmesh_surface_normal"  , &print_hmesh_surface_normal            , "prints a table of normal mesh spacing at each surface");
-
-    // subsetting
-    clp.setOption("blocks"                   , &block_name_inc           , block_name_desc_inc.c_str());
-    clp.setOption("use_transition_elements"  , &use_transition_elements  ,
-                                  "when specifying --blocks option, set this to 1 to enable conformal meshes\n"
-                                  "by introducing so-called transition elements in the border region between\n"
-                                  "a refined and unrefined block");
-    // histograms
-#if STK_ADAPT_HAVE_YAML_CPP
-    clp.setOption("histogram"  , &histogram_options  , "options for histograms:"
-                                  "\n  either a single filename, which reads further commands in YAML format (yaml.org) from that file, or\n"
-                                  "  a string of the form \"{ fields: [field_1,...,field_n], file_root: my_histograms,\n"
-                                  "     mesh: [edge_length, quality_edge, quality_vol_edge_ratio, volume], time: 0.1, step: 2 }\"\n"
-                                  "  where field_i are field names to get stats for, file_root is a root filename,\n"
-                                  "  and mesh: gives options for mesh quality histograms.\n"
-                                  "  time: or step: options allow specifying which timestep in the database should be used.\n"
-                                  "  If read from a file, file format is like this:\n"
-                                  "    fields:\n"
-                                  "      - pressure\n"
-                                  "      - velocity\n"
-                                  "      - temperature\n"
-                                  "    file_root: my_histograms\n"
-                                  "    mesh:\n"
-                                  "      - edge_length\n"
-                                  "      - quality_edge\n"
-                                  "      - quality_vol_edge_ratio\n"
-                                  "      - volume");
-#endif
-    clp.setOption("histogram_file_root"      , &histograms_root          , " if cout, use screen, else use this as the root name of histogram files.");
-
-    // ioss options
-    clp.setOption("ioss_read_options"        , &ioss_read_options        ,
-                                  "options to IOSS/Exodus for e.g. large files | auto-decomp | auto-join\n"
-                                  "to use, set the string to a combination of\n"
-                                  "{\"large\", \"auto-decomp:yes\",  \"auto-decomp:no\",\n"
-                                  "   \"auto-join:yes\", \"auto-join:no\" }\n"
-                                  "   e.g. \"large,auto-decomp:yes\"\n"
-                                  " Note: set options for read and/or write (ioss_write_options)");
-    clp.setOption("ioss_write_options"       , &ioss_write_options       , "see ioss_read_options");
-    clp.setOption("generated_mesh"           , &generated_mesh           ,
-                  "use internal fixture to generate an NxMxP hexahedral mesh and write it out to --output_mesh, --input_mesh should contain the following\n"
-                  "  syntax: NxMxP|bbox:xmin,xmax,ymin,ymax,zmin,zmax|sideset:xXyYzZ (bbox and sideset are optional; sideset args are where to put sidesets\n"
-                  "     e.g: '--generated_mesh=1 --input_mesh=\"10x10x10|bbox:-1,-1,-1,2,2,1|sideset:xXyZ\"' would generate a 10x10x10 mesh with sidesets on minX,maxX,minY and maxZ sides"
-                  );
-
-    // debugging/advanced
-    clp.setOption("debug"                    , &debug                    , " turn on debug printing");
-
-    clp.setOption("use_side_map"             , &use_side_map             , " experimental - for shell-based meshes");
-    clp.setOption("proc_rank_field"          , &proc_rank_field          , " add an element field to show processor rank");
-    clp.setOption("remove_original_elements" , &remove_original_elements , " remove original elements (default=true)");
-
-    clp.setOption("remove_geometry_blocks"   , &remove_geometry_blocks   , "remove geometry blocks from output Exodus file after refinement/geometry projection");
-
-    // internal
-    clp.setOption("delete_parents"           , &delete_parents           , "DEBUG: delete parents from a nested, multi-refine mesh - used for debugging");
-    clp.setOption("snap_geometry"            , &snap_geometry            , "project nodes to geometry - used for internal testing only");
-    clp.setOption("internal_test"            , &internal_test            , "run the specified internal test");
-    clp.setOption("sync_io_regions"          , &sync_io_regions          ,
-                                  "synchronize input/output region's Exodus id's (default=0)\n"
-                                  "   use this option if you want to ensure output mesh has\n"
-                                  "   the same block ids and names as the input mesh, which\n"
-                                  "   only makes sense if in refine (not enrich or convert) mode");
-
-#if defined(STK_BUILT_IN_SIERRA)
-    // Salinas
-    clp.setOption("rbar_blocks"              , &rbar_blocks              , "list of blocks to treat in special Salinas fashion for RBARs - see block_name description for format.");
-#endif
-    //clp.setOption("exclude"                  , &block_name_exc           , block_name_desc_exc.c_str());
-
-    clp.setOption("memory_multipliers_file"  , &memory_multipliers_file  ,
-                                  "[experimental]  filename with 3 space-separated entries, with estimate for bytes-per-hex8 tet4 and nodes, e.g. 300 280 200\n"
-                                  "  If not set, use internal estimates for memory multipliers.");
-
-#if ALLOW_MEM_TEST
-    clp.setOption("test_memory_elements"     , &test_memory_elements     , " give a number of elements");
-    clp.setOption("test_memory_nodes"        , &test_memory_nodes        , " give a number of nodes");
-#endif
-    clp.setOption("serialized_io_group_size" , &serialized_io_group_size , "[experimental] set to non-zero to use this many i/o groups to minimize disk contention");
-
-    // Detailed doc
-    std::string docString = s_docString;
-
-#ifdef STK_BUILT_IN_SIERRA
-    std::string docStringSalinas =
-      "Salinas Special Command --rbar_blocks\n"
-      "\n"
-      "Percept can refine a mesh that contains Salinas RBAR elements (beams connecting nodes of one surface\n"
-      "to another, e.g. to model a joint or spring).  The new mesh will contain RBARs connecting new nodes\n"
-      "on one surface to new nodes on the other.  Specify a list of block names that contain the RBAR\n"
-      "elements (see the --blocks command for format).\n";
-
-    docString = docString + docStringSalinas;
-#endif
-
-    if (found_print_version)
-      {
-        std::string v;
-        int vb = get_version(&v);
-        if(p_rank == 0) std::cout << "Version: " << v << std::endl;
-#if defined( STK_HAS_MPI )
-        stk::parallel_machine_finalize();
-#endif
-#if defined(WITH_KOKKOS)
-        Kokkos::finalize();
-#endif
-        std::exit(vb);
-      }
-
-    if (!found_Help) docString = "";
-    clp.setDocString(docString.c_str());
-
-    if (found_Help) {
-      try {
-        printHelp(clp);
-      }
-      catch (...) {}
-#if defined( STK_HAS_MPI )
-      stk::parallel_machine_finalize();
-#endif
-#if defined(WITH_KOKKOS)
-      Kokkos::finalize();
-#endif
-      std::exit(0);
+    // if no options were specified, treat it as --help
+    if (argc<=1)
+    {
+      found_help = true;
+      return true;
     }
 
-    int err_clp = processCommandLine(clp, argc, argv);
-    if (err_clp) return err_clp;
 
-    if (serialized_io_group_size)
+    for ( int i = 1; i < argc; ++i ) // skip 0
+    {
+      char *s = argv[i];
+      if (strcmp(s,"--version") == 0 || strcmp(s,"-v") == 0 )   found_print_version = true;
+      else if ( check_optionstring( s, "--help_full", found_help_full, help_full ) ) {}
+      else if ( check_optionstring( s, "--help_list", found_help_list, help_list ) ) {}
+      else if ( check_optionstring( s, "--help", found_help, help ) ) {}
+      // malformed help option?, check this last
+      else 
       {
-        std::cout << "Info: found non-zero serialized_io_group_size on command-line= "
-                  << serialized_io_group_size << std::endl;
-        if (serialized_io_group_size < 0 || serialized_io_group_size > (int)p_size || (int)p_size % serialized_io_group_size != 0)
+      // copy the part of s beore the '=', if any
+        std::string ss(s);
+        size_t equal_pos = ss.find( '=' );
+        if (equal_pos != std::string::npos)
+          ss.resize(equal_pos);
+        if (!ss.empty())
+        {
+      // make ss lower case
+          transform(ss.begin(), ss.end(), ss.begin(), ::tolower);
+          if (ss == "h" || ss == "-h" || ss == "--h" || match_prefix(ss, "help") || match_prefix( ss, "-help" ) || match_prefix(ss, "--help") )
           {
-            if (p_rank==0)
-              std::cout << "Error: Job requested serialized_io_group_size of " << serialized_io_group_size
-                        << " which is incompatible with MPI size= " << p_size
-                        << "... shutting down." << std::endl;
-            throw std::runtime_error("bad value for serialized_io_group_size");
+            found_help = true;
+            if (help.empty()) help = category_name[COMMON];
+            if (p_rank==0) std::cout << "\nInterpreting malformed input option '" << s << "' as '--help=" << help << "'" << std::endl;
+            if (p_rank==0) std::cout << help_hint << "\n" << std::endl;
           }
-        Ioss::SerializeIO::setGroupFactor(serialized_io_group_size);
+        }
       }
+    }
+    return found_print_version || found_help_list   || found_help || found_help_full;
+  }
 
-    if (convert.length()+enrich.length()+refine.length() == 0)
+  void MeshAdapt::set_operation_defaults(int argc, char **argv)
+  {
+    // check if convert, enrich, or refine was explicitly mentioned in input
+    // convert, enrich, refine, generated_mesh may have default values, so we can't just check their string length after parsing
+    // but don't bother with their default values, we already set those
+    bool found_convert(false), found_enrich(false), found_refine(false), found_generate(false);
+    std::string junk;
+    for (int i = 1; i < argc; ++i)
+    {
+      char *s = argv[i];
+      check_optionstring(s,"--convert",        found_convert,  junk);
+      check_optionstring(s,"--enrich",         found_enrich,   junk);
+      check_optionstring(s,"--refine",         found_refine,   junk);
+      check_optionstring(s,"--generated_mesh", found_generate, junk);
+    }
+
+    // if no operation, then default to refine
+    if ( !(found_convert || found_enrich || found_refine || found_generate) )
+    {
+      if (p_rank==0) std::cout << "defaulting to --refine" << std::endl;
+      found_refine = true;
+    }
+
+    // if more than one operation found, remove all but one
+    if (found_refine)   { found_enrich=false; found_convert=false; found_generate=false;}
+    if (found_enrich)   { found_refine=false; found_convert=false; found_generate=false;}
+    if (found_convert)  { found_enrich=false; found_refine=false; found_generate=false;}
+    if (found_generate) { found_enrich=false; found_convert=false; found_refine=false;}
+
+    // remove the default values of the non-selected operations
+    if (!found_convert ) convert.clear();
+    if (!found_enrich  ) enrich .clear();
+    if (!found_refine  ) refine .clear();
+    if (!found_generate) generated_mesh =0;
+
+    // reset the default values if Teuchos command line processor cleared them.
+    // e.g. --refine with no equals or value clears the default value!
+    if (found_refine   && refine  .empty()) {refine   = "DEFAULT";} 
+    if (found_enrich   && enrich  .empty()) {enrich   = "DEFAULT";} 
+    // if (found_convert  && convert .empty()) {convert  = "DEFAULT";}  // no reasonable default value
+    if (found_generate && generated_mesh <= 0) {generated_mesh = 0;}
+
+    // set default output file names, provided there was an input file
+    const bool err_input_mesh = input_mesh.empty();
+
+    // determine default outputs based on inputs
+    if (!err_input_mesh)
+    {
+      // set the operation string, for default file names
+      std::string operation;
+      if (found_convert ) operation = "convert";
+      if (found_enrich  ) operation = "enrich";
+      if (found_refine  ) operation = "refine";
+      if (found_generate) operation = "generate";
+
+      std::string def_output_mesh, def_previous_adapted_mesh, def_next_adapted_mesh;
+      default_output_files(input_mesh, operation, number_refines,
+                           def_output_mesh, def_previous_adapted_mesh, def_next_adapted_mesh);
+
+      // If prev and next were set by the simple options, use those values, 
+      // because in the adapt case with an analysis file, they are different.
+      // Otherwise use the default values generated here.
+      if (previous_adapted_mesh.empty()) previous_adapted_mesh = def_previous_adapted_mesh;
+      if (next_adapted_mesh.empty()) next_adapted_mesh = def_next_adapted_mesh;
+      // replace unspecified strings with defaults, and let the user know!
+      if (output_mesh.empty() && !def_output_mesh.empty()) 
       {
-        std::cout << "\nCommand line syntax error: you must give a value for one (and only one) of the options: refine, enrich, or convert.\n" << std::endl;
-        printHelp(clp);
-        std::cout << "\nCommand line syntax error: you must give a value for one (and only one) of the options: refine, enrich, or convert.\n" << std::endl;
-        exit(1);
+        output_mesh = def_output_mesh;
+        if (p_rank==0) std::cout << "defaulting to --output_mesh=" << output_mesh << std::endl;
       }
+    }
+  }
 
-    if (convert.length())
-      checkInput("convert", convert, convert_options, clp);
+  bool MeshAdapt::set_input_geometry_type()
+  {
 
-    if (enrich.length())
-      checkInput("enrich", enrich, enrich_options, clp);
-
-    if (refine.length())
-      checkInput("refine", refine, refine_options, clp);
-
-    if (print_info || convert_geometry_parts_OpenNURBS.size())
-      {
-        doRefineMesh = false;
-      }
-
-    if (help
-        || input_mesh.length() == 0
-        || output_mesh.length() == 0
-        || ((convert.length() == 0 && refine.length()==0 && enrich.length()==0) && number_refines)
-        //||  not (convert == "Hex8_Tet4_24" || convert == "Quad4_Quad4_4" || convert == "Quad4_Tri3_6")
-        )
-      {
-        printHelp(clp);
-        return 1;
-      }
-
-#if defined( STK_HAS_MPI )
-    MPI_Barrier( MPI_COMM_WORLD );
-#endif
+    std::string error_string;
 
     // check geometry file extensions
     if (input_geometry.length())
-      {
-        if (p_rank == 0) std::cout << "mesh_adapt: input_geometry type  file= " << input_geometry << std::endl;
-        if (input_geometry.find(".3dm") != std::string::npos )
-          {
-            std::string m2gFile = input_geometry.substr(0,input_geometry.length()-3) + "m2g";
+    {
 
-            struct stat s;
-            if (0 == stat(m2gFile.c_str(), &s))
-            {
-#ifdef HAVE_CUBIT
-              input_geometry_type = PGEOM_OPENNURBS;
-              if (p_rank == 0) std::cout << "mesh_adapt: input_geometry type is OpenNURBS (PGeom) for file= " << input_geometry << std::endl;
-#else
-              throw std::runtime_error("CUBIT not supported on this platform");
-#endif              
-            }
-            else
-            {
-              input_geometry_type = OPENNURBS;
-              if (p_rank == 0) std::cout << "mesh_adapt: input_geometry type is OpenNURBS for file= " << input_geometry << std::endl;
-            }
-          }
-        else if (input_geometry.find(".e") != std::string::npos || input_geometry.find(".g") != std::string::npos || input_geometry.find(".exo") != std::string::npos)
-          {
-            input_geometry_type = MESH_BASED_GREGORY_PATCH;
-            if (p_rank == 0) std::cout << "mesh_adapt: input_geometry type is mesh-based (Gregory patch) for file= " << input_geometry << std::endl;
-          }
-        else if(input_geometry.find(".sat") != std::string::npos)
-        {
-#ifdef HAVE_ACIS
-          input_geometry_type = PGEOM_ACIS;
-          if (p_rank == 0) std::cout << "mesh_adapt: input_geometry type is ACIS for file= " << input_geometry << std::endl;
-#else
-          throw std::runtime_error("ACIS is not available in this platform.");
+#if defined( STK_HAS_MPI )
+      MPI_Barrier( MPI_COMM_WORLD );
 #endif
+
+      // 3dm == opennurbs
+      if (input_geometry.find(".3dm") != std::string::npos )
+      {
+        // could be pgeom or regular opennurbs
+        // replace extension with "m2g" and see if file exists
+        std::string m2gFile = input_geometry.substr(0,input_geometry.length()-3) + "m2g";
+        struct stat s;
+        if (0 == stat(m2gFile.c_str(), &s))
+        {
+          input_geometry_type = PGEOM_OPENNURBS;
+#ifndef HAVE_CUBIT
+          error_string = "\nERROR: CUBIT is needed for PGeom OpenNURBS, but this mesh_adapt was not built with CUBIT.";
+#endif              
         }
         else
-          {
-            VERIFY_MSG("invalid file extension on --input_geometry file\n   "
-                       "-- valid extensions are .3dm (OpenNURBS) or .e,.g,.exo for GregoryPatch Exodus files - file= " + input_geometry);
-          }
+        {
+          input_geometry_type = OPENNURBS;
+        }
+      }
+      else if (has_suffix( input_geometry, ".g"  ) || 
+               has_suffix( input_geometry, ".e"  ) || 
+               has_suffix( input_geometry, ".exo") )
+      {
+        input_geometry_type = MESH_BASED_GREGORY_PATCH;
+      }
+      else if (has_suffix( input_geometry, ".sat"))
+      {
+        input_geometry_type = PGEOM_ACIS;
+#ifndef HAVE_ACIS
+        error_string = "\nERROR: ACIS is needed for PGeom ACIS files, but this mesh_adapt was not built with ACIS.";
+#endif
+      }
+      else
+      {
+        error_string = "\n ERROR: Unrecognized geometry type.\n" 
+        "Recognized file extensions are "
+        ".3dm (OpenNURBS); "
+        ".3dm.m2g (PGeom OpenNURBS); "
+        "{.g .e .exo} (Exodus mesh based Gregory patch); and "
+        ".sat (ACIS)";
       }
 
+      // print error message, if any
+      if (p_rank == 0)
+      {
+        // debug / diagnostic
+        if (p_rank==0) std::cout << "mesh_adapt: --input_geometry=" << input_geometry << " type is ";
+        switch (input_geometry_type)
+        {
+          case PGEOM_OPENNURBS:
+          if (p_rank==0) std::cout << "OpenNURBS (PGeom)";
+          break;
+          case OPENNURBS:
+          if (p_rank==0) std::cout << "OpenNURBS";
+          break;
+          case MESH_BASED_GREGORY_PATCH:
+          if (p_rank==0) std::cout << " mesh-based (Gregory patch)";
+          break;
+          case PGEOM_ACIS:
+          if (p_rank==0) std::cout << "ACIS";
+          break;
+          default:
+          case GEOM_NONE:
+          case N_GeometryType:
+          if (p_rank==0) std::cout << "undefined";
+          break;
+        }
+        // error, if any
+        if (p_rank==0) std::cout << error_string << std::endl;
+      }
+    }
+    return !error_string.empty();
+  }
 
+  bool MeshAdapt::check_parsing_results()
+  {
+    const bool no_operation = (convert.length()+enrich.length()+refine.length()+generated_mesh == 0);
+
+    const bool bad_operation = 
+      (convert.length() && checkInput("convert", convert, convert_options)) ||
+      ( enrich.length() && checkInput("enrich",  enrich,  enrich_options)) ||
+      ( refine.length() && checkInput("refine",  refine,  refine_options)) ; 
+      // todo, check input_mesh string when generated_mesh=1
+      // todo, check if file exists when generated_mesh=0
+    const bool err_input_mesh  =  input_mesh.empty(); 
+    const bool err_output_mesh = output_mesh.empty();
+
+    const std::string verify_options("0, 1, 2, FV");
+    bool err_verify = (!verify_meshes.empty() && checkInput("verify_meshes", verify_meshes, verify_options));
+
+    if ( no_operation || bad_operation || err_input_mesh || err_output_mesh || err_verify )
+    {
+      // bad operation already prints syntax_error, otherwise we want to print it now
+      if (!bad_operation) 
+        if (p_rank==0) std::cout << "\n" << syntax_error;
+      if ( err_input_mesh )
+        if (p_rank==0) std::cout << "--input_mesh must be specified. ";
+      if ( err_output_mesh )
+        if (p_rank==0) std::cout << "--output_mesh was not specified or derived. ";
+      if ( no_operation )
+      {
+        if (p_rank==0) std::cout << "\nEither " << operation_error << "\nOr " << simple_operation_error << "\n";
+      }
+      if (p_rank==0) std::cout << std::endl;
+      return true;
+    }
+    return false;
+
+  }
+  
+  int MeshAdapt::adapt_main_full_options(int argc, char **argv, bool &parsing_ok, bool &do_adapt)
+  {
+    ParserSystem ps;
+    parsing_ok = false;
+    do_adapt = false;
+
+    // check for help ( or version )
+    bool found_print_version(false), found_help_list(false), found_help(false), found_help_full(false);
+    bool found_any_help = check_help_options(argc, argv, found_print_version, found_help_list, found_help, found_help_full);
+    if (found_any_help)
+    {
+      parsing_ok = true;
+      do_adapt = false;
+    }
+
+    if (found_print_version)
+    {
+      std::string v;
+      bool vb = get_version(&v);
+      if (p_rank == 0) std::cout << "Version: " << v << std::endl;
+      return ( vb ? 0 : 1 ); // true means everything was fine, a version was given
+    }
+
+    // create the parser parameter list
+    //================================== basic options ===========================================================
+    // help
+    // the first three options take a keyword value, the others don't
+    const std::string keyword_options = ", for {SIMPLE, COMMON, ALL}, option type (e.g. IO), or command (e.g. input_mesh)";
+    std::string keyword_options_ext="option types are {";
+    for ( int i = 0; i < num_operations-1; ++i)
+    {
+      keyword_options_ext += operation_name[i] + ", ";
+    }
+    keyword_options_ext += operation_name[num_operations-1] +"}";
+
+    // always give the full help for "help," to help the user get started
+    set_option(ps, "help"                       , &help              , HELP, "short one-line help" + keyword_options + 
+                              "\n                                                 "  // indent, exceptional use of two lines for ONELINE help
+                              + keyword_options_ext, "", "", true, false);
+    set_option(ps, "help_list"                  , &help_list         , HELP, "list command options", "", "", false, false);
+    set_option(ps, "help_full"                  , &help_full         , HELP, "long help, including syntax options", "", "", false, false);
+    set_option(ps, "version"                    , &print_version     , HELP,  "print version and exit", "", "", false, true);
+
+    // files
+    set_option(ps, "input_mesh"               , &input_mesh               , IO, "input mesh name", "", "", false, false);
+    set_option(ps, "output_mesh"              , &output_mesh              , IO, "output mesh name", "", "", false, false);
+
+    // operation type
+    set_option(ps, "convert"                  , &convert                  , OPERATION, 
+      "split each element into several of a new type", "", "\n\tOptions are " + convert_options);
+
+    set_option(ps, "enrich"                   , &enrich                   , OPERATION, 
+      "add nodes to make elements higher order", ". E.g. DEFAULT",  "\n\tOptions are " + enrich_options);
+
+    set_option(ps, "refine"                   , &refine                   ,  OPERATION, "split elements", "", "\n\tOptions are " + refine_options, true, false);
+
+    set_option(ps, "number_refines"           , &number_refines           , PARAMETER, "number of refinement passes", "",  ".  Must be >= N in --blocks=b:Nx", true, false);
+    // subsetting
+    
+    set_option(ps, "blocks"                   , &block_name_inc           , PARAMETER,  
+      "blocks to operate on, and block-specific refinement levels", "",
+      "\n"
+      "\t(0) by default, all blocks are included\n"
+      "\t(1) [+]block_<n> will include that block, e.g., block_2\n"
+      "\t(2) -block_<n> will exclude that block, e.g., -block_3\n"
+      "\t(3) file:<filename> reads values from the file, e.g., file:blocklist.dat\n"
+      "\t(4) block_1..block_10 specifies the range of blocks 1 to 10\n"
+      "\t(5) :Nx (or :NX) suffix, where N specifies the number of times to refine\n"
+      "\t    e.g. --blocks=1..3:2x,5,6:3x refines blocks 1,2 and 3 twice, block 5 'number_refines' times,\n"
+      "\t         and block 6 three times. Block 4 would not be refined at all.\n"
+      "\tNote any combination of + and - and ranges can be specified.\n"
+      "\tNote `block_` is optional, so 'block_1' is equivalent to '1'. The + sign is optional.");
+
+
+    // spacing
+#if !defined(NO_GEOM_SUPPORT)
+    set_option(ps, "respect_spacing"          , &respect_spacing          , PARAMETER, "preserve the input-mesh size-gradation during refinement", "", "");
+#endif
+
+    // ==== end basic options
+
+    //================================== advanced options ===========================================================
+    // subsetting
+    set_option(ps, "use_transition_elements"  , &use_transition_elements  ,
+                                  PARAMETER, "create a conformal mesh", "", 
+                                  "\n\tUse transition elements between adjacent more-refined and less-refined blocks");
+
+    // ioss options -  we'd like to change this to set automatically, based on other criteria
+    set_option(ps, "ioss_read_options"        , &ioss_read_options        , IO, "input mesh IOSS/Exodus file layout", "",
+      "\n\tioss_read_options=\"{large, auto-join:<yes | no>\" e.g. \"auto-join:no\""); 
+    set_option(ps, "ioss_write_options"       , &ioss_write_options       , IO, "output mesh IOSS/Exodus file layout", "",
+      "\n\tioss_write_options=\"{large, auto-decomp:<yes | no>}\" e.g. \"large,auto-decomp:yes\"");
+
+    // run-adapt-run
+    set_option(ps, "RAR_info"                 , &adapt_input              , IO, "name of input file for advanced usage");
+
+    // query/control
+    set_option(ps, "verify_meshes"            , &verify_meshes            , INFO, "verify positive volumes for input and output meshes", "",
+      "\n\tset to 1 for finite element volume checks"
+      "\n\tset to FV for finite volume checks");
+    set_option(ps, "progress_meter"           , &progress_meter           , INFO, "progress meter on or off");
+    set_option(ps, "print_timers"             , &print_timers             , INFO, "print more detailed timing info");
+    set_option(ps, "skin_mesh"                , &skin_mesh                , PARAMETER, "produce a boundary sideset for any exposed boundaries");
+    set_option(ps, "dihedral_angle_check"     , &dihedral_angle_check     , INFO, "list obtuse dihedral angles", "", 
+      "\n\tOnly tetrahedral meshes are supported."
+      "\n\tHigher values print more info, value must be >= 0");
+    set_option(ps, "memory_logfile_name"      , &memory_logfile_name      , INFO, "write memory usage to file");
+
+    // properties
+    set_option(ps, "property_map"             , &property_map             , PARAMETER, "YAML-based list of string pairs", "",
+      "\n\te.g. {smoother_type: Newton, smoother_niter: 200, smoother_tol: 1.e-3}");
+
+    // geometry
+    set_option(ps, "input_geometry"           , &input_geometry           , IO, "input geometry name");
+    set_option(ps, "smooth_geometry"          , &smooth_geometry          , PARAMETER, "smooth nodes that lie on geometry", "", 
+      "\n\tmoves nodes after projecting them to the geometry to try to avoid bad-quality meshes");
+    set_option(ps, "smoother_niter"           , &smoother_niter           , PARAMETER, "mesh smoother number of iterations");
+    set_option(ps, "smoother_tol"             , &smoother_tol             , PARAMETER, "mesh smoother convergence tolerance");
+    set_option(ps, "smooth_surfaces"          , &smooth_surfaces          , PARAMETER, "allow nodes to move on surfaces when smoothing");
+    set_option(ps, "dump_geometry_file"       , &dump_geometry_file       , INFO, "debug print geometry (OpenNURBS 3dm) file contents");
+    set_option(ps, "fit_geometry_file"        , &fit_geometry_file        , IO, "create a smooth geometry from the mesh boundary", "", 
+          "\n\t2D meshes only."
+          "\n\tcreate an OpenNURBS 3dm file fitting cubic splines to all mesh boundaries");
+    set_option(ps, "fit_angle"                , &fit_angle                ,
+                                  PARAMETER, "dihedral angle criterion for determining corners of MBG", "",
+                                  "\n\tSpecified in degrees. 2D meshes only."
+                                  "\n\tIf the dihedral is less than fit_angle, the node is considered a corner."
+                                  "\n\tNote a flat surface has 180 degree angles everywhere.");
+    set_option(ps, "fit_3d_file"              , &fit_3d_file              ,
+                                  PARAMETER, "input YAML file. 3D meshes only.", "",
+                                  "\n\tFit bi-cubics to mesh surface geometry, and store in fields."
+                                  "\n\tFile contains control information on which surfaces"
+                                  "to fit and angle criterion for surface seams."
+                                  "\n\tA sample YAML file will be printed if --fit_3d_file=sample.yaml.");
+
+    // smoothing
+    set_option(ps, "smooth_use_reference_mesh", &smooth_use_reference_mesh, PARAMETER, "use the reference mesh when smoothing", "",
+      "\n\tSet to 0 to smooth without a reference mesh."
+      "\n\tFor most cases, set to 1 (default).");
+    set_option(ps, "fix_all_block_boundaries" , &fix_all_block_boundaries , PARAMETER, "nodes on block boundaries are not smoothed", "",
+      "\n\tEspecially useful when smoothing without geometry.");
+
+    // mesh query
+    set_option(ps, "compute_hmesh"            , &compute_hmesh            , PARAMETER, "compute mesh parameter using method eigens|edges");
+    set_option(ps, "print_hmesh_surface_normal"  , &print_hmesh_surface_normal            , IO, "prints a table of normal mesh spacing at each surface");
+
+    // histograms
+    set_option(ps, "histogram"  , &histogram_options  , INFO, "print a histogram, of fields and mesh quality at a timestep.", "",
+                                  "\n\tValue may be a filename or a string."
+                                  "\n\tFilename: file contains parameters in YAML format (yaml.org)"
+                                  "\n\tString: parameter format is \"{ fields: [field_1,...,field_n], file_root: my_histograms,"
+                                  "\n\t  mesh: [edge_length, quality_edge, quality_vol_edge_ratio, volume], time: 0.1, step: 2 }\"");
+
+    set_option(ps, "histogram_file_root"      , &histograms_root          , INFO, "root name of histogram files, or cout (screen).");
+
+    set_option(ps, "generated_mesh"           , &generated_mesh           , OPERATION, "generate an NxMxP hexahedral mesh and write to --output_mesh", "",
+                  "\n\tSpecify the mesh size using --input_mesh=NxMxP|bbox:xmin,xmax,ymin,ymax,zmin,zmax|sideset:xXyYzZ"
+                  "\n\tBbox and sideset are optional. sideset args are where to put sidesets"
+                  "\n\tE.g: '--generated_mesh --input_mesh=\"10x10x10|bbox:-1,-1,-1,2,2,1|sideset:xXyZ\"'"
+                  "\n\tgenerates a 10x10x10 mesh inside sidesets on minX, maxX, minY and maxZ sides."
+                  );
+
+    set_option(ps, "remove_geometry_blocks"   , &remove_geometry_blocks   , IO, "remove geometry blocks from output Exodus file", "",
+      "\n\tRemoval is done after any refinement and geometry projection.");
+
+    // internal
+    set_option(ps, "sync_io_regions"          , &sync_io_regions          , IO, "synchronize input & output regions' Exodus ids", "", 
+                                  "\n\tEnsures output mesh has the same block ids and names as the input mesh."
+                                  "\n\tThis only makes sense for refine (not enrich or convert).", true);
+
+#if defined(STK_BUILT_IN_SIERRA)
+    // Salinas
+    set_option(ps, "rbar_blocks"              , &rbar_blocks              , PARAMETER, "blocks to treat as special Salinas RBARs.", "", 
+      "\n\tRBARs will connect new nodes between two surfaces."
+      "\n\tUse help_full=--blocks for help on the option format.");
+#endif
+
+    // ad simple usage help to the command line processor 
+    // ps.clp.setDocString( simple_usage_string.c_str() );  // zzyk delete me
+
+    // help
+    bool err = false;
+    if (found_help_list)
+    {
+      err = do_help(ps, LIST) || err;
+    }
+    if (found_help)
+    {
+      err = do_help(ps, ONELINE) || err;
+    }
+    if (found_help_full)
+    {
+      err = do_help(ps, FULL) || err;
+    }
+
+    if ( found_any_help )
+      return (int) err;
+
+    // try to parse the option to run, not just print help
+    parsing_ok = false;
+    do_adapt = false;
+
+    int err_clp(0);
+    int bad_option(0);
+    try 
+    {
+      err_clp = processCommandLine(ps.clp, argc, argv, bad_option);
+    }
+    catch (const std::exception &exc) 
+    {
+      if (p_rank==0) std::cout << "\n" << syntax_error << " unknown parameters or unallowed values.\n";
+      print_syntax_error_instructions(false);
+      exit_safely(1);
+    }
+    if (err_clp) 
+    {
+      if (bad_option)
+      {
+        help_full = argv[bad_option];
+        do_help(ps, FULL);
+      }
+      return err_clp;
+    }
+
+    set_operation_defaults(argc, argv);
+
+    if ( set_input_geometry_type() )
+      return 1;
+
+    if ( check_parsing_results() )
+      return 1;
+
+    // all is well if got to here
+    parsing_ok = true;
+    do_adapt = true;
     return 0;
   }
 
-  void MeshAdapt::do_precheck_memory_usage()
+
+  void MeshAdapt::print_in_columns(const std::vector<std::string> &words) const
   {
-    size_t avail = 0;
-    std::string hostname;
-    int nnodes = 0;
+    if (words.empty()) return;
 
-    if (precheck_memory_usage)
+    struct winsize w;
+    ioctl(0, TIOCGWINSZ, &w);
+    int screen_char_width = (int) w.ws_col;
+
+    const int num_words = (int) words.size();
+    // see how many columns can fit in screen_char_width
+    std::vector<int> col_width, test_width; // start with zero columns
+    while(true)
+    {
+      int cols = col_width.size()+1;
+      int rows = (int) ceil ( (double) num_words / (double) cols );
+      // set initial width to all zeros
+      test_width.clear();
+      test_width.resize(cols, 0);
+      for(int r=0; r<rows; r++)
       {
-        char host[256];
-        gethostname(host, sizeof(host));
-        hostname = host;
-        std::string names[] = {"chama","redsky","glory","skybridge","muzia","curie","uno"};
-        int cores_per_node[] = {16,     8,       16,     16,         8,      8,      8};
-        int nnames = sizeof(names)/sizeof(std::string);
-        int cpn = 0;
-        if (precheck_memory_usage == 1)
+        for (int c = 0; c < cols; ++c)
+        {
+          auto i = r + c * rows;
+          if (i<num_words)
           {
-            for (int in = 0; in < nnames; ++in)
-              {
-                if (hostname.compare(0, names[in].length(), names[in]) == 0)
-                  {
-                    cpn = cores_per_node[in];
-                    if (!eMeshP->get_rank())
-                      {
-                        std::cout << "NOTE: found hostname in our internal list, hostname= " << hostname << std::endl;
-                      }
-                    break;
-                  }
-              }
+            const int padding = 4;
+            test_width[c] = std::max( test_width[c], (int) words[i].length() + padding );
           }
-        else
-          {
-            cpn = precheck_memory_usage;
-          }
-        bool unknown_host = false;
-        if (!cpn)
-          {
-            unknown_host = true;
-            cpn = 8;
-            if (!eMeshP->get_rank())
-              std::cout << "WARNING: unknown host = " << hostname << " using 8 for cores_per_node - note: if this is incorrect, re-run with --precheck_memory_usage=<your cores_per_node> or 0 to turn off memory checking."
-                        << std::endl;
-          }
-
-        uint64_t nelLocal = static_cast<uint64_t> (eMeshP->get_ioss_mesh_data()->get_input_io_region()->get_property("element_count").get_int());
-        uint64_t nelGlobal = static_cast<uint64_t> (eMeshP->get_ioss_mesh_data()->get_input_io_region()->get_property("global_element_count").get_int());
-        uint64_t nelMin, nelMax, nelAve;
-        stk::get_max_min_avg(eMeshP->parallel(), nelLocal, nelMax, nelMin, nelAve);
-        uint64_t bytes_per_elem = 1300; // our estimate
-        uint64_t mem = nelGlobal*bytes_per_elem;
-
-        uint64_t fac = std::pow(uint64_t(8), uint64_t(std::max(number_refines,1)));
-        if (number_refines == 0)
-          fac = 0;
-        mem *= (fac + 1 + 1);  // uniform refinement estimate + memory for initial mesh + 1 more for luck
-
-        stk::get_memory_available(avail);
-        if (avail == 0) avail = 1;
-        nnodes = eMeshP->get_parallel_size() / cpn;
-        nnodes = std::max(nnodes, 1);
-        uint64_t totAvailableMem = avail*nnodes;
-        double Gb = 1024.0*1024.0*1024.0;
-        if (eMeshP->get_rank() == 0)
-          {
-            std::cout << "P[" << eMeshP->get_rank() << "] precheck_memory_usage is set, before reading the bulk data of the mesh, the computed available memory= "
-                      << double(totAvailableMem)/Gb << " Gb" << " while the estimated needed memory to refine the mesh is " << double(mem)/Gb << " Gb"
-                      << "\nThe memory available on each node is = " << double(avail)/Gb
-                      << "\nThe local element count = " << nelLocal << " global element count= " << nelGlobal
-                      << " min = " << nelMin << " max= " << nelMax << " ave= " << nelAve
-                      << "\nThe number of compute-nodes = " << nnodes << " using cores_per_node= " << cpn
-                      << "\nThe number of cores = " << eMeshP->get_parallel_size()
-                      << std::endl;
-          }
-        if (mem > totAvailableMem)
-          {
-            if (unknown_host)
-              {
-                if (eMeshP->get_rank() == 0)
-                  std::cout << "WARNING: not enough memory to read and refine the mesh, use more procs/cores, we estimate needed nodes (minimum) = " + toString(mem/avail) +
-                    "\nHowever, since this host is unknown, execution will continue" << std::endl;
-              }
-            else
-              {
-                throw std::runtime_error("not enough memory to read and refine the mesh, use more procs/cores, we estimate needed nodes (minimum) = " + toString(mem/avail));
-              }
-          }
+        }
       }
+      auto width_sum = std::accumulate(test_width.begin(), test_width.end(), 0);
+      if (width_sum<screen_char_width)
+      {
+        col_width.swap(test_width);
+      }
+      else
+        break;
+      if ( rows <= 1 )
+        break;
+    }
+
+    // now print it
+    std::stringstream ss;
+    const int cols = (int) col_width.size();
+    int rows = (int) ceil ( (double) num_words / (double) cols );
+    for (int r = 0; r < rows; ++r)
+    {
+      for (int c = 0; c < cols; ++c)
+      {
+        auto i = r + c * rows;
+        if (i<num_words)
+        {
+          ss << std::left << std::setw(col_width[c]) << words[i];
+        }
+      }
+      ss << "\n"; // end of row
+    }
+    ss << "\n"; // extra
+    //PRINT_INFO("%s", ss.str().c_str());
   }
+
+
+  int MeshAdapt::do_help(ParserSystem &ps, HelpType help_type)
+  {
+    std::string help_prefix;
+    std::string option;
+    switch (help_type)
+    {
+      case LIST:
+      help_prefix = "\nListing options";
+      option = help_list;
+      break;
+      case ONELINE:
+      default:
+      help_prefix = "\nHelp";
+      option = help;
+      break;
+      case FULL: 
+      help_prefix = "\nFull help";
+      option = help_full;
+      break;
+    }
+    // strip any preceeding "-" characters
+    while (!option.empty() && option[0]=='-')
+      option.erase(0,1);
+    // strip anything after '=', including the '='
+    auto eq_pos = option.find('=');
+    if (eq_pos != std::string::npos)
+      option.erase(eq_pos, option.length());
+    help_prefix += " for `" + option + "':\n";
+
+    std::vector< std::string > help_strings;
+
+    // is the option an operation name?
+    for (int op = 0; op < num_operations; ++op)
+      if (option == operation_name[op])
+      {
+        if (p_rank==0) std::cout << help_prefix;
+        // search both basic and advanced, regardless of operation
+        for (auto & odm : ps.basic_option_help )
+          if ( odm.second.op == op )
+            help_strings.push_back( odm.second.get_help( help_type ) );
+        for (auto & odm : ps.advanced_option_help)
+          if ( odm.second.op == op )
+            help_strings.push_back( odm.second.get_help( help_type ) );
+        if (p_rank==0) print_help(help_strings, help_type);
+        if (p_rank==0) std::cout << std::endl;
+        return 0;
+      }
+
+    // is it one of the categories? 
+    if (option == category_name[SIMPLE] ||
+        option == category_name[COMMON] ||
+        option == category_name[ALL] )
+    {
+      if (help_type == LIST)
+        std::cout << "\n" << simple_usage_string_one_line << std::endl;
+      else
+        std::cout << simple_std_help << std::endl;
+      if (option == category_name[SIMPLE])
+        return 0;
+      if (option == category_name[COMMON] ||
+          option == category_name[ALL] )
+      {
+        // common 
+        std::cout << help_prefix;
+        for ( auto &odm : ps.basic_option_help )
+          help_strings.push_back( odm.second.get_help( help_type ) );
+      }
+      if ( option == category_name[ALL] )
+      {
+        // advanced
+        for ( auto &odm : ps.advanced_option_help )
+          help_strings.push_back( odm.second.get_help( help_type ) );
+      }
+      if (p_rank==0) print_help(help_strings, help_type);
+      if (p_rank==0) std::cout << std::endl;
+      return 0;
+    }
+ 
+    // is it a specific keyword?
+    std::string help_string;
+    if ( 0 == get_help(ps, option, help_string, help_type ) )
+    {
+      std::cout << help_prefix << help_string << std::endl;
+      return 0;
+    }
+
+    // was it none of the above, an unrecognized options?
+    std::cout << "\nHelp for '" << option << "'' not found\n" << std::endl;
+    std::cout << help_hint << "\n" << std::endl;
+
+    return 1;
+
+  }
+
+  void MeshAdapt::print_help(std::vector< std::string > &help_strings, HelpType help_type) const
+  {
+    if (help_type == LIST)
+      print_in_columns(help_strings);
+    else
+    {
+      for ( auto &w : help_strings )
+      {
+        std::cout << w;
+        // extra blank line between multi-line help
+        if (help_type == FULL && std::count(w.begin(), w.end(), '\n') > 1)
+          std::cout << "\n"; 
+      }
+      std::cout << std::endl;
+    }
+  }
+
 
   void MeshAdapt::mesh_based_geometry_setup()
   {
@@ -908,37 +1130,10 @@ namespace percept {
         if (!eMeshP->get_rank()) std::cout << "Fitting 3D geometry using control data from file: " << fit_3d_file
                                            << " QA.activate= " << fitter->m_QA.m_activate << " QA.file= " << fitter->m_QA.m_file
                                            << std::endl;
+        fitter->computeControlPoints();
         if (fitter->m_QA.m_activate && fitter->m_QA.m_file.length())
           {
-            fitter->fit();
             fitter->createQA(fitter->m_QA.m_file+"_"+input_mesh);
-            if (fitter->m_QA.m_visualizer_command_prefix.length() && p_rank == 0)
-              {
-                std::ostringstream sz, rank;
-                if (p_size > 1)
-                  {
-                    int width = int(std::log10(double(p_size))) + 1;
-                    sz << std::setfill('0') << std::setw(width) << p_size;
-                    rank << std::setfill('0') << std::setw(width) << p_rank;
-                  }
-                std::string ext =  (p_size == 1 ? "" : "."+sz.str()+"."+rank.str());
-                for (unsigned ii=0; ii < fitter->m_QA.m_filenames.size(); ++ii)
-                  {
-                    std::string command = fitter->m_QA.m_visualizer_command_prefix + fitter->m_QA.m_filenames[ii] + ext;
-                    std::cout << "\n\n======\n=====\nrunning visualization command: " << command << "\n\n" << std::endl;
-                    runCommand(command);
-                    if (fitter->m_QA.m_num_divisions)
-                      {
-                        command = fitter->m_QA.m_visualizer_command_prefix + "div_" + fitter->m_QA.m_filenames[ii] + ext;
-                        std::cout << "\n\n======\n=====\nrunning visualization command: " << command << "\n\n" << std::endl;
-                        runCommand(command);
-                      }
-                  }
-              }
-          }
-        else
-          {
-            fitter->fit();
           }
       }
 
@@ -975,13 +1170,12 @@ namespace percept {
     else
       {
         if (verify_meshes != "0")
-          VERIFY_MSG("--verify_meshes option unrecognized, use 0, 1, 2 or FV, your optoin: "+verify_meshes);
+          VERIFY_MSG("--verify_meshes option unrecognized, use 0, 1, 2 or FV, your option: "+verify_meshes);
       }
   }
 
   void MeshAdapt::do_histograms_init()
   {
-#if STK_ADAPT_HAVE_YAML_CPP
     if (histogram_options.size() != 0)
       {
         Histograms<double> histograms(histograms_root);
@@ -1018,12 +1212,10 @@ namespace percept {
         // reset
         eMeshP->read_database_at_step(current_step);
       }
-#endif
   }
 
   void MeshAdapt::do_histograms_final()
   {
-#if STK_ADAPT_HAVE_YAML_CPP
     if (histogram_options.size() != 0)
       {
         Histograms<double> histograms(histograms_root);
@@ -1038,7 +1230,6 @@ namespace percept {
           histograms.print(true);
         }
       }
-#endif
   }
 
   void MeshAdapt::compute_hmesh_sizes_init()
@@ -1047,11 +1238,8 @@ namespace percept {
       {
         double hmesh=0.0;
         Histograms<double> histograms(histograms_root);
-        //Histograms<double> histograms;
-#if STK_ADAPT_HAVE_YAML_CPP
         HistogramsParser<double> hparser(histogram_basic_options);
         hparser.create(histograms);
-#endif
         if (compute_hmesh == "eigens")
           {
             hmesh = eMeshP->hmesh_stretch_eigens(hmesh_min_max_ave_factor, &histograms["stretch_eigens"].m_data, &histograms["quality_edge_eigens"].m_data);
@@ -1090,11 +1278,8 @@ namespace percept {
         double hmesh=0.0;
         double min_max_ave[3];
         Histograms<double> histograms(histograms_root);
-        //Histograms<double> histograms;
-#if STK_ADAPT_HAVE_YAML_CPP
         HistogramsParser<double> hparser(histogram_basic_options);
         hparser.create(histograms);
-#endif
 
         if (compute_hmesh == "eigens")
           {
@@ -1131,42 +1316,6 @@ namespace percept {
                     << std::endl;
           histograms.print(true);
         }
-      }
-  }
-
-  void MeshAdapt::do_test_memory()
-  {
-    std::cout << "test_memory_elements and nodes are nonzero, will not refine exodus files." << std::endl;
-
-    test_memory(test_memory_elements, test_memory_nodes);
-
-    if (print_memory_usage)
-      memory_dump(print_memory_usage, eMeshP->get_bulk_data()->parallel(), *eMeshP->get_bulk_data(), 0, "after test memory");
-
-    if (estimate_memory_usage && !query_only)
-      {
-        MemorySizeType tot_mem = memory_dump(false, eMeshP->get_bulk_data()->parallel(), *eMeshP->get_bulk_data(), 0, "after test memory");
-
-        //std::cout << "MemEst: num_nodes= " << test_memory_nodes << " num_tet4=0 hum_hex8= " << test_memory_elements << " memory= " << MegaByte(tot_mem) << std::endl;
-        //MemoryMultipliers::process_estimate(tot_mem, eMesh, refiner.getRefinementInfoByType(), memory_multipliers_file);
-        MemoryMultipliers memMults;
-        if (memory_multipliers_file.size())
-          memMults.read_simple(memory_multipliers_file);
-        memMults.num_hex8=test_memory_elements;
-        memMults.num_nodes=test_memory_nodes;
-        MemorySizeType estMem = memMults.estimate_memory();
-        //                 std::cout << "MemEst: num_nodes= " << memMults.num_nodes << " num_tet4= " << memMults.num_tet4 << " num_hex8= " << memMults.num_hex8 << " memory= " << MegaByte(tot_mem)
-        //                           << " estMem= " << MegaByte(estMem) << std::endl;
-        std::cout << "MemEst: num_nodes= " << memMults.num_nodes << " num_tet4= " << memMults.num_tet4 << " num_hex8= " << memMults.num_hex8 << " memory[MB]= " << MegaByte(tot_mem)
-                  << " estMem[MB]= " << MegaByte(estMem)
-                  << " mult_hex8= " << memMults.mult_hex8 << " mult_tet4= " << memMults.mult_tet4 << " mult_nodes=" << memMults.mult_nodes << std::endl;
-        std::cout << "(*MemEstMM: " << input_mesh << " *) ,{" << memMults.num_nodes << ", " << memMults.num_tet4 << "," << memMults.num_hex8 << "," << MegaByte(tot_mem)
-                  << ", " << MegaByte(estMem) << "}" << std::endl;
-
-      }
-    if (estimate_memory_usage && query_only)
-      {
-        //MemoryMultipliers::process_estimate(0, eMesh, refiner.getRefinementInfoByType(), memory_multipliers_file, input_mesh);
       }
   }
 
@@ -1228,6 +1377,11 @@ namespace percept {
       }
     else
       {
+        if (convert == "Wedge6_Pyramid5_Tet4_Exclude_Unconnected_Wedges") {
+          convert = "Hex8_Wedge6_Pyramid5_Tet4";
+          m_excludeWedgesNotConnectedToPyramids = 1;
+        }
+
         pattern = Teuchos::get_shared_ptr(UniformRefinerPatternBase::createPattern(refine, enrich, convert, *eMeshP, m_block_names));
       }
   }
@@ -1245,15 +1399,18 @@ namespace percept {
     else
       {
         refiner.reset(new UniformRefiner(*eMeshP, *pattern, proc_rank_field_ptr));
-        refiner->setRemoveOldElements(remove_original_elements);
+        refiner->setRemoveOldElements(true);
         if (block_name_inc.size())
           {
-            if (!eMeshP->get_rank()) std::cout << "WARNING: setting remove_original_elements=0 and output_active_elements_only=1 since --blocks was specified" << std::endl;
             refiner->setRemoveOldElements(false);
             refiner->setAlwaysInitializeNodeRegistry(false);
             eMeshP->output_active_children_only(true);
           }
+        if (m_excludeWedgesNotConnectedToPyramids) {
+          refiner->setRemoveOldElements(false);
+        }
       }
+    refiner->setAlternateRootTimer(&m_timer);
   }
 
   int MeshAdapt::bucket_in_block_names(stk::mesh::Bucket& bucket, std::string& block)
@@ -1281,6 +1438,14 @@ namespace percept {
 
   void MeshAdapt::pre_refiner_tasks(int iBreak)
   {
+    if (m_excludeWedgesNotConnectedToPyramids) {
+      stk::mesh::Part* exclude_part = eMeshP->get_fem_meta_data()->get_part("exclude_part");
+      stk::mesh::PartVector pv(1, exclude_part);
+      excludeWedgesNotConnectedToPyramids(*eMeshP, pv);
+      
+      refiner->setExcludeParts(pv);
+    }
+
     if (use_transition_elements)
       {
         const stk::mesh::BucketVector & buckets = eMeshP->get_bulk_data()->buckets( eMeshP->element_rank() );
@@ -1344,8 +1509,7 @@ namespace percept {
       }
   }
 
-  // init these static vars before we use them in the function below
-
+  // define static vars from RunAdaptRunInfo
   double RunAdaptRunInfo::mMeshInputTime = 0.0;
   double RunAdaptRunInfo::mMeshOutputTime = 0.0;
   double RunAdaptRunInfo::mAdaptTimeOverall = 0.0;
@@ -1354,17 +1518,10 @@ namespace percept {
   void MeshAdapt::run_adapt_run()
   {
 
+    // This is not currently used in our test suite
     // to support legacy uses, added an extension to the output_mesh name if there is none
     if ( !(has_suffix(output_mesh, ".e") || has_suffix(output_mesh, ".exo"))) {
       output_mesh = output_mesh + ".e";
-    }
-
-    // (this will already be taken care of when using the simple form of user input)
-    if (next_adapted_mesh == "") {
-      size_t dot_index = output_mesh.find_last_of(".");
-      std::string basename(output_mesh, 0, dot_index);
-      std::string suffix = output_mesh.substr(dot_index+1);
-      next_adapted_mesh = basename + "_ft." + suffix;
     }
 
     RunAdaptRunInfo::run_adapt_run(previous_adapted_mesh, input_mesh,
@@ -1374,6 +1531,8 @@ namespace percept {
                                    ioss_write_options,
                                    property_map,
                                    verify_meshes,
+                                   memory_logfile_name,
+                                   m_timer,
                                    false);
 
     mMeshInputTime = RunAdaptRunInfo::mMeshInputTime;
@@ -1495,7 +1654,7 @@ namespace percept {
         if (1)
           {
             eMeshP->commit();
-            block_names = RefinerUtil::correctBlockNamesForPartPartConsistency_1(*eMeshP, block_names, input_geometry);
+            block_names = RefinerUtil::correctBlockNamesForPartPartConsistency(*eMeshP, block_names, input_geometry);
 
             eMeshP->close();
             pre_open();
@@ -1528,16 +1687,11 @@ namespace percept {
 
   int MeshAdapt::do_run_pre_commit()
   {
-    if (load_balance)
-      {
-        throw std::runtime_error("deprecated - run decomp manually before running mesh_adapt, or, use the auto-decomp options");
-      }
-
     if (ioss_read_options.length() || ioss_write_options.length())
       {
         if (!eMeshP->get_rank())
           {
-            std::cout << "INFO: ioss_read_options= " << ioss_read_options << " ioss_write_options= " << ioss_write_options << std::endl;
+            std::cout << "INFO: ioss_read_options=" << ioss_read_options << " ioss_write_options=" << ioss_write_options << std::endl;
           }
       }
 
@@ -1556,10 +1710,11 @@ namespace percept {
       return -1;
     }
 
-    eMeshP->set_do_print_memory(print_memory_usage);
-
     pre_open();
     {
+      stk::diag::Timer timerReadMesh_("ReadMesh", m_timer);
+      stk::diag::TimeBlock tbReadMeshg_(timerReadMesh_);
+      
       double t0 = stk::wall_time();
       if (generated_mesh)
         eMeshP->new_mesh(GMeshSpec(input_mesh));
@@ -1597,18 +1752,11 @@ namespace percept {
 
     Util::setRank(eMeshP->get_rank());
 
-    if (doRefineMesh && ((input_geometry_type != PGEOM_ACIS) && (input_geometry_type != PGEOM_OPENNURBS)) )
+    if ((input_geometry_type != PGEOM_ACIS) && (input_geometry_type != PGEOM_OPENNURBS))
     {
       m_block_names = process_block_names();
       create_refine_pattern();
     }
-
-    int scalarDimension = 0; // a scalar
-
-    if (proc_rank_field)
-      {
-        proc_rank_field_ptr = eMeshP->add_field("proc_rank", stk::topology::ELEMENT_RANK, scalarDimension);
-      }
 
     if (fix_all_block_boundaries)
       {
@@ -1625,8 +1773,6 @@ namespace percept {
       setup_m2g_parts(input_geometry);
     }
 
-    do_precheck_memory_usage();
-
     eMeshP->add_registered_refine_fields_as_input_fields();
 
     eMeshP->get_ioss_mesh_data()->add_all_mesh_fields_as_input_fields();
@@ -1635,15 +1781,17 @@ namespace percept {
       {
         m_dihedral_angle_check.reset(new DihedralAngleCheck(eMeshP.get(), (dihedral_angle_check > 0 ? dihedral_angle_check : 1)));
       }
+
+    if (m_excludeWedgesNotConnectedToPyramids)
+    {
+      eMeshP->get_fem_meta_data()->declare_part("exclude_part", eMeshP->element_rank());
+    }
+
     return 0;
   }
 
   int MeshAdapt::do_run_post_commit()
   {
-    if (use_side_map)
-      {
-        eMeshP->setProperty("use_side_map", "true");
-      }
 
     if (DO_MEMORY) {
       std::string hwm = print_memory_both(eMeshP->parallel());
@@ -1655,11 +1803,6 @@ namespace percept {
         eMeshP->get_skin_part("inner_skin_part", true);
       }
 
-    if (print_info)
-      {
-        eMeshP->print_info("PerceptMesh info:", print_info);
-      }
-
     if (dihedral_angle_check != 0)
       {
         do_dihedral_angle_check();
@@ -1668,13 +1811,6 @@ namespace percept {
     if (skin_mesh)
       {
         eMeshP->skin_mesh();
-      }
-
-    if (convert_geometry_parts_OpenNURBS.size())
-      {
-        if (!input_geometry.size())
-          throw std::runtime_error("if convert_geometry_parts_OpenNURBS is specified you must specify an input geometry --input_geometry=<file>");
-        do_convert_geometry_parts_OpenNURBS(input_geometry, convert_geometry_parts_OpenNURBS);
       }
 
     if (input_geometry_type == MESH_BASED_GREGORY_PATCH)
@@ -1706,16 +1842,9 @@ namespace percept {
       }
 #endif
 
-    if (print_memory_usage)
-      memory_dump(print_memory_usage, eMeshP->get_bulk_data()->parallel(), *eMeshP->get_bulk_data(), 0, "after file open");
+      write_memory_logfile(m_comm, READ_MESH, memory_logfile_name);
 
-    if (test_memory_nodes && test_memory_elements)
-      {
-        do_test_memory();
-        return 0;
-      }
-
-    if (doRefineMesh)
+    // doRefineMesh
       {
         t0 =  stk::wall_time();
         cpu0 = stk::cpu_time();
@@ -1734,7 +1863,6 @@ namespace percept {
         }
 
         refiner->setFixAllBlockBoundaries(fix_all_block_boundaries);
-        refiner->setQueryPassOnly(query_only == 1);
         refiner->setDoProgressMeter(progress_meter == 1 && 0 == p_rank);
 #if defined(STK_BUILT_IN_SIERRA)
         if (rbar_blocks.length())
@@ -1760,72 +1888,19 @@ namespace percept {
                 std::cout << "Refinement pass # " << (iBreak+1) << " start..." << std::endl;
               }
 
-            if (save_intermediate_meshes < 0 && iBreak == 0)
-              {
-                eMeshP->save_as("refined_mesh.e");
-              }
-            if (save_intermediate_meshes > 0 && iBreak == 0)
-              {
-                eMeshP->save_as("refined_mesh_0.e");
-              }
-
             pre_refiner_tasks(iBreak);
-
 
             refiner->doBreak();
 
             if (!eMeshP->get_rank())
               {
                 std::cout << std::endl;
-                int ib = iBreak;
-                if (!query_only) ib = 0;
                 bool printAllTopologies = false;
-                refiner->getRefinementInfo().printTable(std::cout, ib , printAllTopologies);
+                refiner->getRefinementInfo().printTable(std::cout, iBreak, printAllTopologies);
                 std::cout << std::endl;
               }
-            if (print_memory_usage)
-              {
-                memory_dump(print_memory_usage, eMeshP->get_bulk_data()->parallel(), *eMeshP->get_bulk_data(), &refiner->getNodeRegistry(),
-                            std::string("after refine pass: ")+toString(iBreak));
-              }
 
-            if (estimate_memory_usage)
-              {
-                std::cout << "memory_multipliers_file= " << memory_multipliers_file << std::endl;
-                if (query_only)
-                  {
-                    if (number_refines == 1)
-                      {
-                        MemorySizeType tot_mem = memory_dump(false, eMeshP->get_bulk_data()->parallel(), *eMeshP->get_bulk_data(), &refiner->getNodeRegistry(),
-                                                             std::string("after mesh read"));
-                        if (!p_rank)
-                          std::cout << "P[" << p_rank << "] tmp srk mem after mesh read= " << MegaByte(tot_mem) << std::endl;
-                        bool use_new = false;
-                        MemoryMultipliers::process_estimate(tot_mem, *eMeshP, refiner->getRefinementInfo(), memory_multipliers_file, input_mesh, use_new);
-                      }
-
-                    refiner->getRefinementInfo().estimateNew(iBreak);
-                    MemoryMultipliers::process_estimate(0, *eMeshP, refiner->getRefinementInfo(), memory_multipliers_file, input_mesh);
-                  }
-                else
-                  {
-                    MemorySizeType tot_mem = memory_dump(false, eMeshP->get_bulk_data()->parallel(), *eMeshP->get_bulk_data(), &refiner->getNodeRegistry(),
-                                                         std::string("after refine pass: ")+toString(iBreak));
-                    if (!p_rank)
-                      std::cout << "P[" << p_rank << "] tmp srk tot_mem= " << MegaByte(tot_mem) << std::endl;
-                    MemoryMultipliers::process_estimate(tot_mem, *eMeshP, refiner->getRefinementInfo(), memory_multipliers_file, input_mesh);
-                  }
-              }
-            if (save_intermediate_meshes < 0)
-              {
-                char buf[1000];
-                sprintf(buf, "%04d", iBreak+1);
-                eMeshP->save_as("refined_mesh.e-s"+std::string(buf));
-              }
-            if (save_intermediate_meshes > 0)
-              {
-                eMeshP->save_as("refined_mesh_"+toString(iBreak+1)+".e");
-              }
+            write_memory_logfile(m_comm, REFINE_MESH, memory_logfile_name);
 
             if (DO_MEMORY) {
               std::string hwm = print_memory_both(eMeshP->parallel());
@@ -1836,7 +1911,6 @@ namespace percept {
           } // iBreak
 
 
-        if (delete_parents)
           {
             if (DO_MEMORY) {
               std::string hwm = print_memory_both(eMeshP->parallel());
@@ -1852,11 +1926,12 @@ namespace percept {
           }
 
 
-        if (number_refines == 0 && (smooth_geometry || snap_geometry))
+        if (number_refines == 0 && smooth_geometry)
           {
 #if defined(STK_PERCEPT_HAS_GEOMETRY)
             refiner->setSmoothGeometry(smooth_geometry);
-            refiner->snapAndSmooth((snap_geometry == 1), input_geometry, (smooth_use_reference_mesh == 1) );
+            const bool snap_geometry = false;
+            refiner->snapAndSmooth(snap_geometry, input_geometry, (smooth_use_reference_mesh == 1) );
 #elif defined(NO_GEOM_SUPPORT)
             std::ostringstream oss;
             oss << "\nERROR: Geometry and/or smoothing is not currently supported on this platform. Try running with geometry turned off.";
@@ -1864,8 +1939,7 @@ namespace percept {
 #endif
           }
 
-        if (delete_parents)
-          refiner->deleteParentElements();
+        refiner->deleteParentElements();
 
         t1 =  stk::wall_time();
         cpu1 = stk::cpu_time();
@@ -1885,61 +1959,30 @@ namespace percept {
             eMeshP->print_hmesh_surface_normal(msg, std::cout);
           }
 
-        if (DEBUG_ADAPT_MAIN || 0 == p_rank) {
-          std::cout << "P[" << p_rank << "]  AdaptMain:: saving mesh... " << std::endl;
-        }
         if (remove_geometry_blocks) eMeshP->remove_geometry_blocks_on_output(input_geometry);
 
         {
+          stk::diag::Timer timerWriteMesh_("WriteMesh", m_timer);
+          stk::diag::TimeBlock tbWriteMeshg_(timerWriteMesh_);
+
           double t0 = stk::wall_time();
           eMeshP->save_as(output_mesh);
           double t1 = stk::wall_time();
           mMeshOutputTime = t1 - t0;
         }
-        if (DEBUG_ADAPT_MAIN || 0 == p_rank) {
-          std::cout << "P[" << p_rank << "]  AdaptMain:: mesh saved" << std::endl;
-        }
 
-        if (print_memory_usage)
-          memory_dump(print_memory_usage, eMeshP->get_bulk_data()->parallel(), *eMeshP->get_bulk_data(), &refiner->getNodeRegistry(), "after final save mesh");
+        write_memory_logfile(m_comm, WRITE_MESH, memory_logfile_name);
 
       } // doRefineMesh
     return 0;
   }
 
-  int MeshAdapt::do_run_post_refine()
-  {
-
-    return 0;
-  }
-
   int MeshAdapt::do_post_proc()
   {
-
-#if 0
-    for (int itime=0; itime < 10; itime++)
-      {
-        std::cout << "tmp timer[" << itime << "]= " << s_timers[itime] << " " << s_timers[itime]/s_timers[3]*100 << " %" << std::endl;
-      }
-#endif
     if (DO_MEMORY) {
       std::string hwm = print_memory_both(eMeshP->parallel());
       if (!eMeshP->get_rank()) std::cout << "MEM: " << hwm << " final memory after refining mesh."  << std::endl;
     }
-
-
-    //stk::all_reduce( *eMeshP->get_bulk_data()->parallel(), stk::ReduceSum<1>( &failed_proc_rank ) );
-    if (failed_proc_rank)
-      {
-        std::cout << "P[" << p_rank << "] AdaptMain::exception found on processor " << (failed_proc_rank-1) << std::endl;
-        exit(1);
-      }
-
-    if (DEBUG_ADAPT_MAIN)
-      {
-        std::cout << "P[" << p_rank << ", " << p_size << "]  wall clock time on processor [" << p_rank << ", " << p_size << "]= " << (t1-t0) << " (sec) "
-                  << " cpu time= " << (cpu1 - cpu0) << " (sec) " << std::endl;
-      }
 
     double cpuMax = (cpu1-cpu0);
     double wallMax = (t1-t0);
@@ -1960,19 +2003,6 @@ namespace percept {
         std::cout << "P[" << p_rank << ", " << p_size << "]  min cpu  clock time = " << cpuMin << " (sec)" << std::endl;
         std::cout << "P[" << p_rank << ", " << p_size << "]  max cpu  clock time = " << cpuMax << " (sec)" << std::endl;
         std::cout << "P[" << p_rank << ", " << p_size << "]  sum cpu  clock time = " << cpuSum << " (sec)" << std::endl;
-      }
-
-    if (print_timers)
-      {
-        std::ostringstream str;
-        refiner->rootTimer().stop();
-        stk::diag::printTimersTable(str, refiner->rootTimer(),
-                                    stk::diag::METRICS_ALL, false,
-                                    eMeshP->get_bulk_data()->parallel() );
-        if (0 == p_rank)
-          {
-            std::cout << str.str() << std::endl;
-          }
       }
 
     return 0;
@@ -2021,51 +2051,38 @@ namespace percept {
         data.hwm_avg        = hwm_avg / bytes_in_MB;
         strcpy(data.status, status ? "success" : "fail" );
 
-#if 0
-        printf( "product %s\n", data.product );
-        printf( "version %s\n", data.version );
-        printf( "purpose %s\n", data.purpose );
-        printf( "hostname %s\n", data.hostname );
-        printf( "username %s\n", data.username );
-        printf( "num_proc %d\n", data.num_proc );
-        printf( "starttime %s\n", data.starttime );
-        printf( "time_elapsed %lf\n", data.time_elapsed );
-        printf( "cputimesum %lf\n", data.cputimesum );
-        printf( "meshinputtime %lf\n", data.meshinputtime );
-        printf( "meshoutputtime %lf\n", data.meshoutptutime );
-        printf( "hwm_max %lf\n", data.hwm_max );
-        printf( "hwm_min %lf\n", data.hwm_min );
-        printf( "hwm_avg %lf\n", data.hwm_avg );
-        printf( "status %s\n", data.status );
-        //printf( "audit_filename %s\n", audit_filename.c_str() );
-#endif
         OutputAuditLog(&data);
       }
     }
 #endif    
   }
 
-  int MeshAdapt::adapt_main_full_options(int argc, char **argv)
+
+  void MeshAdapt::init(int argc, char **argv)
   {
+    fill_help_strings(argc, argv);
+
 #if defined( STK_HAS_MPI )
-    stk::ParallelMachine comm(stk::parallel_machine_init(&argc, &argv));
+    m_comm = stk::ParallelMachine(stk::parallel_machine_init(&argc, &argv));
 #endif
-#if defined(WITH_KOKKOS)
-    Kokkos::initialize(argc, argv);
-#endif
+
+    // don't pass "--help" to Kokkos, as it clutters output!
+    // actually, we don't really need to pass in anything
+    int kokkos_argc(1);
+    char ** kokkos_argv = &argv[0]; // executable name
+    Kokkos::initialize( kokkos_argc, &kokkos_argv[0] );
+
     EXCEPTWATCH;
 
-    Teuchos::CommandLineProcessor clp;
-    p_rank = stk::parallel_machine_rank(comm);
-    p_size = stk::parallel_machine_size(comm);
-
-    setup_options(clp, comm, argc, argv);
-
-    return adapt_main_full_options_normal(argc, argv);
+    p_rank = stk::parallel_machine_rank(m_comm);
+    p_size = stk::parallel_machine_size(m_comm);
   }
 
-  int MeshAdapt::adapt_main_full_options_normal(int argc, char **argv)
+  // the actual mesh adaptation! no parsing.
+  int MeshAdapt::adapt_main_do_adapt()
   {
+      write_memory_logfile(m_comm, INITIALIZE, memory_logfile_name);
+
     t0   = 0.0;
     t1   = 0.0;
     cpu0 = 0.0;
@@ -2079,8 +2096,8 @@ namespace percept {
       }
 #endif
 
-    std::string input_mesh_save = input_mesh;
-    std::string output_mesh_save = output_mesh;
+//    std::string input_mesh_save = input_mesh;
+//    std::string output_mesh_save = output_mesh;
 
     eMeshP.reset(new percept::PerceptMesh);
     if (output_active_elements_only)
@@ -2113,16 +2130,14 @@ namespace percept {
     // trap for RunAdaptRun, etc.
     if (res1 < 0)
       {
+        if (print_timers) print_timer_table(m_timer);
+
         log_usage();
 
         eMeshP.reset();
 
-#if defined( STK_HAS_MPI )
-        stk::parallel_machine_finalize();
-#endif
-#if defined(WITH_KOKKOS)
-        Kokkos::finalize();
-#endif
+        write_memory_logfile(m_comm, FINALIZE, memory_logfile_name);
+
         return 0;
       }
 
@@ -2141,129 +2156,17 @@ namespace percept {
 
     do_post_proc();
 
+    if (print_timers) print_timer_table(m_timer);
+
     log_usage();
 
     eMeshP.reset();
 
-#if defined( STK_HAS_MPI )
-    stk::parallel_machine_finalize();
-#endif
-#if defined(WITH_KOKKOS)
-    Kokkos::finalize();
-#endif
+    write_memory_logfile(m_comm, FINALIZE, memory_logfile_name);
+
     return result;
   }
 
-
-  /// removes beams and shells in favor of node sets
-  void MeshAdapt::do_convert_geometry_parts_OpenNURBS(std::string geometry_file, std::string newExodusFile)
-  {
-#if defined(STK_PERCEPT_HAS_GEOMETRY)
-
-    eMeshP->reopen();
-
-    GeometryKernelOpenNURBS kernel;
-    MeshGeometry mesh_geometry(*eMeshP, &kernel);
-    GeometryFactory factory(&kernel, &mesh_geometry);
-    factory.read_file(geometry_file, &*eMeshP);
-    const std::vector<GeometryEvaluator*>& evals = mesh_geometry.getGeomEvaluators();
-    stk::mesh::PartVector newParts, oldParts;
-    for (unsigned ii=0; ii < evals.size(); ++ii)
-      {
-        stk::mesh::Part *part = evals[ii]->mPart;
-        oldParts.push_back(part);
-        std::string partName = part->name();
-        std::string newPartName = partName + "_n";
-        stk::mesh::Part& newPart = eMeshP->get_fem_meta_data()->declare_part(newPartName, stk::topology::NODE_RANK);
-        stk::io::put_io_part_attribute(newPart);
-        stk::io::remove_io_part_attribute(*part);
-        newParts.push_back(&newPart);
-      }
-    eMeshP->commit();
-
-    eMeshP->get_bulk_data()->modification_begin();
-    for (unsigned ii=0; ii < newParts.size(); ++ii)
-      {
-        stk::mesh::Part& newPart = *newParts[ii];
-        stk::mesh::Part& oldPart = *oldParts[ii];
-        stk::mesh::PartVector addParts(1, &newPart);
-
-        if (0) std::cout << "oldPart= " << oldPart.name() << " newPart= " << newPart.name() << std::endl;
-
-        stk::mesh::Selector sp(oldPart);
-        std::vector<stk::mesh::Entity> vec;
-        //stk::mesh::Selector on_locally_owned_part =  ( eMeshP->get_fem_meta_data()->locally_owned_part() );
-        stk::mesh::get_selected_entities(sp, eMeshP->get_bulk_data()->buckets(eMeshP->element_rank()), vec);
-        for (size_t jj=0; jj < vec.size(); ++jj)
-          {
-            stk::mesh::Entity element = vec[jj];
-            const MyPairIterRelation elem_nodes(*eMeshP, element, eMeshP->node_rank() );
-            for (unsigned kk=0; kk < elem_nodes.size(); ++kk)
-              {
-                stk::mesh::Entity node = elem_nodes[kk].entity();
-                if (eMeshP->owned(node))
-                  {
-                    eMeshP->get_bulk_data()->change_entity_parts(node, addParts);
-                  }
-              }
-          }
-        for (size_t jj=0; jj < vec.size(); ++jj)
-          {
-            stk::mesh::Entity element = vec[jj];
-            MyPairIterRelation elem_sides(*eMeshP, element, eMeshP->side_rank());
-            for (unsigned kk=0; kk < elem_sides.size(); ++kk)
-              {
-                if ( ! eMeshP->get_bulk_data()->destroy_relation(element, elem_sides[kk].entity(), elem_sides[kk].relation_ordinal()))
-                  {
-                    throw std::logic_error("convert_geometry_parts_OpenNURBS failed to delete relation");
-                  }
-              }
-
-            if ( ! eMeshP->get_bulk_data()->destroy_entity( element ) )
-              {
-                throw std::logic_error("convert_geometry_parts_OpenNURBS failed to delete element");
-              }
-          }
-        if (0)
-          {
-            std::vector<stk::mesh::Entity> vecNodes;
-            stk::mesh::get_selected_entities(stk::mesh::Selector(newPart), eMeshP->get_bulk_data()->buckets(eMeshP->node_rank()), vecNodes);
-            std::cout << "part= " << newPart.name() << " vecNodes.size= " << vecNodes.size() << std::endl;
-          }
-      }
-    if (1)
-      {
-        stk::mesh::PartVector excludeParts;
-        SidePartMap side_part_map;
-        std::string geomFile = geometry_file;
-        bool avoidFixSideSetChecks = false;
-        FixSideSets fss(0, *eMeshP, excludeParts, side_part_map, geomFile, avoidFixSideSetChecks);
-        eMeshP->get_bulk_data()->modification_begin();
-        fss.fix_side_sets_2(false, 0, 0, "MeshAdapt");
-        stk::mesh::fixup_ghosted_to_shared_nodes(*eMeshP->get_bulk_data());
-        eMeshP->get_bulk_data()->modification_end();
-        eMeshP->save_as("junk.e");
-      }
-
-    stk::mesh::fixup_ghosted_to_shared_nodes(*eMeshP->get_bulk_data());
-    eMeshP->get_bulk_data()->modification_end();
-    //eMeshP->print_info("new",2);
-
-    if (0)
-      {
-        for (unsigned ii=0; ii < newParts.size(); ++ii)
-          {
-            stk::mesh::Part& newPart = *newParts[ii];
-            std::vector<stk::mesh::Entity> vecNodes;
-            stk::mesh::get_selected_entities(stk::mesh::Selector(newPart), eMeshP->get_bulk_data()->buckets(eMeshP->node_rank()), vecNodes);
-            std::cout << "part= " << newPart.name() << " vecNodes.size= " << vecNodes.size() << std::endl;
-          }
-      }
-
-
-    eMeshP->save_as(newExodusFile);
-#endif
-  }
 
 void MeshAdapt::setup_m2g_parts(std::string input_geometry)
 {
@@ -2423,7 +2326,7 @@ void MeshAdapt::initialize_m2g_geometry(std::string input_geometry)
     std::vector<stk::mesh::Part *> add_parts_shells(1,static_cast<stk::mesh::Part*>(0));
 
     std::vector<std::vector<int>> face_node_ids;
-    geom_assoc.get_surface_edge_nodes(surfIDs[i], face_node_ids);
+    geom_assoc.get_surface_face_nodes(surfIDs[i], face_node_ids);
 
     for (unsigned ii = 0; ii < face_node_ids.size(); ii++) {
 
@@ -2481,10 +2384,10 @@ void MeshAdapt::initialize_m2g_geometry(std::string input_geometry)
 #endif
 }
 
-  int MeshAdapt::main(int argc, char **argv) {
-
-    int res=0;
-    res = adapt_main(argc, argv);
+  int MeshAdapt::main(int argc, char **argv) 
+  {
+    int res = adapt_main(argc, argv);
+    exit_safely(res);
     return res;
   }
 

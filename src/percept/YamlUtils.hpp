@@ -1,6 +1,7 @@
-// Copyright 2014 Sandia Corporation. Under the terms of
-// Contract DE-AC04-94AL85000 with Sandia Corporation, the
-// U.S. Government retains certain rights in this software.
+// Copyright 2002 - 2008, 2010, 2011 National Technology Engineering
+// Solutions of Sandia, LLC (NTESS). Under the terms of Contract
+// DE-NA0003525 with NTESS, the U.S. Government retains certain rights
+// in this software.
 //
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
@@ -13,7 +14,6 @@
 #include <map>
 #include <set>
 
-#if defined(STK_ADAPT_HAVE_YAML_CPP)
 #include <yaml-cpp/yaml.h>
 
 #ifndef YAML_CHECK
@@ -25,11 +25,7 @@
 #  define YAML_ERRCHECK YAML_CHECK(emitter)
 #endif
 
-#endif
-
   namespace percept {
-
-#if defined(STK_ADAPT_HAVE_YAML_CPP)
 
     /// Set @param result if the @param key is present in the @param node, else set it to the given default value
     template<typename T>
@@ -101,8 +97,6 @@
 
     };
 
-
-#endif
   }
 
 #endif

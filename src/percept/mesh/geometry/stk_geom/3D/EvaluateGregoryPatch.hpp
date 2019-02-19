@@ -1,6 +1,7 @@
-// Copyright 2014 Sandia Corporation. Under the terms of
-// Contract DE-AC04-94AL85000 with Sandia Corporation, the
-// U.S. Government retains certain rights in this software.
+// Copyright 2002 - 2008, 2010, 2011 National Technology Engineering
+// Solutions of Sandia, LLC (NTESS). Under the terms of Contract
+// DE-NA0003525 with NTESS, the U.S. Government retains certain rights
+// in this software.
 //
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
@@ -27,19 +28,19 @@ public:
 
   // return true if error - this is a pure-STK interface
   static bool
-  evaluate(const stk::mesh::BulkData& bulk, const double *uv, stk::mesh::Entity face, double *xyz,
+  evaluateGregoryPatch(const stk::mesh::BulkData& bulk, const double *uv, stk::mesh::Entity face, double *xyz,
            const GregoryControlPointsType *sideset_field = 0, const GregoryControlPointsType *shell_field=0);
 
   static bool
-  normal(const stk::mesh::BulkData& bulk, const double *uv, stk::mesh::Entity face, double *normal,
+  normalGregoryPatch(const stk::mesh::BulkData& bulk, const double *uv, stk::mesh::Entity face, double *normal,
             const GregoryControlPointsType *sideset_field = 0, const GregoryControlPointsType *shell_field = 0);
 
   // return true if error
   bool
-  evaluate(const double *uv, stk::mesh::Entity face, double *xyz);
+  evaluateGregoryPatch(const double *uv, stk::mesh::Entity face, double *xyz);
 
   bool
-  normal(const double *uv, stk::mesh::Entity face, double *normal);
+  normalGregoryPatch(const double *uv, stk::mesh::Entity face, double *normal);
 
   // return true if error
   bool

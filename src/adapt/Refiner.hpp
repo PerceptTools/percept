@@ -1,6 +1,7 @@
-// Copyright 2014 Sandia Corporation. Under the terms of
-// Contract DE-AC04-94AL85000 with Sandia Corporation, the
-// U.S. Government retains certain rights in this software.
+// Copyright 2002 - 2008, 2010, 2011 National Technology Engineering
+// Solutions of Sandia, LLC (NTESS). Under the terms of Contract
+// DE-NA0003525 with NTESS, the U.S. Government retains certain rights
+// in this software.
 //
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
@@ -57,9 +58,12 @@
 
   namespace percept {
 
+    // free functions used in NodeRegistry, FixSideSets, etc.
+    void mod_begin_timer(stk::mesh::BulkData& bulk_data, stk::diag::Timer& parent_timer);
+    void mod_end_timer(stk::mesh::BulkData& bulk_data, stk::diag::Timer& parent_timer, const std::string& msg);
+
     typedef std::map<stk::mesh::Part*, stk::mesh::Part*> SideElementPartMap;
     typedef std::map<stk::mesh::Part*, stk::mesh::PartVector> SidePartMap;
-    //typedef std::map<std::string, std::string> SidePartMap;
 
     using std::vector;
     using std::map;
@@ -92,8 +96,6 @@
     {
     public:
       Refiner(percept::PerceptMesh& eMesh, UniformRefinerPatternBase & bp, stk::mesh::FieldBase *proc_rank_field=0);
-      Refiner(percept::PerceptMesh& eMesh, Pattern refine_type, stk::mesh::FieldBase *proc_rank_field=0);
-      //Refiner(percept::PerceptMesh& eMesh, std::vector<UniformRefinerPatternBase *>&  bp, stk::mesh::FieldBase *proc_rank_field=0);
 
       virtual ~Refiner();
 
@@ -157,9 +159,6 @@
 
       RefinementInfo&
       getRefinementInfo();
-
-      void
-      setQueryPassOnly(bool doQueryOnly);
 
       void
       setDoProgressMeter(bool do_progress);
@@ -238,8 +237,6 @@
 
       void deleteParentElements();
 
-      void check_db(std::string msg="") ;
-
       void fix_side_sets_2(bool allow_not_found=false, SetOfEntities *avoid_elems = 0, SetOfEntities *avoid_sides = 0, RefinerSelector *sel=0, const std::string& msg="");
 
       /// determine side part to elem part relations
@@ -247,7 +244,6 @@
       void get_side_part_relations(PerceptMesh& eMesh, bool checkParentChild, SidePartMap& side_part_map, bool debug = false);
 
       bool connect(stk::mesh::Entity side, bool& valid_side_part_map, SetOfEntities *avoid=0);
-      //bool connectSides(stk::mesh::Entity element, stk::mesh::Entity side_elem, SidePartMap* side_part_map=0);
       bool connectSidesForced(stk::mesh::Entity element, stk::mesh::Entity side_elem, bool& valid_side_part_map, bool use_coordinate_compare=false);
 
       NodeRegistry& getNodeRegistry() { return *m_nodeRegistry; }
@@ -287,17 +283,6 @@
     protected:
       void collectElemsToRefine(const unsigned irank, stk::mesh::EntityRank rank, const unsigned elementType,
                   std::vector<stk::mesh::Entity>& elems, int& jele);
-
-      void debug_invalid_node_createNewNeededNodeIds(NodeIdsOnSubDimEntityType &nodeIds_onSE, const stk::mesh::Entity element,
-              NeededEntityType& needed_entity_type, unsigned iSubDimOrd);
-
-      void debug_excess_new_nodes_createNewNeededNodeIds(const unsigned num_new_nodes_needed, NodeIdsOnSubDimEntityType &nodeIds_onSE, const stk::mesh::Entity element,
-              NeededEntityType& needed_entity_type, unsigned numSubDimNeededEntities, unsigned iSubDimOrd, const percept::MyPairIterRelation &elem_nodes);
-
-      void debug_zero_length_id_vector_createNewNeededNodeIds(NodeIdsOnSubDimEntityType &nodeIds_onSE, const stk::mesh::Entity element,
-              NeededEntityType& needed_entity_type, unsigned iSubDimOrd);
-
-      void debug_print_memory_doRefine(const unsigned num_elem_needed, const unsigned irank);
 
       void fillElementRankTypeInfo(std::vector<stk::mesh::EntityRank>& ranks);
 
@@ -364,9 +349,6 @@
 
       void remesh(stk::mesh::Entity parent_element);
       //============= unrefine end
-
-      void check_db_ownership_consistency(std::string msg="");
-      void check_db_entities_exist(std::string msg="");
 
       /**  Overrides start =======>
        */
@@ -473,9 +455,6 @@
       addOldElementsToPart(stk::mesh::EntityRank rank, UniformRefinerPatternBase* breakPattern, unsigned *elementType = 0u);
 
       void
-      removeFromOldPart(stk::mesh::EntityRank rank, UniformRefinerPatternBase* breakPattern);
-
-      void
       renameNewParts(stk::mesh::EntityRank rank, UniformRefinerPatternBase* breakPattern);
 
       void
@@ -485,13 +464,7 @@
       buildElementSideDB(SubDimCellToDataMap& cell_2_data_map);
 
       void
-      trace_print(std::string msg);
-
-      void
-      checkBreakPatternValidityAndBuildRanks(std::vector<stk::mesh::EntityRank>& ranks);
-
-      void 
-      doPrintPatterns();
+      checkBreakPatternValidityAndBuildRanks(std::vector<stk::mesh::EntityRank>& ranks, stk::diag::Timer *timer);
 
       void
       add_children_to_parts();
@@ -499,7 +472,6 @@
     protected:
       percept::PerceptMesh& m_eMesh;
 
-      //UniformRefinerPatternBase & m_breakPattern;
       std::vector<UniformRefinerPatternBase *> m_breakPattern;
 
       NodeRegistry* m_nodeRegistry;
@@ -515,7 +487,6 @@
       bool m_geomSnap;
 
       RefinementInfo m_refinementInfo;
-      bool m_doQueryOnly;
 
       int m_progress_meter_frequency;
       bool m_doProgress;

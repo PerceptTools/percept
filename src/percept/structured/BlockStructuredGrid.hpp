@@ -1,6 +1,7 @@
-// Copyright 2014 Sandia Corporation. Under the terms of
-// Contract DE-AC04-94AL85000 with Sandia Corporation, the
-// U.S. Government retains certain rights in this software.
+// Copyright 2002 - 2008, 2010, 2011 National Technology Engineering
+// Solutions of Sandia, LLC (NTESS). Under the terms of Contract
+// DE-NA0003525 with NTESS, the U.S. Government retains certain rights
+// in this software.
 //
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
@@ -144,7 +145,7 @@ namespace percept {
     void nodal_field_set_value(typename StructuredGrid::MTField* field_x, double value = 0.0);
 
     void comm_fields(std::vector<const typename StructuredGrid::MTField*>& fields);
-    void sum_fields(std::vector<typename StructuredGrid::MTField*>& fields);
+    void sum_fields(std::vector<const typename StructuredGrid::MTField*>& fields);
 
     static std::shared_ptr<BlockStructuredGrid>
     fixture_1(stk::ParallelMachine comm, std::array<unsigned,3> sizes=std::array<unsigned,3>{{2u,2u,2u}},std::array<double,3> dim_widths=std::array<double,3>{{1.0,1.0,1.0}},std::array<double,3> dim_offsets=std::array<double,3>{{0.0,0.0,0.0}});
@@ -164,8 +165,8 @@ namespace percept {
 
       DetermineIfLowestRankedOwner(std::shared_ptr<StructuredBlock> m_sblock_in) : m_sblock(m_sblock_in)
       {
-          Kokkos::Experimental::resize(localBeg, m_sblock->m_zoneConnectivity.size(),3);
-          Kokkos::Experimental::resize(localEnd, m_sblock->m_zoneConnectivity.size(),4);
+          Kokkos::resize(localBeg, m_sblock->m_zoneConnectivity.size(),3);
+          Kokkos::resize(localEnd, m_sblock->m_zoneConnectivity.size(),4);
 
           Kokkos::View<unsigned**,DataLayout,MemSpace>::HostMirror localBeg_mir = Kokkos::create_mirror_view(localBeg);
           Kokkos::View<unsigned**,DataLayout,MemSpace>::HostMirror localEnd_mir = Kokkos::create_mirror_view(localEnd);
@@ -177,14 +178,14 @@ namespace percept {
               unsigned dblockid = zoneConnectivity.m_donorZone - 1;
 
               Ioss::IJK_t localBeg;
-              localBeg[0] = std::min(zoneConnectivity.m_rangeBeg[0],zoneConnectivity.m_rangeEnd[0]) - 1;
-              localBeg[1] = std::min(zoneConnectivity.m_rangeBeg[1],zoneConnectivity.m_rangeEnd[1]) - 1;
-              localBeg[2] = std::min(zoneConnectivity.m_rangeBeg[2],zoneConnectivity.m_rangeEnd[2]) - 1;
+              localBeg[0] = std::min(zoneConnectivity.m_ownerRangeBeg[0],zoneConnectivity.m_ownerRangeEnd[0]) - 1;
+              localBeg[1] = std::min(zoneConnectivity.m_ownerRangeBeg[1],zoneConnectivity.m_ownerRangeEnd[1]) - 1;
+              localBeg[2] = std::min(zoneConnectivity.m_ownerRangeBeg[2],zoneConnectivity.m_ownerRangeEnd[2]) - 1;
 
               Ioss::IJK_t localEnd;
-              localEnd[0] = std::max(zoneConnectivity.m_rangeBeg[0],zoneConnectivity.m_rangeEnd[0]) - 1;
-              localEnd[1] = std::max(zoneConnectivity.m_rangeBeg[1],zoneConnectivity.m_rangeEnd[1]) - 1;
-              localEnd[2] = std::max(zoneConnectivity.m_rangeBeg[2],zoneConnectivity.m_rangeEnd[2]) - 1;
+              localEnd[0] = std::max(zoneConnectivity.m_ownerRangeBeg[0],zoneConnectivity.m_ownerRangeEnd[0]) - 1;
+              localEnd[1] = std::max(zoneConnectivity.m_ownerRangeBeg[1],zoneConnectivity.m_ownerRangeEnd[1]) - 1;
+              localEnd[2] = std::max(zoneConnectivity.m_ownerRangeBeg[2],zoneConnectivity.m_ownerRangeEnd[2]) - 1;
 
               for(unsigned ijk=0;ijk<3;ijk++)
               {
@@ -240,8 +241,8 @@ namespace percept {
 
       DeviceSafeSGridBoundaryNotInterfaceSelector(std::shared_ptr<StructuredBlock> m_sblock_in) : m_sblock(m_sblock_in)
       {
-          Kokkos::Experimental::resize(localBeg, m_sblock->m_zoneConnectivity.size(),3);
-          Kokkos::Experimental::resize(localEnd, m_sblock->m_zoneConnectivity.size(),3);
+          Kokkos::resize(localBeg, m_sblock->m_zoneConnectivity.size(),3);
+          Kokkos::resize(localEnd, m_sblock->m_zoneConnectivity.size(),3);
 
           Kokkos::View<unsigned**,DataLayout,MemSpace>::HostMirror localBeg_mir = Kokkos::create_mirror_view(localBeg);
           Kokkos::View<unsigned**,DataLayout,MemSpace>::HostMirror localEnd_mir = Kokkos::create_mirror_view(localEnd);
@@ -252,14 +253,14 @@ namespace percept {
               Ioss::ZoneConnectivity zoneConnectivity = m_sblock->m_zoneConnectivity[izone];
 
               Ioss::IJK_t localBeg;
-              localBeg[0] = std::min(zoneConnectivity.m_rangeBeg[0],zoneConnectivity.m_rangeEnd[0]) - 1;
-              localBeg[1] = std::min(zoneConnectivity.m_rangeBeg[1],zoneConnectivity.m_rangeEnd[1]) - 1;
-              localBeg[2] = std::min(zoneConnectivity.m_rangeBeg[2],zoneConnectivity.m_rangeEnd[2]) - 1;
+              localBeg[0] = std::min(zoneConnectivity.m_ownerRangeBeg[0],zoneConnectivity.m_ownerRangeEnd[0]) - 1;
+              localBeg[1] = std::min(zoneConnectivity.m_ownerRangeBeg[1],zoneConnectivity.m_ownerRangeEnd[1]) - 1;
+              localBeg[2] = std::min(zoneConnectivity.m_ownerRangeBeg[2],zoneConnectivity.m_ownerRangeEnd[2]) - 1;
 
               Ioss::IJK_t localEnd;
-              localEnd[0] = std::max(zoneConnectivity.m_rangeBeg[0],zoneConnectivity.m_rangeEnd[0]) - 1;
-              localEnd[1] = std::max(zoneConnectivity.m_rangeBeg[1],zoneConnectivity.m_rangeEnd[1]) - 1;
-              localEnd[2] = std::max(zoneConnectivity.m_rangeBeg[2],zoneConnectivity.m_rangeEnd[2]) - 1;
+              localEnd[0] = std::max(zoneConnectivity.m_ownerRangeBeg[0],zoneConnectivity.m_ownerRangeEnd[0]) - 1;
+              localEnd[1] = std::max(zoneConnectivity.m_ownerRangeBeg[1],zoneConnectivity.m_ownerRangeEnd[1]) - 1;
+              localEnd[2] = std::max(zoneConnectivity.m_ownerRangeBeg[2],zoneConnectivity.m_ownerRangeEnd[2]) - 1;
 
               for(unsigned ijk=0;ijk<3;ijk++)
               {

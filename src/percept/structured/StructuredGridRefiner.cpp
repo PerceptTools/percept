@@ -1,6 +1,7 @@
-// Copyright 2014 Sandia Corporation. Under the terms of
-// Contract DE-AC04-94AL85000 with Sandia Corporation, the
-// U.S. Government retains certain rights in this software.
+// Copyright 2002 - 2008, 2010, 2011 National Technology Engineering
+// Solutions of Sandia, LLC (NTESS). Under the terms of Contract
+// DE-NA0003525 with NTESS, the U.S. Government retains certain rights
+// in this software.
 //
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
@@ -71,16 +72,11 @@ namespace percept {
                     << sgiNew->m_sizes.node_size[A2]
                     << std::endl;
 
-#if defined(WITH_KOKKOS)
-        Kokkos::Experimental::resize(sgiNew->m_sgrid_coords,
+        Kokkos::resize(sgiNew->m_sgrid_coords,
                                      sgiNew->m_sizes.node_size[A0],
                                      sgiNew->m_sizes.node_size[A1],
                                      sgiNew->m_sizes.node_size[A2], 3);
-#else
-        sgiNew->m_sgrid_coords.resize(sgiNew->m_sizes.node_size[A0],
-                                      sgiNew->m_sizes.node_size[A1],
-                                      sgiNew->m_sizes.node_size[A2], 3);
-#endif
+
         StructuredGridRefinerImpl<unsigned, uint64_t, MTSGridField::Array4D> refiner(sgi,sgiNew,m_debug);
 
         if (debug && my_rank == 0)
@@ -108,8 +104,8 @@ namespace percept {
             std::string connectname = zc.m_connectionName;
             std::string donorname = zc.m_donorName;
             
-            std::array<cgsize_t, 3> range_beg = zc.m_rangeBeg;
-            std::array<cgsize_t, 3> range_end = zc.m_rangeEnd;
+            std::array<cgsize_t, 3> range_beg = zc.m_ownerRangeBeg;
+            std::array<cgsize_t, 3> range_end = zc.m_ownerRangeEnd;
             std::array<cgsize_t, 3> donor_beg = zc.m_donorRangeBeg;
             std::array<cgsize_t, 3> donor_end = zc.m_donorRangeEnd;
             for (unsigned j=0; j < 3; ++j)
@@ -268,8 +264,8 @@ namespace percept {
       std::string connectname = zc.m_connectionName;
       std::string donorname = zc.m_donorName;
 
-      std::array<cgsize_t, 3> range_beg = zc.m_rangeBeg;
-      std::array<cgsize_t, 3> range_end = zc.m_rangeEnd;
+      std::array<cgsize_t, 3> range_beg = zc.m_ownerRangeBeg;
+      std::array<cgsize_t, 3> range_end = zc.m_ownerRangeEnd;
       std::array<cgsize_t, 3> donor_beg = zc.m_donorRangeBeg;
       std::array<cgsize_t, 3> donor_end = zc.m_donorRangeEnd;
       for (unsigned i=0; i < 3; ++i)

@@ -91,11 +91,7 @@ GenericAlgorithm_update_coordinates(RefMeshSmoother *rms, PerceptMesh *eMesh, Do
 
 
 template<>
-#if defined (WITH_KOKKOS) //&& defined(KOKKOS_HAVE_OPENMP)
 KOKKOS_INLINE_FUNCTION
-#else
-inline
-#endif
 void GenericAlgorithm_update_coordinates<STKMesh>::
 operator()(const int64_t& index) const
 {
@@ -224,9 +220,9 @@ GenericAlgorithm_update_coordinates(
 			//get unfixed nodes
 
 			blockMD.numNodes = numUnFixed;
-			Kokkos::Experimental::resize(blockMD.blockNodes,blockMD.numNodes,3/*dimension*/); //resize view to fit number of nodes inside of it
-			Kokkos::Experimental::resize(dmax_candidates[/**iter*/iter],blockMD.numNodes);//resize delta maxes to account for all node movements inside a block
-			Kokkos::Experimental::resize(dmax_relative_candidates[/**iter*/iter],blockMD.numNodes);
+			Kokkos::resize(blockMD.blockNodes,blockMD.numNodes,3/*dimension*/); //resize view to fit number of nodes inside of it
+			Kokkos::resize(dmax_candidates[/**iter*/iter],blockMD.numNodes);//resize delta maxes to account for all node movements inside a block
+			Kokkos::resize(dmax_relative_candidates[/**iter*/iter],blockMD.numNodes);
 
 			interimNodeIDs = Kokkos::create_mirror_view(blockMD.blockNodes);
 

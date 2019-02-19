@@ -1,6 +1,7 @@
-// Copyright 2014 Sandia Corporation. Under the terms of
-// Contract DE-AC04-94AL85000 with Sandia Corporation, the
-// U.S. Government retains certain rights in this software.
+// Copyright 2002 - 2008, 2010, 2011 National Technology Engineering
+// Solutions of Sandia, LLC (NTESS). Under the terms of Contract
+// DE-NA0003525 with NTESS, the U.S. Government retains certain rights
+// in this software.
 //
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
@@ -99,7 +100,7 @@ struct min_scanner {   //finds the min value of a one dimensional view
                                         - block_sizes[iBlock].node_min[1])
                                 * (1 + block_sizes[iBlock].node_max[2]
                                         - block_sizes[iBlock].node_min[2]);
-                        Kokkos::Experimental::resize(alpha_candidates[iBlock],total_nodes_this_block);
+                        Kokkos::resize(alpha_candidates[iBlock],total_nodes_this_block);
                     }
                     alpha=std::numeric_limits<Double>::max();
                 }//if bsg

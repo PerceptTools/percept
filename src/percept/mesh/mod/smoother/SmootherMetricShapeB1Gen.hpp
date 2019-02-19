@@ -1,6 +1,7 @@
-// Copyright 2014 Sandia Corporation. Under the terms of
-// Contract DE-AC04-94AL85000 with Sandia Corporation, the
-// U.S. Government retains certain rights in this software.
+// Copyright 2002 - 2008, 2010, 2011 National Technology Engineering
+// Solutions of Sandia, LLC (NTESS). Under the terms of Contract
+// DE-NA0003525 with NTESS, the U.S. Government retains certain rights
+// in this software.
 //
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
@@ -47,9 +48,8 @@ namespace percept {
     stk::mesh::FieldBase *m_cg_lambda_field;
     stk::mesh::FieldBase *m_cg_normal_field;
     stk::mesh::FieldBase *m_coord_field_0;
-    MeshSmoother *m_smoother;
   public:
-    SmootherMetricShapeB1Gen(PerceptMesh *eMesh, MeshSmoother *smoother) : SmootherMetricShapeB1(eMesh),m_smoother(smoother) {
+    SmootherMetricShapeB1Gen(PerceptMesh *eMesh) : SmootherMetricShapeB1(eMesh) {
       m_cg_lambda_field    = eMesh->get_field(stk::topology::NODE_RANK, "cg_lambda");
       m_cg_normal_field    = eMesh->get_field(stk::topology::NODE_RANK, "cg_normal");
       m_coord_field_0      = eMesh->get_field(stk::topology::NODE_RANK, "coordinates_0");
@@ -125,20 +125,6 @@ namespace percept {
         {
           stk::mesh::Entity node = v_i[i];
           Norm[i] = (m_cg_normal_field? stk::mesh::field_data( *static_cast<const CoordinatesFieldType  *>(m_cg_normal_field) , v_i[i] ) : 0);
-
-          // double dn = 0.0;
-          // for (unsigned ic=0; ic < spatialDim; ++ic)
-          //   {
-          //     dn += Norm[ic]*Norm[ic];
-          //   }
-          // if (dn == 0.0)
-          //   {
-          //     m_smoother->m_meshGeometry->normal_at(m_eMesh, node, normals);
-          //     for (unsigned ic=0; ic < spatialDim; ++ic)
-          //       {
-          //         Norm[i][ic] = normals[ic];
-          //       }
-          //   }
 
           X[i] = AVERTEX(v_i[i]);
           WX[i] = WVERTEX(v_i[i]);

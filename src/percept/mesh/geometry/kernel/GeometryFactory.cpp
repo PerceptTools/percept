@@ -1,6 +1,7 @@
-// Copyright 2014 Sandia Corporation. Under the terms of
-// Contract DE-AC04-94AL85000 with Sandia Corporation, the
-// U.S. Government retains certain rights in this software.
+// Copyright 2002 - 2008, 2010, 2011 National Technology Engineering
+// Solutions of Sandia, LLC (NTESS). Under the terms of Contract
+// DE-NA0003525 with NTESS, the U.S. Government retains certain rights
+// in this software.
 //
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
@@ -70,7 +71,7 @@ getPart(stk::mesh::MetaData *meta_data, std::string part_name, bool partial_stri
   if (DEBUG_GF2) std::cout << "part_name= " << part_name << " found_part.name()= " << found_part->name() << std::endl;
 
   const bool error_check = true;
-  if (error_check && !found_part)
+  if (error_check && !found_part && part_name != "edgeseams")
     {
       std::ostringstream msg;
       msg << "GeometryFactor::getPart() couldn't find part with name = " << part_name;
@@ -96,7 +97,7 @@ bool GeometryFactory::read_file(const std::string& filename, stk::mesh::MetaData
     return false;
   for (size_t i=0; i<geometry_entities.size(); i++)
     {
-      std::string str = geomKernel->get_attribute(geometry_entities[i]);
+      std::string str = geometry_entities[i].attribute;
       bool partial_string_match_ok = true;
 
       if( (str.substr(0,1))=="#"){

@@ -2,10 +2,10 @@
 
 #include <iostream>
 
-#ifdef KOKKOS_HAVE_CUDA
+#ifdef KOKKOS_ENABLE_CUDA
   typedef Kokkos::Cuda      ExecSpace ;
   typedef Kokkos::CudaSpace  MemSpace ;
-#elif KOKKOS_HAVE_OPENMP
+#elif defined(KOKKOS_ENABLE_OPENMP)
   typedef Kokkos::OpenMP    ExecSpace ;
   typedef Kokkos::OpenMP     MemSpace ;
 #else

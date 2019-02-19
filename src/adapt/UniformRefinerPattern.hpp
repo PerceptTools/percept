@@ -1,6 +1,7 @@
-// Copyright 2014 Sandia Corporation. Under the terms of
-// Contract DE-AC04-94AL85000 with Sandia Corporation, the
-// U.S. Government retains certain rights in this software.
+// Copyright 2002 - 2008, 2010, 2011 National Technology Engineering
+// Solutions of Sandia, LLC (NTESS). Under the terms of Contract
+// DE-NA0003525 with NTESS, the U.S. Government retains certain rights
+// in this software.
 //
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
@@ -106,7 +107,6 @@
 
 #define DEBUG_URP_HPP 0
 
-//#if defined(NDEBUG) && !DEBUG_URP_HPP
 #if 1
 
 #  define NN(i_entity_rank, j_ordinal_on_subDim_entity) new_sub_entity_nodes[i_entity_rank][j_ordinal_on_subDim_entity][0]
@@ -160,8 +160,6 @@
       catch (const std::exception& exc)
         {
           std::cout << "i_entity_rank= " << i_entity_rank << " j_ordinal_of_entity= " << j_ordinal_of_entity << " k_ordinal_of_node_on_entity= " << k_ordinal_of_node_on_entity << std::endl;
-          NodeRegistry *nr = static_cast<NodeRegistry *>(eMesh.m_nodeRegistry);
-          if (nr) nr->query(eMesh.id(element), i_entity_rank, j_ordinal_of_entity);
           throw exc;
         }
       return new_sub_entity_nodes[i_entity_rank][j_ordinal_of_entity][k_ordinal_of_node_on_entity];
@@ -247,10 +245,7 @@
       bool m_do_strip_hashes;
       vector<stk::mesh::Entity>::iterator m_ep_begin, m_ep_end;
 
-      //typedef ToTopology TTopo;
-
-      UniformRefinerPatternBase() : //m_appendConvertString("_urpconv"),
-                                    m_convertSeparatorString("."),
+      UniformRefinerPatternBase() : m_convertSeparatorString("."),
                                     m_convertSeparatorFinalString("_"),
                                     m_appendOriginalString(percept::PerceptMesh::s_omit_part+"_1000"),  // _100000
                                     m_primaryEntityRank(stk::topology::INVALID_RANK),
@@ -388,11 +383,6 @@
                                       stk::mesh::Entity familyTreeNewElement,
                                       unsigned ordinal, unsigned *numChild=0);
 
-      /// given a new element (child) that is a child of an original element (parent), look at parent's side to elem
-      ///   relations and from the children of the element, choose an element to connect the new side to (using connectSides)
-      bool findSideRelations(percept::PerceptMesh& eMesh, stk::mesh::Entity parent, stk::mesh::Entity child);
-      bool connectSides(percept::PerceptMesh& eMesh, stk::mesh::Entity element, stk::mesh::Entity side_elem);
-
       /// optionally overridden (must be overridden if sidesets are to work properly) to provide info on which sub pattern
       /// should be used to refine side sets (and edge sets)
       virtual void setSubPatterns( std::vector<UniformRefinerPatternBase *>& bp, percept::PerceptMesh& eMesh );
@@ -441,6 +431,7 @@
       static std::string s_refine_options;
       static std::string s_enrich_options;
 
+      void updateSurfaceBlockMap(percept::PerceptMesh& eMesh, stk::mesh::Part* part, stk::mesh::Part* part_to);
     private:
       void addRefineNewNodesPart(percept::PerceptMesh& eMesh);
       void addActiveParentParts(percept::PerceptMesh& eMesh);
@@ -450,7 +441,6 @@
           		bool found_include_only_block, std::vector<std::string>& block_names_include, stk::mesh::Part *  part);
       void setNeededParts_debug1(percept::PerceptMesh& eMesh);
       void setNeededParts_debug2();
-      void updateSurfaceBlockMap(percept::PerceptMesh& eMesh, stk::mesh::Part* part, stk::mesh::Part* part_to);
     };
     /// Utility intermediate base class providing more support for standard refinement operations
     /// ------------------------------------------------------------------------------------------------------------------------
@@ -691,11 +681,14 @@
 #include "UniformRefinerPattern_Quad4_Tri3_2.hpp"
 #include "UniformRefinerPattern_Hex8_Tet4_24.hpp"
 #include "UniformRefinerPattern_Hex8_Tet4_6_12.hpp"
+#include "UniformRefinerPattern_Pyramid5_Tet4_2.hpp"
+#include "UniformRefinerPattern_Wedge6_Tet4_3.hpp"
 
 #include "UniformRefinerPattern_Tri3_Quad4_3.hpp"
 #include "UniformRefinerPattern_Tet4_Hex8_4.hpp"
 #include "UniformRefinerPattern_Wedge6_Hex8_6.hpp"
 #include "URP_Tet4_Wedge6_Hex8.hpp"
+#include "URP_Hex8_Wedge6_Pyramid5_Tet4.hpp"
 
 // local refinement
 #include "RefinerPattern_Tri3_Tri3_2.hpp"
@@ -768,11 +761,14 @@
     typedef  UniformRefinerPattern<shards::Quadrilateral<4>, shards::Triangle<3>,      6 >                        Quad4_Tri3_6;
     typedef  UniformRefinerPattern<shards::Hexahedron<8>,    shards::Tetrahedron<4>,  24 >                        Hex8_Tet4_24;
     typedef  UniformRefinerPattern<shards::Hexahedron<8>,    shards::Tetrahedron<4>,   6 >                        Hex8_Tet4_6_12;
+    typedef  UniformRefinerPattern<shards::Pyramid<5>,       shards::Tetrahedron<4>,   2 >                        Pyramid5_Tet4_2;
+    typedef  UniformRefinerPattern<shards::Wedge<6>,         shards::Tetrahedron<4>,   3 >                        Wedge6_Tet4_3;
 
     typedef  UniformRefinerPattern<shards::Triangle<3>,      shards::Quadrilateral<4>, 3, Specialization >        Tri3_Quad4_3;
     typedef  UniformRefinerPattern<shards::Tetrahedron<4>,   shards::Hexahedron<8>,    4 >                        Tet4_Hex8_4;
     typedef  UniformRefinerPattern<shards::Wedge<6>,         shards::Hexahedron<8>,    6 >                        Wedge6_Hex8_6;
     typedef  URP_Tet4_Wedge6_Hex8 Tet4_Wedge6_Hex8;
+    typedef  URP_Hex8_Wedge6_Pyramid5_Tet4 Hex8_Wedge6_Pyramid5_Tet4;
 
     // local refinement - for testing only right now
 

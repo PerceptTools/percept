@@ -1,6 +1,7 @@
-// Copyright 2014 Sandia Corporation. Under the terms of
-// Contract DE-AC04-94AL85000 with Sandia Corporation, the
-// U.S. Government retains certain rights in this software.
+// Copyright 2002 - 2008, 2010, 2011 National Technology Engineering
+// Solutions of Sandia, LLC (NTESS). Under the terms of Contract
+// DE-NA0003525 with NTESS, the U.S. Government retains certain rights
+// in this software.
 //
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
@@ -67,7 +68,6 @@
 #include <adapt/SDCEntityType.hpp>
 #include <adapt/NodeIdsOnSubDimEntityType.hpp>
 #include<adapt/NodeRegistryType.hpp>
-
 // use old PerceptMesh/BulkData create entities if set to 1 - if 0, use PerceptMesh ID server which is much faster (doesn't use DistributedIndex)
 #define USE_CREATE_ENTITIES 0
 
@@ -82,8 +82,8 @@
     class Refiner;
 
     /// map of the node ids on a sub-dim entity to the data on the sub-dim entity
-    typedef Kokkos::UnorderedMap<SubDimCell_SDCEntityType, SubDimCellData, Kokkos::DefaultExecutionSpace, my_fast_hash<SDCEntityType, 4>, my_fast_equal_to<SDCEntityType, 4> > SubDimCellToDataMap_KOKKOS;
-    typedef Kokkos::UnorderedMap<stk::mesh::EntityId, stk::mesh::Entity, Kokkos::DefaultExecutionSpace> EntityRepo_KOKKOS;
+    typedef Kokkos::UnorderedMap<SubDimCell_SDCEntityType, SubDimCellData, Kokkos::DefaultHostExecutionSpace, my_fast_hash<SDCEntityType, 4>, my_fast_equal_to<SDCEntityType, 4> > SubDimCellToDataMap_KOKKOS;
+    typedef Kokkos::UnorderedMap<stk::mesh::EntityId, stk::mesh::Entity, Kokkos::DefaultHostExecutionSpace> EntityRepo_KOKKOS;
 
     //========================================================================================================================
     //========================================================================================================================
@@ -339,12 +339,12 @@
         std::cout << print_string(eMesh, subDimEntity);
       }
 
-      inline stk::mesh::Entity get_entity(stk::mesh::BulkData& bulk, stk::mesh::EntityRank rank, stk::mesh::EntityId id)
+      inline stk::mesh::Entity get_entity(stk::mesh::BulkData& bulk, stk::mesh::EntityRank rank, stk::mesh::EntityId id) const
       {
         return bulk.get_entity(rank, id);
       }
 
-      inline stk::mesh::Entity get_entity_element(stk::mesh::BulkData& bulk, stk::mesh::EntityRank rank, stk::mesh::EntityId id)
+      inline stk::mesh::Entity get_entity_element(stk::mesh::BulkData& bulk, stk::mesh::EntityRank rank, stk::mesh::EntityId id) const
       {
         return get_entity(bulk, rank, id);
       }

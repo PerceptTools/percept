@@ -1,6 +1,7 @@
-// Copyright 2014 Sandia Corporation. Under the terms of
-// Contract DE-AC04-94AL85000 with Sandia Corporation, the
-// U.S. Government retains certain rights in this software.
+// Copyright 2002 - 2008, 2010, 2011 National Technology Engineering
+// Solutions of Sandia, LLC (NTESS). Under the terms of Contract
+// DE-NA0003525 with NTESS, the U.S. Government retains certain rights
+// in this software.
 //
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
@@ -48,11 +49,11 @@ namespace heavy_tests {
 
 /// This test uses a back door to the function that passes in the element to avoid the lookup of the element when the
 ///  StringFunction contains references to FieldFunctions
-void TEST_norm_string_function_turbo_timings(TurboOption turboOpt, const size_t nxyz = 4, bool only_turbo=false)
+void norm_string_function_turbo_timings(TurboOption turboOpt, const size_t nxyz = 4, bool only_turbo=false)
 {
   EXCEPTWATCH;
 
-  dw().m(LOG_NORM) << "TEST.norm.string_function " << stk::diag::dendl;
+  dw().m(LOG_NORM) << "norm.string_function " << stk::diag::dendl;
 
   /// create a meta data/bulk data empty pair
   PerceptMesh eMesh(3u);
@@ -184,18 +185,17 @@ void TEST_norm_string_function_turbo_timings(TurboOption turboOpt, const size_t 
 TEST(heavy_norm, string_function_turbo_timings)
 {
   EXCEPTWATCH;
-  TEST_norm_string_function_turbo_timings(TURBO_ELEMENT);
+  norm_string_function_turbo_timings(TURBO_ELEMENT);
 }
 TEST(heavy_norm, string_function_turbo_timings_bucket)
 {
   EXCEPTWATCH;
-  TEST_norm_string_function_turbo_timings(TURBO_BUCKET);
+  norm_string_function_turbo_timings(TURBO_BUCKET);
 }
 TEST(heavy_norm, string_function_turbo_timings_bucket_prof)
 {
   EXCEPTWATCH;
-  //TEST_norm_string_function_turbo_timings(TURBO_BUCKET, 50, true);
-  TEST_norm_string_function_turbo_timings(TURBO_BUCKET, 10, true);
+  norm_string_function_turbo_timings(TURBO_BUCKET, 10, true);
 }
 
 

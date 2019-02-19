@@ -1,6 +1,7 @@
-// Copyright 2014 Sandia Corporation. Under the terms of
-// Contract DE-AC04-94AL85000 with Sandia Corporation, the
-// U.S. Government retains certain rights in this software.
+// Copyright 2002 - 2008, 2010, 2011 National Technology Engineering
+// Solutions of Sandia, LLC (NTESS). Under the terms of Contract
+// DE-NA0003525 with NTESS, the U.S. Government retains certain rights
+// in this software.
 //
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
@@ -21,7 +22,6 @@
 #include <adapt/SerializeNodeRegistry.hpp>
 #include <adapt/main/RunAdaptRun.hpp>
 #include <adapt/ElementRefinePredicate.hpp>
-#include <adapt/PredicateBasedElementAdapter.hpp>
 #include <adapt/TransitionElementAdapter.hpp>
 #include <adapt/RefinerUtil.hpp>
 
@@ -106,7 +106,7 @@ namespace percept {
         eMesh.register_and_set_refine_fields();
 
         ErrorFieldType * error_field = &eMesh.get_fem_meta_data()->declare_field<ErrorFieldType>(stk::topology::ELEMENT_RANK, "myError");
-        stk::mesh::put_field( *error_field , eMesh.get_fem_meta_data()->universal_part(), 1);
+        stk::mesh::put_field_on_mesh( *error_field , eMesh.get_fem_meta_data()->universal_part(), 1, nullptr);
         stk::io::set_field_role( *error_field, Ioss::Field::TRANSIENT);
 
         (void) error_field;
@@ -130,7 +130,7 @@ namespace percept {
         eMesh.open("rar_input.e");
         eMesh.register_and_set_refine_fields();
         ErrorFieldType * error_field = &eMesh.get_fem_meta_data()->declare_field<ErrorFieldType>(stk::topology::ELEMENT_RANK, "myError");
-        stk::mesh::put_field( *error_field , eMesh.get_fem_meta_data()->universal_part(), 1);
+        stk::mesh::put_field_on_mesh( *error_field , eMesh.get_fem_meta_data()->universal_part(), 1, nullptr);
         stk::io::set_field_role( *error_field, Ioss::Field::TRANSIENT);
         eMesh.commit();
 
@@ -200,7 +200,7 @@ namespace percept {
         eMesh.register_and_set_refine_fields();
         //stk::mesh::FieldBase *error_field = eMesh.add_field("myError", stk::topology::ELEMENT_RANK);
         ErrorFieldType * error_field = &eMesh.get_fem_meta_data()->declare_field<ErrorFieldType>(stk::topology::ELEMENT_RANK, "myError");
-        stk::mesh::put_field( *error_field , eMesh.get_fem_meta_data()->universal_part(), 1);
+        stk::mesh::put_field_on_mesh( *error_field , eMesh.get_fem_meta_data()->universal_part(), 1, nullptr);
         stk::io::set_field_role( *error_field, Ioss::Field::TRANSIENT);
 
         UniformRefinerPatternBase *localBreakPattern = 0;
@@ -297,7 +297,7 @@ namespace percept {
           eMesh.register_and_set_refine_fields();
           eMesh.add_registered_refine_fields_as_input_fields();
           ErrorFieldType * error_field = &eMesh.get_fem_meta_data()->declare_field<ErrorFieldType>(stk::topology::ELEMENT_RANK, "myError");
-          stk::mesh::put_field( *error_field , eMesh.get_fem_meta_data()->universal_part(), 1);
+          stk::mesh::put_field_on_mesh( *error_field , eMesh.get_fem_meta_data()->universal_part(), 1, nullptr);
           stk::io::set_field_role( *error_field, Ioss::Field::TRANSIENT);
           UniformRefinerPatternBase *localBreakPattern = 0;
           if (type == "quad")
@@ -380,7 +380,7 @@ namespace percept {
 
       ErrorFieldType * error_field =
         &eMesh.get_fem_meta_data()->declare_field<ErrorFieldType>(stk::topology::ELEMENT_RANK, "myError");
-      stk::mesh::put_field( *error_field , eMesh.get_fem_meta_data()->universal_part(), 1);
+      stk::mesh::put_field_on_mesh( *error_field , eMesh.get_fem_meta_data()->universal_part(), 1, nullptr);
       stk::io::set_field_role( *error_field, Ioss::Field::TRANSIENT);
 
       eMesh.commit();
@@ -417,7 +417,7 @@ namespace percept {
 
       ErrorFieldType * error_field =
         &eMesh.get_fem_meta_data()->declare_field<ErrorFieldType>(stk::topology::ELEMENT_RANK, "myError");
-      stk::mesh::put_field( *error_field , eMesh.get_fem_meta_data()->universal_part(), 1);
+      stk::mesh::put_field_on_mesh( *error_field , eMesh.get_fem_meta_data()->universal_part(), 1, nullptr);
       stk::io::set_field_role( *error_field, Ioss::Field::TRANSIENT);
 
       if (has_ft_mesh) {
@@ -439,7 +439,7 @@ namespace percept {
 
         ErrorFieldType * from_error_field =
           &eMesh_error.get_fem_meta_data()->declare_field<ErrorFieldType>(stk::topology::ELEMENT_RANK, "myError");
-        stk::mesh::put_field( *from_error_field , eMesh_error.get_fem_meta_data()->universal_part(), 1);
+        stk::mesh::put_field_on_mesh( *from_error_field , eMesh_error.get_fem_meta_data()->universal_part(), 1, nullptr);
         eMesh_error.add_input_field(from_error_field);
 
         eMesh_error.commit();
@@ -592,7 +592,7 @@ namespace percept {
                  "adapt3_ft_tet4_wedge6.e", "adapt3_tet4_wedge6.g");
 
       const double error = compute_error_on_mesh("adapt3_tet4_wedge6.g", "error3_tet4_wedge6.e");
-      EXPECT_NEAR(error, 0.0554850220463, 1e-5);
+      EXPECT_NEAR(error, 0.055592023707473071, 1e-5);
     }
 
     TEST(adapt_unit_rar, valgrind_error)
@@ -604,7 +604,7 @@ namespace percept {
 
       ErrorFieldType * error_field =
         &eMesh.get_fem_meta_data()->declare_field<ErrorFieldType>(stk::topology::ELEMENT_RANK, "myError");
-      stk::mesh::put_field( *error_field , eMesh.get_fem_meta_data()->universal_part(), 1);
+      stk::mesh::put_field_on_mesh( *error_field , eMesh.get_fem_meta_data()->universal_part(), 1, nullptr);
       stk::io::set_field_role( *error_field, Ioss::Field::TRANSIENT);
 
       eMesh.add_input_field(error_field);

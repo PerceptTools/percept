@@ -1,6 +1,7 @@
-// Copyright 2014 Sandia Corporation. Under the terms of
-// Contract DE-AC04-94AL85000 with Sandia Corporation, the
-// U.S. Government retains certain rights in this software.
+// Copyright 2002 - 2008, 2010, 2011 National Technology Engineering
+// Solutions of Sandia, LLC (NTESS). Under the terms of Contract
+// DE-NA0003525 with NTESS, the U.S. Government retains certain rights
+// in this software.
 //
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
@@ -58,8 +59,8 @@ TEST(UnitTestZoltanSimple, testUnit)
   VectorField & coord_field = fem_meta.declare_field< VectorField >( stk::topology::NODE_RANK,  "coordinates" ) ;
   ScalarField & weight_field = fem_meta.declare_field< ScalarField >( stk::topology::ELEMENT_RANK,  "element_weights" ) ;
 
-  stk::mesh::put_field( coord_field ,  fem_meta.universal_part() );
-  stk::mesh::put_field(weight_field ,  fem_meta.universal_part() );
+  stk::mesh::put_field_on_mesh( coord_field ,  fem_meta.universal_part() , nullptr);
+  stk::mesh::put_field_on_mesh(weight_field ,  fem_meta.universal_part() , nullptr);
 
   fem_meta.commit();
 

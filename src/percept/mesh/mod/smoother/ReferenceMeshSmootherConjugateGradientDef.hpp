@@ -1,6 +1,7 @@
-// Copyright 2014 Sandia Corporation. Under the terms of
-// Contract DE-AC04-94AL85000 with Sandia Corporation, the
-// U.S. Government retains certain rights in this software.
+// Copyright 2002 - 2008, 2010, 2011 National Technology Engineering
+// Solutions of Sandia, LLC (NTESS). Under the terms of Contract
+// DE-NA0003525 with NTESS, the U.S. Government retains certain rights
+// in this software.
 //
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
@@ -105,7 +106,7 @@ ReferenceMeshSmootherConjugateGradientImpl(PerceptMesh *eMesh,
     std::vector<StructuredCellIndex> node_elems;
     find_connected_cells(m_eMesh, node, node_elems);
 
-#ifndef KOKKOS_HAVE_CUDA
+#ifndef KOKKOS_ENABLE_CUDA
     RMSCG_PRINT("tmp srk1 node_elems.size= " << node_elems.size());
 #endif
     for (unsigned ii=0; ii < node_elems.size(); ++ii)
@@ -114,7 +115,7 @@ ReferenceMeshSmootherConjugateGradientImpl(PerceptMesh *eMesh,
         double lmin=0,lmax=0;
         double elem_edge_len = m_eMesh->edge_length_ave(element, m_coord_field_original, &lmin, &lmax);
 
-#ifndef KOKKOS_HAVE_CUDA
+#ifndef KOKKOS_ENABLE_CUDA
         RMSCG_PRINT("tmp srk1 node_elems.size= " << node_elems.size());
 #endif
 
@@ -1435,7 +1436,6 @@ Double ReferenceMeshSmootherConjugateGradientImpl<MeshType>::total_metric(
           std::pair<bool,int> fixed = Base::m_rms->get_fixed_flag(node);
           if (!fixed.first)
             {
-              std::vector<double> cg_g(spatialDim);
               if (fixed.second == MS_SURFACE)
                 {
                   double cg_g[spatialDim];
@@ -1502,7 +1502,7 @@ Double ReferenceMeshSmootherConjugateGradientImpl<MeshType>::total_metric(
           //std::cout << "gnorm= " << gnorm << std::endl;
 
 
-          std::vector<typename MeshType::MTField *> fields_0(1, ga_1.cg_g_field);
+          std::vector<const typename MeshType::MTField *> fields_0(1, ga_1.cg_g_field);
           MTsum_fields<MeshType>(fields_0, m_eMesh);//madbrew: for now doesn't do anything for sgrids
 
           m_eMesh->copy_field("cg_r", "cg_g");

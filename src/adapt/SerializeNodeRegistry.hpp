@@ -1,6 +1,7 @@
-// Copyright 2014 Sandia Corporation. Under the terms of
-// Contract DE-AC04-94AL85000 with Sandia Corporation, the
-// U.S. Government retains certain rights in this software.
+// Copyright 2002 - 2008, 2010, 2011 National Technology Engineering
+// Solutions of Sandia, LLC (NTESS). Under the terms of Contract
+// DE-NA0003525 with NTESS, the U.S. Government retains certain rights
+// in this software.
 //
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
@@ -44,7 +45,6 @@
 
 #define DEBUG_YAML 0
 
-#if STK_ADAPT_HAVE_YAML_CPP
 #include <yaml-cpp/yaml.h>
 
 #define YAML_CHECK(emitter) do { if (1 && !emitter.good()) { std::cout << "Emitter error: " << __FILE__ << ":" << __LINE__ << " emitter.good()= " \
@@ -52,14 +52,9 @@
 
 #define YAML_ERRCHECK YAML_CHECK(emitter)
 
-#endif
 #include <stk_mesh/base/MeshUtils.hpp>
 
-
   namespace percept {
-
-
-#if STK_ADAPT_HAVE_YAML_CPP
 
     /**  in the following, we are looking at one partition, m_iM, of M-partitioned mesh
      *
@@ -1732,14 +1727,6 @@
 
 
     };
-
-#else
-    class SerializeNodeRegistry {
-    public:
-      SerializeNodeRegistry(PerceptMesh& eMesh, NodeRegistry* nodeRegistry, std::string input_mesh_name, std::string output_mesh_name,
-                            int M, int iM, int W=1, int iW=0, int M_0=-1, int M_1=-1) {}
-    };
-#endif
 
   }
 

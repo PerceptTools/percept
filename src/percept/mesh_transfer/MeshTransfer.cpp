@@ -1,6 +1,7 @@
-// Copyright 2014 Sandia Corporation. Under the terms of
-// Contract DE-AC04-94AL85000 with Sandia Corporation, the
-// U.S. Government retains certain rights in this software.
+// Copyright 2002 - 2008, 2010, 2011 National Technology Engineering
+// Solutions of Sandia, LLC (NTESS). Under the terms of Contract
+// DE-NA0003525 with NTESS, the U.S. Government retains certain rights
+// in this software.
 //
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
@@ -32,6 +33,8 @@ void MeshTransfer::process_options()
 
   clp.setOption("dst-entity",  &dst_entity,      "destination entity type (node, element)." );
   clp.setOption("dst-name" ,   &dst_field_name,  "destination field name." );
+
+  clp.setOption("exp-factor",  &coarse_search_expansion_factor,  "expansion factor for coarse search. Setting to a value less than one will result in no expansion. (default is 1.5)" );
 
   clp.setOption("src-field",   &field_name,      "source field name" );
 
@@ -169,8 +172,9 @@ void MeshTransfer::run(int argc, char** argv)
 			 *(dstMesh.get_bulk_data()),
 			 dstMesh.get_coordinates_field(),
 			 toField,
-                         "transfer",
-                         srcFieldType);
+             "transfer",
+             srcFieldType,
+             coarse_search_expansion_factor);
 
   if (!stk::parallel_machine_rank(comm))
     std::cout << "MeshTransfer: initializing transfer" << std::endl;

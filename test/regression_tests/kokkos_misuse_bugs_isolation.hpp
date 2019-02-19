@@ -794,8 +794,7 @@ public:
             Kokkos::View<unsigned**, percept::DataLayout, percept::MemSpace>::HostMirror elems_mirror;
 
             //populate the element ijk's of a particular block
-            Kokkos::Experimental::resize(logical_elems, elems_from_block.size(),
-                    3);
+            Kokkos::resize(logical_elems, elems_from_block.size(), 3);
             elems_mirror = Kokkos::create_mirror_view(logical_elems);
             bsg->get_elements_of_sb(elems_from_block, 0);
             for (unsigned iElem = 0; iElem < elems_from_block.size(); iElem++) {

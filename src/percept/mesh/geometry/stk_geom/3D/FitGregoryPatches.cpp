@@ -1,6 +1,7 @@
-// Copyright 2014 Sandia Corporation. Under the terms of
-// Contract DE-AC04-94AL85000 with Sandia Corporation, the
-// U.S. Government retains certain rights in this software.
+// Copyright 2002 - 2008, 2010, 2011 National Technology Engineering
+// Solutions of Sandia, LLC (NTESS). Under the terms of Contract
+// DE-NA0003525 with NTESS, the U.S. Government retains certain rights
+// in this software.
 //
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
@@ -20,10 +21,6 @@
 #define SHARED(n) (m_eMesh.shared(n))
 #define OWNER(n) (m_eMesh.owner_rank(n))
 #define TOP(n) (m_eMesh.topology(n))
-
-#define DEBUG_PRINT 0
-#define DEBUG_PRINT1 0
-#define TRACE_PRINT 0
 
 namespace percept {
 
@@ -123,7 +120,7 @@ namespace percept {
                 // 3 slots for "left" of an edge, 3 for "right"
                 if (is_surface_topology(part.topology()))
                   {
-                    stk::mesh::put_field(*m_eMesh.m_node_normals, part, 3);
+                    stk::mesh::put_field_on_mesh(*m_eMesh.m_node_normals, part, 3, nullptr);
                   }
 
                 if (!in_surface_sets(part.name()))
@@ -131,12 +128,12 @@ namespace percept {
 
                 if (pv[ii]->primary_entity_rank() == m_eMesh.side_rank())
                   {
-                    stk::mesh::put_field(*m_eMesh.m_gregory_control_points_field, part, numControlPoints);
+                    stk::mesh::put_field_on_mesh(*m_eMesh.m_gregory_control_points_field, part, numControlPoints, nullptr);
                   }
                 else if (pv[ii]->primary_entity_rank() == m_eMesh.element_rank()
                          && (pv[ii]->topology() == stk::topology::SHELL_QUAD_4 || pv[ii]->topology() == stk::topology::SHELL_TRI_3))
                   {
-                    stk::mesh::put_field(*m_eMesh.m_gregory_control_points_field_shell, part, numControlPoints);
+                    stk::mesh::put_field_on_mesh(*m_eMesh.m_gregory_control_points_field_shell, part, numControlPoints, nullptr);
                   }
               }
           }
@@ -179,9 +176,9 @@ namespace percept {
   };
 
   void FitGregoryPatches::
-  getCurrentParts(std::vector<stk::mesh::PartVector>& currentParts, bool allSurfaces)
+  getCurrentParts(std::vector<stk::mesh::PartVector>& currentParts)
   {
-    if (allSurfaces || m_surfaceSets.size() == 0)
+    if (m_surfaceSets.size() == 0)
       {
         currentParts.resize(1);
         const stk::mesh::PartVector& pv = m_eMesh.get_fem_meta_data()->get_parts();
@@ -192,8 +189,6 @@ namespace percept {
 
             if (stk::mesh::is_auto_declared_part(part) || percept_auto_part)
               continue;
-
-            if (DEBUG_PRINT) std::cout << "pv0[" << ii << "]= " << part.name() << " topo= " << part.topology() << std::endl;
 
             if (
                 (part.primary_entity_rank() == m_eMesh.side_rank()
@@ -211,8 +206,6 @@ namespace percept {
                   }
                 MyString * myStringAttribute = new MyString("all");
                 m_eMesh.get_fem_meta_data()->declare_attribute_with_delete(part, myStringAttribute);
-                //m_eMesh.get_fem_meta_data()->declare_attribute_no_delete(part, myStringAttribute);
-                if (DEBUG_PRINT) std::cout << "pv1[" << ii << "]= " << part.name() << " topo= " << part.topology() << std::endl;
                 currentParts[0].push_back(pv[ii]);
               }
           }
@@ -249,7 +242,6 @@ namespace percept {
                   }
                 MyString * myStringAttribute = new MyString(surfaceSetName);
                 m_eMesh.get_fem_meta_data()->declare_attribute_with_delete(*found_part, myStringAttribute);
-                //m_eMesh.get_fem_meta_data()->declare_attribute_no_delete(*found_part, myStringAttribute);
 
                 currentParts[iSurfaceSet].push_back(found_part);
               }
@@ -258,57 +250,30 @@ namespace percept {
       }
   }
 
-  void FitGregoryPatches::fit(bool doGetNormals, bool createEdgeSeamsPart)
+  void FitGregoryPatches::computeControlPoints(bool doGetNormals, bool createEdgeSeamsPart)
   {
-    if (TRACE_PRINT && m_eMesh.get_rank() == 0) std::cout << "FitGregoryPatches::fit start" << std::endl;
     std::vector<stk::mesh::PartVector> currentParts;
     getCurrentParts(currentParts);
-
-    std::vector<stk::mesh::PartVector> currentPartsAll;
-    getCurrentParts(currentPartsAll, true);
-
-    bool doGetNormalsAllSurfaces = false;
-    if (doGetNormalsAllSurfaces && doGetNormals)
-      {
-        for (unsigned iSurfaceSet = 0; iSurfaceSet < currentPartsAll.size(); ++iSurfaceSet)
-          {
-            getNormals(&currentPartsAll[iSurfaceSet]);
-          }
-      }
-
-    if (DEBUG_PRINT)
-      {
-        std::cout << "currentParts.size= " << currentParts.size() << " currentParts[0].size= " << currentParts[0].size()
-                  << " m_surfaceSets.size= " << m_surfaceSets.size()
-                  << std::endl;
-      }
 
     bool doSeams = true;
     if (m_eMesh.getProperty("FitGregoryPatches::noEdgeFitting") == "true")
       doSeams = false;
 
-
     for (unsigned iSurfaceSet = 0; iSurfaceSet < currentParts.size(); ++iSurfaceSet)
       {
-        if (TRACE_PRINT && m_eMesh.get_rank() == 0) std::cout << "FitGregoryPatches::fit iSurfaceSet= " << iSurfaceSet << std::endl;
         if (doSeams)
           {
-            if (TRACE_PRINT && m_eMesh.get_rank() == 0) std::cout << "FitGregoryPatches::fit findSeams" << std::endl;
             findSeams(currentParts[iSurfaceSet], createEdgeSeamsPart);
-            if (TRACE_PRINT && m_eMesh.get_rank() == 0) std::cout << "FitGregoryPatches::fit processSeams" << std::endl;
             processSeams(currentParts[iSurfaceSet], createEdgeSeamsPart);
           }
 
-        if (!doGetNormalsAllSurfaces && doGetNormals)
+        if (doGetNormals)
           {
-            if (TRACE_PRINT && m_eMesh.get_rank() == 0) std::cout << "FitGregoryPatches::fit getNormals" << std::endl;
             getNormals(&currentParts[iSurfaceSet]);
           }
 
-        if (TRACE_PRINT && m_eMesh.get_rank() == 0) std::cout << "FitGregoryPatches::fit fitCubics" << std::endl;
         fitCubics(currentParts[iSurfaceSet]);
 
-        if (TRACE_PRINT && m_eMesh.get_rank() == 0) std::cout << "FitGregoryPatches::fit fitRibbons" << std::endl;
         fitRibbons(currentParts[iSurfaceSet]);
       }
 
@@ -343,8 +308,6 @@ namespace percept {
         str << "val = " << val << " visited, face= " << m_eMesh.print_entity_compact(face) << "\n " << m_eMesh.print_entity_compact(node);
         for (EntitySet::iterator it = visited.begin(); it != visited.end(); ++it, ++ii)
           {
-            //const MyPairIterRelation face_nodes(*m_eMesh.get_bulk_data(), , stk::topology::NODE_RANK );
-            //str << " " << m_eMesh.id(*it);
             str << "\n" << m_eMesh.print_entity_compact(*it);
           }
         str << "\nneighs= ";
@@ -353,8 +316,6 @@ namespace percept {
         getEdgeNeighborsSharingNode(face, sel, node, neighbors);
         for (EntitySet::iterator it = neighbors.begin(); it != neighbors.end(); ++it, ++ii)
           {
-            //const MyPairIterRelation face_nodes(*m_eMesh.get_bulk_data(), , stk::topology::NODE_RANK );
-            //str << " " << m_eMesh.id(*it);
             str << "\n" << m_eMesh.print_entity_compact(*it);
           }
         str << "Face Parts = " << m_eMesh.print_part_vector_string(m_eMesh.bucket(face).supersets()) << std::endl;
@@ -474,9 +435,6 @@ namespace percept {
     // find the base edge of the "quadrant" the face/node pair is in
     for (unsigned iedge=0; iedge < edges.size(); ++iedge)
       {
-        //unsigned iedgep = (iedge + 1) % edges.size();
-        //unsigned iedgem = (iedge + edges.size() - 1) % edges.size();
-
         stk::mesh::Entity nodes[2];
         nodes[0] = ndIn;
         nodes[1] = edges[iedge].first == ndIn ? edges[iedge].second : edges[iedge].first;
@@ -597,7 +555,6 @@ namespace percept {
     for (unsigned ii=0; ii < vecFaces.size(); ++ii)
       {
         stk::mesh::Entity face = vecFaces[ii];
-        if (DEBUG_PRINT) std::cout << "FGP:: face= " << m_eMesh.identifier(face) << std::endl;
         const MyPairIterRelation face_nodes(*m_eMesh.get_bulk_data(), face, stk::topology::NODE_RANK );
         double normal[3];
         faceNormal(face, normal);
@@ -703,8 +660,6 @@ namespace percept {
       {
         angleCriterion = m_angleMap[surfaceSetName];
       }
-    if ((TRACE_PRINT || m_debug || DEBUG_PRINT1) && (m_eMesh.get_rank() == 0))
-      std::cout << "P[" << m_eMesh.get_rank() << "] FitGregoryPatches::findSeams: surfaceSetName= " << surfaceSetName << " angle criterion= " << angleCriterion << std::endl;
 
     std::vector<stk::mesh::Entity> vecFaces, vecShells;
     stk::mesh::get_selected_entities(sel , m_eMesh.get_bulk_data()->buckets(m_eMesh.side_rank()), vecFaces);
@@ -853,7 +808,6 @@ namespace percept {
             if (isEdgeN)
               {
                 bool seam = isSeam(face, neigh, angleCriterion);
-                //std::cout << "isSeam Face " << m_eMesh.identifier(face) << " [" << edge_0 << "] = " << seam << std::endl;
                 if (seam)
                   {
                     m_edgeSeamsMap[face][edge_0] = 1;
@@ -899,12 +853,6 @@ namespace percept {
           }
       }
 
-    if (DEBUG_PRINT)
-      std::cout << "P[" << m_eMesh.get_rank() << "] FitGregoryPatches:: nedges from topo= " << nedges_topo
-                << " from geom= " << nedges_geom
-                << " m_edgeSet.size= " << m_edgeSet.size()
-                << std::endl;
-
     // parallel share edges
     findGhostEdges(m_edgeSet, m_nodeToEdgeMap);
 
@@ -925,8 +873,6 @@ namespace percept {
             m_eMesh.get_bulk_data()->change_entity_parts(edges[nedges], add, remove);
             ++nedges;
           }
-        if (DEBUG_PRINT)
-          std::cout << "P[" << m_eMesh.get_rank() << "] FitGregoryPatches::findSeams: nedges= " << nedges << std::endl;
         stk::mesh::fixup_ghosted_to_shared_nodes(*m_eMesh.get_bulk_data());
         m_eMesh.get_bulk_data()->modification_end();
       }
@@ -959,20 +905,14 @@ namespace percept {
   void FitGregoryPatches::
   processSeams(stk::mesh::PartVector& parts, bool createEdgeSeamsParts)
   {
-    //std::vector<EdgeSet> contiguousEdgeSets;
-    //NodeToEdgeMap nodeToEdgeMap;
     m_contiguousEdgeSets.clear();
     m_nodeToEdgeMap.clear();
 
     findContiguousEdgeSets(m_contiguousEdgeSets, m_nodeToEdgeMap, m_edgeSet);
-    if ((TRACE_PRINT || m_debug || DEBUG_PRINT1) && (m_eMesh.get_rank() == 0))
-      std::cout << "P[" << m_eMesh.get_rank() << "] FitGregoryPatches::processSeams:  findContiguousEdgeSets num_components= " << m_contiguousEdgeSets.size() << std::endl;
 
     sortEdges(m_nodeToEdgeMap);
 
     findEdgeSetCorners(m_corners, m_globalAngleCriterion, m_contiguousEdgeSets, m_nodeToEdgeMap);
-    if ((TRACE_PRINT || m_debug || DEBUG_PRINT1) && (m_eMesh.get_rank() == 0))
-      std::cout << "P[" << m_eMesh.get_rank() << "] FitGregoryPatches::processSeams:  findEdgeSetCorners size= " << m_corners.size() << std::endl;
 
     if (1)
       {
@@ -993,10 +933,6 @@ namespace percept {
     findTangentVectors(m_corners, m_contiguousEdgeSets, m_nodeToEdgeMap);
 
     m_contiguousEdgeSetsAll.insert(m_contiguousEdgeSetsAll.end(), m_contiguousEdgeSets.begin(), m_contiguousEdgeSets.end());
-
-    if ((TRACE_PRINT || m_debug || DEBUG_PRINT1) && (m_eMesh.get_rank() == 0))
-      std::cout << "P[" << m_eMesh.get_rank() << "] FitGregoryPatches::processSeams:  addEdgesToQAMesh= " << m_corners.size() << std::endl;
-
 
     if (createEdgeSeamsParts)
       {
@@ -1053,14 +989,10 @@ namespace percept {
                     stk::mesh::Entity nodes[2];
                     recv_buffer.unpack< stk::mesh::EntityId >( nodeIds[0] );
                     recv_buffer.unpack< stk::mesh::EntityId >( nodeIds[1] );
-                    //VERIFY_OP_ON(nodeIds[0], < , nodeIds[1], "bad order");
                     nodes[0] = m_eMesh.get_bulk_data()->get_entity(m_eMesh.node_rank(), nodeIds[0]);
                     nodes[1] = m_eMesh.get_bulk_data()->get_entity(m_eMesh.node_rank(), nodeIds[1]);
-                    //VERIFY_OP_ON(m_eMesh.is_valid(nodes[0]), ==, true, "FN0 bad");
-                    //VERIFY_OP_ON(m_eMesh.is_valid(nodes[1]), ==, true, "FN1 bad");
                     if (m_eMesh.is_valid(nodes[0]) && m_eMesh.is_valid(nodes[1]))
                       {
-                        //std::cout << "found good edge" << std::endl;
                         Comp comp(m_eMesh);
                         Edge edge = create_edge<stk::mesh::Entity>(nodes[0], nodes[1], comp);
                         newEdgeSet.insert(edge);
@@ -1084,10 +1016,8 @@ namespace percept {
   findContiguousEdgeSets(std::vector<EdgeSet>& contiguousEdgeSets, NodeToEdgeMap& nodeToEdgeMap,
                          const EdgeSet& mainEdgeSet)
   {
-    //if (m_eMesh.get_bulk_data()->parallel_size() > 1)
       {
         BGraphExternal::findContiguousEdgeSets(m_eMesh, contiguousEdgeSets, nodeToEdgeMap, mainEdgeSet);
-        //std::cout << "FitGregoryPatches::findContiguousEdgeSets::Ext num_components= " << contiguousEdgeSets.size() << std::endl;
         return;
       }
 
@@ -1165,8 +1095,6 @@ namespace percept {
     Math::copy_3d(c, nd);
     Math::subtract_3d(c1, c);
     Math::subtract_3d(c, c0);
-    // VERIFY_OP_ON(Math::norm_3d(c), >, 1.e-8, "bad c");
-    // VERIFY_OP_ON(Math::norm_3d(c1), >, 1.e-8, "bad c1");
     Math::normalize_3d(c);
     Math::normalize_3d(c1);
     double dot = Math::dot_3d(c, c1);
@@ -1297,7 +1225,7 @@ namespace percept {
     m_tangentVectors[edge].resize(2);
     m_tangentVectors[edge][0] = t0;
     m_tangentVectors[edge][1] = t1;
-    if (debug || DEBUG_PRINT1)
+    if (debug)
       std::cout << "n0E .. n1E= "
                 << ID(n0E) << " -- "
                 << ID(n0) << " -- "
@@ -1594,11 +1522,6 @@ namespace percept {
                   }
 
               }
-            if (DEBUG_PRINT)
-              {
-                if (kn==0) std::cout << "FGP:: n.rank= " << n.rank() << " kn= " << kn << "cf=\n"
-                                     << cf << "ni=\n" << n << "nj=\n" << np << "pi=\n" << c << "pj=\n" << cp << std::endl;
-              }
             if (isTri)
               {
                 MDArray qcf(5,3);
@@ -1637,7 +1560,6 @@ namespace percept {
   {
     const MyPairIterRelation face_nodes(*m_eMesh.get_bulk_data(), face, stk::topology::NODE_RANK );
     bool isTri = (face_nodes.size() == 3);
-    //double *Cp = stk::mesh::field_data( *m_eMesh.m_gregory_control_points_field, face);
     double *Cp = (m_eMesh.entity_rank(face) == m_eMesh.side_rank()
                   ? stk::mesh::field_data( *m_eMesh.m_gregory_control_points_field, face)
                   : stk::mesh::field_data( *m_eMesh.m_gregory_control_points_field_shell, face));
@@ -1753,7 +1675,6 @@ namespace percept {
     for (unsigned ii=0; ii < vecFaces.size(); ++ii)
       {
         stk::mesh::Entity face = vecFaces[ii];
-        //double *Cp = stk::mesh::field_data( *m_eMesh.m_gregory_control_points_field, face);
         bool debug = false; // m_eMesh.id(face) == 654;
 
         if (debug) std::cout << "P[" << m_eMesh.get_rank() << " FGP:: data for face= " << m_eMesh.identifier(face) << "\n" << printForMathematica(face) << std::endl;
@@ -1890,7 +1811,6 @@ namespace percept {
 
   void FitGregoryPatches::parse(const std::string& file_name)
   {
-#if defined(STK_ADAPT_HAVE_YAML_CPP)
     if (file_name == "sample.yaml")
       {
         std::ofstream file(file_name.c_str());
@@ -1932,10 +1852,7 @@ namespace percept {
       }
 
     try {
-      //YAML::Parser parser1(file);
-      //parser1.GetNextDocument(m_node);
       m_node = YAML::Load(file);
-      //m_node_ptr = &m_node;
       parse(m_node);
       if (m_debug)
         emit(m_node);
@@ -1943,12 +1860,8 @@ namespace percept {
     catch(YAML::ParserException& e) {
       std::cout << e.what() << " input= " << file_name << "\n";
     }
-#else
-#warning No YAML available
-#endif
   }
 
-#if defined(STK_ADAPT_HAVE_YAML_CPP)
   void FitGregoryPatches::emit(const YAML::Node& node)
     {
       if (m_eMesh.get_rank() != 0) return;
@@ -1981,20 +1894,6 @@ namespace percept {
           SIP2(activate, bool(false), (y_QA), (this->m_QA) );
           SIP2(file, std::string(""), (y_QA), (this->m_QA) );
           SIP2(num_divisions, int(5), (y_QA), (this->m_QA) );
-          SIP2(visualizer_command_prefix, std::string(""), (y_QA), (this->m_QA));
-
-          if (m_QA.m_visualizer_command_prefix.length())
-            {
-              if (Util::startsWith(m_QA.m_visualizer_command_prefix, "paraview")
-                  || Util::startsWith(m_QA.m_visualizer_command_prefix, "ensight"))
-                {
-                  if (m_eMesh.get_rank() == 0) std::cout << "Found valid QA_visualizer_command_prefix = " << m_QA.m_visualizer_command_prefix << std::endl;
-                }
-              else
-                {
-                  throw std::runtime_error( "Found invalid QA_visualizer_command_prefix = " +m_QA.m_visualizer_command_prefix+"\nNote: only ensight or paraview allowed" );
-                }
-            }
         }
 
       const YAML::Node y_surface_sets = node["surface_sets"];
@@ -2042,7 +1941,6 @@ namespace percept {
 #undef SIP
 #undef SIP2
     }
-#endif
 
   static double angle_deg(double *n0, double *n1)
   {
@@ -2102,8 +2000,6 @@ namespace percept {
 
         m_eMesh.convertSurfacesToShells1_bulk(eMesh, currentParts[iSurfaceSet]);
 
-        // eMesh.save_as(file+"-before-copy.e");
-        // m_eMesh.save_as(file+"-dstMesh.e");
         std::vector<stk::mesh::FieldBase *> nodal_fields_to_copy(1, m_eMesh.m_node_normals);
         std::vector<stk::mesh::FieldBase *> nodal_fields_to_copy_to(1, eMesh.m_node_normals);
         PerceptMesh::copy_nodal_fields(m_eMesh, eMesh, nodal_fields_to_copy, nodal_fields_to_copy_to);

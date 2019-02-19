@@ -1,6 +1,7 @@
-// Copyright 2014 Sandia Corporation. Under the terms of
-// Contract DE-AC04-94AL85000 with Sandia Corporation, the
-// U.S. Government retains certain rights in this software.
+// Copyright 2002 - 2008, 2010, 2011 National Technology Engineering
+// Solutions of Sandia, LLC (NTESS). Under the terms of Contract
+// DE-NA0003525 with NTESS, the U.S. Government retains certain rights
+// in this software.
 //
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
@@ -55,9 +56,6 @@
 #include <string>
 #include <typeinfo>
 #include <math.h>
-
-#define DO_TESTS 1
-#if DO_TESTS
 
 #include <percept/PerceptUtils.hpp>
 #include <percept/Util.hpp>
@@ -858,17 +856,17 @@ namespace percept
                 unsigned indx[3];
                 const int L0 = loop_orderings[0], L1 =
                         loop_orderings[1], L2 = loop_orderings[2];
-                const unsigned int sizes[3] = { 1 + block_sizes.node_max[L0]
+                const unsigned int size2[3] = { 1 + block_sizes.node_max[L0]
                         - block_sizes.node_min[L0], 1
                         + block_sizes.node_max[L1]
                         - block_sizes.node_min[L1], 1
                         + block_sizes.node_max[L2]
                         - block_sizes.node_min[L2] };
                 indx[L2] = block_sizes.node_min[L2]
-                        + (iNode / (sizes[L0] * sizes[L1]));
+                        + (iNode / (size2[L0] * size2[L1]));
                 indx[L1] = block_sizes.node_min[L1]
-                        + ((iNode / sizes[L0]) % sizes[L1]);
-                indx[L0] = block_sizes.node_min[L0] + (iNode % sizes[L0]);
+                        + ((iNode / size2[L0]) % size2[L1]);
+                indx[L0] = block_sizes.node_min[L0] + (iNode % size2[L0]);
 
                 for(unsigned iDim=0;iDim<3;iDim++)
                 { data[iDim]=host_coord_field(indx[0],indx[1],indx[2],iDim);}
@@ -914,7 +912,7 @@ namespace percept
 
       TEST(heavy_perceptMeshSmoother, test_edge_len_sgrid_vs_ugrid)
       {
-#ifdef KOKKOS_HAVE_CUDA
+#ifdef KOKKOS_ENABLE_CUDA
         return;
 #endif
         stk::ParallelMachine pm = MPI_COMM_WORLD ;
@@ -978,9 +976,7 @@ namespace percept
           if (1)
             {
               StructuredCellIndex element{{0,0,0,0}};
-              //void get_element_nodes(const StructuredCellIndex& element, std::vector<StructuredCellIndex>& nodes);
 
-              typename StructuredGrid::MTField *coord_field = bsg->m_fields["coordinates"].get();
               std::vector<typename StructuredGrid::MTNode> nodes;
               bsg->get_element_nodes(element, nodes);
               for (int i = 0; i < 8; ++i)
@@ -1132,7 +1128,7 @@ namespace percept
             // selects all 6 faces of the cube
             struct SGridBoundarySelector : public StructuredGrid::MTSelector {
                 PerceptMesh *m_eMesh;
-                SGridBoundarySelector(PerceptMesh *eMesh) : m_eMesh(eMesh) {}
+                SGridBoundarySelector(PerceptMesh *eMesh_in) : m_eMesh(eMesh_in) {}
 
                 bool operator()(StructuredCellIndex& index)
                 {
@@ -1173,9 +1169,6 @@ namespace percept
                 }
             }
 
-//          printTimersTableStructured();
-
-
             Kokkos::View<Double*,DataLayout,MemSpace> v("v",70000);
             Kokkos::View<Double*,DataLayout,MemSpace>::HostMirror vm;
             vm = Kokkos::create_mirror_view(v);
@@ -1194,14 +1187,14 @@ namespace percept
 
         }
 
-        TEST(/*DISABLED_*/heavy_perceptMeshSmoother, hex_4_sgrid_isolate_update_nodes)
+        TEST(heavy_perceptMeshSmoother, hex_4_sgrid_isolate_update_nodes)
         {
             unsigned nelebele = 10;
             int numIters=200;
             do_hex_4_structured_isolate_update_nodes(nelebele/*, dc_1, dc_2,*/,numIters);
         }
 
-#ifdef KOKKOS_HAVE_OPENMP
+#ifdef KOKKOS_ENABLE_OPENMP
         void test_simplified_update_nodes(unsigned nele, double deformCoeff_1, double deformCoeff_2, int numIters)
         {
             PerceptMesh eMesh(3u);
@@ -1278,18 +1271,18 @@ namespace percept
             // selects all 6 faces of the cube
             struct SGridBoundarySelector : public StructuredGrid::MTSelector {
                 PerceptMesh *m_eMesh;
-                SGridBoundarySelector(PerceptMesh *eMesh) : m_eMesh(eMesh) {}
+                SGridBoundarySelector(PerceptMesh *eMesh_) : m_eMesh(eMesh_) {}
 
                 bool operator()(StructuredCellIndex& index)
                 {
                     //commenting this out didn't help with poor scaling
                     unsigned iblock = index[3];
                     std::shared_ptr<StructuredBlock> sgrid = m_eMesh->get_block_structured_grid()->m_sblocks[iblock];
-                    unsigned sizes[3] = {sgrid->m_sizes.node_size[0], sgrid->m_sizes.node_size[1], sgrid->m_sizes.node_size[2]};
+                    unsigned sizes_[3] = {sgrid->m_sizes.node_size[0], sgrid->m_sizes.node_size[1], sgrid->m_sizes.node_size[2]};
 
-                    if (index[0] == 0 || index[0] == sizes[0]-1 ||
-                            index[1] == 0 || index[1] == sizes[1]-1 ||
-                            index[2] == 0 || index[2] == sizes[2]-1 )
+                    if (index[0] == 0 || index[0] == sizes_[0]-1 ||
+                            index[1] == 0 || index[1] == sizes_[1]-1 ||
+                            index[2] == 0 || index[2] == sizes_[2]-1 )
                     {
                         return true;
                     }
@@ -1380,7 +1373,7 @@ namespace percept
 
           PerceptMesh eMesh(3u);
 
-#if !KOKKOS_HAVE_CUDA
+#if !defined(KOKKOS_ENABLE_CUDA)
           bool add_all_fields = true;
 #else
           bool add_all_fields = false;
@@ -1433,7 +1426,7 @@ namespace percept
 
           }//iterations metric
         }//mesh sizes
-      }//TEST(heavy_perceptMeshSmoother, total_metric_2)
+      }
 
       TEST(heavy_perceptMeshSmoother, sgrid_perturbed_smooth)
       {
@@ -1602,6 +1595,4 @@ namespace percept
   }//heavy_tests
 }//percept
 
-
-#endif
 #endif

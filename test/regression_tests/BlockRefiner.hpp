@@ -1,6 +1,7 @@
-// Copyright 2014 Sandia Corporation. Under the terms of
-// Contract DE-AC04-94AL85000 with Sandia Corporation, the
-// U.S. Government retains certain rights in this software.
+// Copyright 2002 - 2008, 2010, 2011 National Technology Engineering
+// Solutions of Sandia, LLC (NTESS). Under the terms of Contract
+// DE-NA0003525 with NTESS, the U.S. Government retains certain rights
+// in this software.
 //
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
@@ -66,10 +67,8 @@
             if (1)
               {
                 eMesh.commit();
-                //if (1) std::cout << "original block_names= " << block_names << std::endl;
                 std::string input_geometry = ""; // FIXME
-                block_names = RefinerUtil::correctBlockNamesForPartPartConsistency_1(eMesh, block_names, input_geometry);
-                //if (1) std::cout << "new block_names= " << block_names << std::endl;
+                block_names = RefinerUtil::correctBlockNamesForPartPartConsistency(eMesh, block_names, input_geometry);
 
                 eMesh.close();
                 eMesh.open(m_input_file);
@@ -77,12 +76,9 @@
           }
         m_block_names = block_names;
 
-        //if (!eMesh.get_rank()) std::cout << "m_block_names after processing: " << m_block_names << std::endl;
-
         eMesh.register_and_set_refine_fields();
 
         Teuchos::RCP<UniformRefinerPatternBase> localBreakPattern = make_local_break_pattern(eMesh);
-        //UniformRefinerPatternBase::printParts(&(*localBreakPattern), true);
 
         eMesh.commit();
 

@@ -1,6 +1,7 @@
-// Copyright 2014 Sandia Corporation. Under the terms of
-// Contract DE-AC04-94AL85000 with Sandia Corporation, the
-// U.S. Government retains certain rights in this software.
+// Copyright 2002 - 2008, 2010, 2011 National Technology Engineering
+// Solutions of Sandia, LLC (NTESS). Under the terms of Contract
+// DE-NA0003525 with NTESS, the U.S. Government retains certain rights
+// in this software.
 //
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
@@ -45,24 +46,18 @@ public:
   getBlockNames(const std::string& block_name, unsigned proc_rank, percept::PerceptMesh& eMesh, const std::string& geomFile="");
 
   static BlockNamesType
-  correctBlockNamesForPartPartConsistency(percept::PerceptMesh& eMesh, BlockNamesType& blocks);
+  correctBlockNamesForPartPartConsistency(percept::PerceptMesh& eMesh, BlockNamesType& blocks, const std::string& geomFile);
 
-  static BlockNamesType
-  correctBlockNamesForPartPartConsistency_1(percept::PerceptMesh& eMesh, BlockNamesType& blocks, const std::string& geomFile);
-
-  /// For use with the Encore/Percept interface.
-  /// for each element in elements_to_unref, add parents to the list, repeatedly,
-  ///   for num_levels_to_add times, thus adding grand-parents, great-grandparents, ...
-  /// If num_levels_to_add is < 0, add all up to root (ie, infinite number of levels)
-  /// Throw an error if the parents are already in the list.
-
-  static void
-  addAncestorsToUnrefineList(percept::PerceptMesh& eMesh, int num_levels_to_add, ElementUnrefineCollection& elements_to_unref);
-
-  /// create missing edges after adapt - for edge-based simulators
-
-  static void
-  create_missing_edges(percept::PerceptMesh& eMesh);
+  static void 
+  remove_existing_nodes(PerceptMesh& eMesh);
+  static void 
+  add_new_nodes(PerceptMesh& eMesh);
+  static void 
+  collect_locally_owned_entities(PerceptMesh& eMesh,  stk::mesh::EntityRank rank,  std::vector<stk::mesh::Entity>& elements);
+  static void 
+  get_parent_entity_and_id(PerceptMesh& eMesh, stk::mesh::EntityRank rank, stk::mesh::Entity& element, stk::mesh::Entity& parent_elem, bool debug);
+  static void 
+  find_or_set_parent_child_relation(PerceptMesh& eMesh, stk::mesh::EntityRank rank, stk::mesh::Entity& element, stk::mesh::Entity& parent_elem, size_t& i_ft, std::vector<stk::mesh::Entity>& ft_new_elements);
 
   static void
   rebuild_family_tree(PerceptMesh& eMesh, bool debug=false);
@@ -70,7 +65,6 @@ public:
   /// NodeRegistry
   static void rebuild_node_registry(PerceptMesh& eMesh, NodeRegistry& nodeRegistry, bool initNR = true, PerceptMesh *eMeshNR = 0, NodeRegistry *compareNR=0, bool skipEmpty = true);
   static void save_node_registry(PerceptMesh& eMesh, NodeRegistry& nodeRegistry, const std::string& msg, bool doComm=true);
-  static void compare(PerceptMesh& eMesh0, NodeRegistry& nr0, PerceptMesh& eMesh1, NodeRegistry& nr1, bool skipEmpty = true);
 };
 
 }

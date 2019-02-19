@@ -1,6 +1,7 @@
-// Copyright 2014 Sandia Corporation. Under the terms of
-// Contract DE-AC04-94AL85000 with Sandia Corporation, the
-// U.S. Government retains certain rights in this software.
+// Copyright 2002 - 2008, 2010, 2011 National Technology Engineering
+// Solutions of Sandia, LLC (NTESS). Under the terms of Contract
+// DE-NA0003525 with NTESS, the U.S. Government retains certain rights
+// in this software.
 //
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
@@ -58,14 +59,14 @@ bool GeometryKernelOpenNURBS::debug_dump_file(const std::string& file_name)
       get = SURFACE;
       type_name = "surface";
     }
-    GeometryHandle gh(i,get);
-
     auto obj = onModel.m_object_table[i].m_object;
     std::string object_name = obj ? typeid(*obj).name() : "null";
 
+    GeometryHandle gh(i,get,object_name);
+
     std::cout << ">> geom object[" << i << "] = "
               << object_name
-              << " name = " << (obj ?  get_attribute(gh) : " no name ")
+              << " name = " << (obj ? gh.attribute : " no name ")
               << " type= " << type_name 
               << std::endl;
   }
@@ -98,30 +99,18 @@ bool GeometryKernelOpenNURBS::read_file(const std::string& file_name, std::vecto
 
   for (int i=0; i<onModel.m_object_table.Count(); i++)
   {
+    ON_wString geometry_name = onModel.m_object_table[i].m_attributes.m_name;
+    std::string attribute;
+    attribute.assign(geometry_name.Array(),
+                     geometry_name.Array()+geometry_name.Length());
+
     if ( debug_is_curve(i) )
-      geometry_entities.push_back(GeometryHandle(i,CURVE));
-  }
-  for (int i=0; i<onModel.m_object_table.Count(); i++)
-  {
-    if ( debug_is_surface(i) )
-      geometry_entities.push_back(GeometryHandle(i,SURFACE));
+      geometry_entities.push_back(GeometryHandle(i,CURVE,  attribute));
+    else if ( debug_is_surface(i) )
+      geometry_entities.push_back(GeometryHandle(i,SURFACE,attribute));
   }
 
   return rc;
-}
-
-std::string GeometryKernelOpenNURBS::get_attribute(GeometryHandle geom) const
-{
-  ON_wString key = "geometry";
-  ON_wString geometry_name;
-
-  geometry_name = onModel.m_object_table[geom.m_id].m_attributes.m_name;
-
-  std::string geom_name;
-  geom_name.assign(geometry_name.Array(),
-                   geometry_name.Array()+geometry_name.Length());
-
-  return geom_name;
 }
 
 void GeometryKernelOpenNURBS::snap_to(KernelPoint& point, GeometryHandle geom, double *converged_tolerance, double *uvw_computed, double *uvw_hint, void *extra_hint)

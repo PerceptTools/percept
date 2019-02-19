@@ -1,6 +1,7 @@
-// Copyright 2014 Sandia Corporation. Under the terms of
-// Contract DE-AC04-94AL85000 with Sandia Corporation, the
-// U.S. Government retains certain rights in this software.
+// Copyright 2002 - 2008, 2010, 2011 National Technology Engineering
+// Solutions of Sandia, LLC (NTESS). Under the terms of Contract
+// DE-NA0003525 with NTESS, the U.S. Government retains certain rights
+// in this software.
 //
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
@@ -21,12 +22,6 @@ namespace percept {
 
   class StructuredGridRefiner {
 
-    enum Algorithm {
-      STRUCTURED_ONLY,
-      UNSTRUCTURED_CONVERSION
-    };
-    Algorithm m_alg;
-
     // allowing for future 1-based indexing
     const unsigned m_index_base = 1;//0;
 
@@ -37,7 +32,7 @@ namespace percept {
     int m_debug;
 
     StructuredGridRefiner(std::shared_ptr<BlockStructuredGrid> input, int debug=0) :
-      m_alg(STRUCTURED_ONLY), m_debug(debug)
+      m_debug(debug)
     {
       m_input = input;
       m_output.reset(new BlockStructuredGrid(input->m_comm, 0));

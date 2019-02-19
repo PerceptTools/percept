@@ -1,6 +1,7 @@
-// Copyright 2014 Sandia Corporation. Under the terms of
-// Contract DE-AC04-94AL85000 with Sandia Corporation, the
-// U.S. Government retains certain rights in this software.
+// Copyright 2002 - 2008, 2010, 2011 National Technology Engineering
+// Solutions of Sandia, LLC (NTESS). Under the terms of Contract
+// DE-NA0003525 with NTESS, the U.S. Government retains certain rights
+// in this software.
 //
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
@@ -30,7 +31,7 @@
     const std::string UniformRefinerPatternBase::m_appendConvertString = "_urpconv";
 
     std::string UniformRefinerPatternBase::s_convert_options =
-      "Quad4_Tri3_2, Quad4_Tri3_6, Quad4_Tri3_4, Tri3_Quad4_3, Tet4_Wedge6_Hex8, Wedge6_Hex8_6, Tet4_Hex8_4, Hex8_Tet4_24, Hex8_Tet4_6";
+      "Quad4_Tri3_2, Quad4_Tri3_6, Quad4_Tri3_4, Tri3_Quad4_3, Tet4_Wedge6_Hex8, Hex8_Wedge6_Pyramid5_Tet4, Wedge6_Hex8_6, Tet4_Hex8_4, Hex8_Tet4_24, Hex8_Tet4_6, Wedge6_Pyramid5_Tet4_Exclude_Unconnected_Wedges";
     std::string UniformRefinerPatternBase::s_refine_options =
       "DEFAULT, Quad4_Quad4_4, Tri3_Tri3_4, Tet4_Tet4_8, Hex8_Hex8_8, Wedge6_Wedge6_8, Pyramid5_Pyramid5_10, Tri6_Tri6_4, Quad9_Quad9_4, "
       "Hex27_Hex27_8, Tet10_Tet10_8, Wedge15_Wedge15_8, Pyramid13_Pyramid13_10, ShellTri3_ShellTri3_4, ShellQuad4_ShellQuad4_4";
@@ -104,6 +105,7 @@
       else if (convert == "Tet4_Hex8_4")     pattern  = Teuchos::rcp(new Tet4_Hex8_4(eMesh, block_names));
       else if (convert == "Wedge6_Hex8_6")   pattern  = Teuchos::rcp(new Wedge6_Hex8_6(eMesh, block_names));
       else if (convert == "Tet4_Wedge6_Hex8")pattern  = Teuchos::rcp(new Tet4_Wedge6_Hex8(eMesh, block_names));
+      else if (convert == "Hex8_Wedge6_Pyramid5_Tet4")pattern  = Teuchos::rcp(new Hex8_Wedge6_Pyramid5_Tet4(eMesh, block_names));
       else
         {
           throw std::invalid_argument( (std::string("UniformRefinerPatternBase::createPattern unknown string: refine= ")+refine+" enrich= "+enrich+
@@ -293,40 +295,6 @@
           throw std::logic_error("UniformRefinerPatternBase::set_parent_child_relations no family_tree");
         }
 
-      //entity_vector.reserve(getNumNewElemPerElem());
-      //
-      //unsigned nchild = getNumNewElemPerElem();
-      //if (numChild) nchild = *numChild;
-
-      // error check
-#ifndef NDEBUG
-      if (0)
-        {
-          percept::MyPairIterRelation family_tree_relations (eMesh, family_tree, eMesh.entity_rank(parent_elem));
-          for (unsigned i = 1; i < family_tree_relations.size(); i++)
-            {
-              if (family_tree_relations[i].relation_ordinal() == (ordinal + 1))
-                {
-                  std::ostringstream str;
-                  for (unsigned j = 0; j < family_tree_relations.size(); ++j)
-                    {
-                      str << " ft[" << j << "] = " << eMesh.identifier(family_tree_relations[j].entity()) << " o[" << family_tree_relations[j].relation_ordinal() << "]";
-                    }
-                  std::cout << "P[" << eMesh.get_rank() << " UniformRefinerPatternBase::set_parent_child_relations trying to refine a parent element again, or error in ordinal ["
-                            << ordinal << "]" << " i= " << i << " family_tree_relations.size= " << family_tree_relations.size()
-                            << " family_tree= " << eMesh.identifier(family_tree) << " familyTreeNewElement= " << eMesh.identifier(familyTreeNewElement)
-                            << " parent_to_family_tree_relations.size= " << parent_to_family_tree_relations.size()
-                            << " parent_elem= " << eMesh.identifier(parent_elem) << " rank= " << eMesh.entity_rank(parent_elem)
-                            << " element= " << eMesh.identifier(newElement) << " rank= " << eMesh.entity_rank(newElement)
-                            << "\n ft= " << str.str()
-                            << "\n" << eMesh.demangled_stacktrace()
-                            << std::endl;
-                  throw std::logic_error("UniformRefinerPatternBase::set_parent_child_relations trying to refine a parent element again, or error in ordinal");
-                }
-            }
-        }
-#endif
-
       if (1)
         {
           percept::MyPairIterRelation family_tree_relations (eMesh, family_tree, eMesh.entity_rank(parent_elem));
@@ -334,348 +302,7 @@
         }
       eMesh.get_bulk_data()->declare_relation(family_tree, newElement, ordinal + 1);  // the + 1 here is to give space for the parent
       percept::MyPairIterRelation parent_to_family_tree_relations1 (eMesh, parent_elem, FAMILY_TREE_RANK);
-
-      // add all the nodes for ghosting purposes
-      /** Explanation: child elements can be created in the aura that have nodes in the aura but aren't shared
-       *  which doesn't bring over parent/child relations to the other processors.  The code below adds relations
-       *  to all nodes of the parent elements thus providing necessary links that the closure code can follow to
-       *  gather parent/child relations and send to sharing procs.
-       */
-      bool workaround_shared_node_issue = false;
-      if (workaround_shared_node_issue)
-        {
-          bool checkInShared = true;
-          std::set<stk::mesh::Entity, stk::mesh::EntityLess> to_add(stk::mesh::EntityLess(*eMesh.get_bulk_data()));
-
-          percept::MyPairIterRelation parent_elem_nodes (eMesh, parent_elem,  stk::topology::NODE_RANK );
-          for (unsigned i = 0; i < parent_elem_nodes.size(); i++)
-            {
-              if (checkInShared && !eMesh.get_bulk_data()->in_shared(eMesh.key(parent_elem_nodes[i].entity()))) continue;
-
-              bool found = false;
-              percept::MyPairIterRelation ft_nodes (eMesh, family_tree,  stk::topology::NODE_RANK );
-              for (unsigned j = 0; j < ft_nodes.size(); j++)
-                {
-                  if (ft_nodes[j].entity() == parent_elem_nodes[i].entity())
-                    {
-                      found = true;
-                      break;
-                    }
-                }
-              if (!found)
-                {
-                  to_add.insert(parent_elem_nodes[i].entity());
-                  VERIFY_OP_ON(eMesh.get_bulk_data()->in_index_range(parent_elem_nodes[i].entity()), ==, true, "parent_elem_nodes bad");
-                  //eMesh.get_bulk_data()->declare_relation(family_tree, parent_elem_nodes[i].entity(), ft_nodes.size());
-                }
-            }
-
-          percept::MyPairIterRelation child_elem_nodes (eMesh, newElement,  stk::topology::NODE_RANK );
-          if (child_elem_nodes.size() == 0)
-            {
-              throw std::runtime_error("child_elem has no nodes");
-            }
-          for (unsigned i = 0; i < child_elem_nodes.size(); i++)
-            {
-              if (checkInShared && !eMesh.get_bulk_data()->in_shared(eMesh.key(child_elem_nodes[i].entity()))) continue;
-
-              bool found = false;
-              percept::MyPairIterRelation ft_nodes (eMesh, family_tree,  stk::topology::NODE_RANK );
-              for (unsigned j = 0; j < ft_nodes.size(); j++)
-                {
-                  if (ft_nodes[j].entity() == child_elem_nodes[i].entity())
-                    {
-                      found = true;
-                      break;
-                    }
-                }
-              if (!found)
-                {
-                  to_add.insert(child_elem_nodes[i].entity());
-                  VERIFY_OP_ON(eMesh.get_bulk_data()->in_index_range(child_elem_nodes[i].entity()), ==, true, "child_elem_nodes bad");
-                  //eMesh.get_bulk_data()->declare_relation(family_tree, child_elem_nodes[i].entity(), ft_nodes.size());
-
-                }
-            }
-
-          // check for second level and subsequent refinement
-          if (parent_to_family_tree_relations1.size() == 2)
-            {
-              unsigned parent_elem_ft_level_0 = eMesh.getFamilyTreeRelationIndex(FAMILY_TREE_LEVEL_0, parent_elem);
-              stk::mesh::Entity family_tree_level_0 = parent_to_family_tree_relations1[parent_elem_ft_level_0].entity();
-
-              percept::MyPairIterRelation ft_level_0_nodes (eMesh, family_tree_level_0,  stk::topology::NODE_RANK );
-              for (unsigned i = 0; i < ft_level_0_nodes.size(); i++)
-                {
-                  if (checkInShared && !eMesh.get_bulk_data()->in_shared(eMesh.key(ft_level_0_nodes[i].entity()))) continue;
-
-                  bool found = false;
-                  percept::MyPairIterRelation ft_nodes (eMesh, family_tree,  stk::topology::NODE_RANK );
-                  for (unsigned j = 0; j < ft_nodes.size(); j++)
-                    {
-                      if (ft_nodes[j].entity() == ft_level_0_nodes[i].entity())
-                        {
-                          found = true;
-                          break;
-                        }
-                    }
-                  if (!found)
-                    {
-                      VERIFY_OP_ON(eMesh.get_bulk_data()->in_index_range(ft_level_0_nodes[i].entity()), ==, true, "ft_level_0_nodes bad 0");
-                      //eMesh.get_bulk_data()->declare_relation(family_tree, ft_level_0_nodes[i].entity(), ft_nodes.size());
-                      to_add.insert(ft_level_0_nodes[i].entity());
-                    }
-                }
-            }
-
-          // add nodes to family_tree
-          {
-            percept::MyPairIterRelation ft_nodes (eMesh, family_tree,  stk::topology::NODE_RANK );
-            unsigned ftns=ft_nodes.size();
-
-            std::vector<stk::mesh::Entity> to_add_vec(to_add.begin(), to_add.end());
-
-            for (unsigned ita=0; ita < to_add_vec.size(); ita++)
-              {
-                eMesh.get_bulk_data()->declare_relation(family_tree, to_add_vec[ita], ftns+ita);
-              }
-          }
-
-          // experimental
-          if (0)
-            {
-              stk::mesh::Entity root = eMesh.rootOfTree(parent_elem);
-              if (root != parent_elem)
-                {
-                  percept::MyPairIterRelation root_nodes (eMesh, root, eMesh.node_rank());
-                  percept::MyPairIterRelation parent_ft (eMesh, parent_elem, FAMILY_TREE_RANK);
-                  for (unsigned ii=0; ii < parent_ft.size(); ++ii)
-                    {
-                      to_add.clear();
-                      percept::MyPairIterRelation ft_nodes (eMesh, parent_ft[ii].entity(), eMesh.node_rank());
-                      for (unsigned jj=0; jj < root_nodes.size(); ++jj)
-                        {
-                          bool found = false;
-                          for (unsigned mm = 0; mm < ft_nodes.size(); ++mm)
-                            {
-                              if (ft_nodes[mm].entity() == root_nodes[jj].entity())
-                                {
-                                  found = true;
-                                  break;
-                                }
-                            }
-                          if (!found) to_add.insert(root_nodes[jj].entity());
-                        }
-                      int kk=0;
-                      for (std::set<stk::mesh::Entity, stk::mesh::EntityLess>::iterator iter = to_add.begin(); iter != to_add.end(); ++iter)
-                        {
-                          eMesh.get_bulk_data()->declare_relation(parent_ft[ii].entity(), *iter, kk + ft_nodes.size());
-                          ++kk;
-                        }
-                    }
-                }
-            }
-
-        }
-
-
-      //bool foundSide = findSideRelations(eMesh, parent_elem, newElement);
-      //if (!foundSide && eMesh.entity_rank(parent_elem) < eMesh.element_rank()) {
-      //  //throw std::runtime_error("UniformRefinerPatternBase:: set_parent_child_relations couldn't set child side to elem relations");
-      // }
     }
-
-
-    bool UniformRefinerPatternBase::findSideRelations(percept::PerceptMesh& eMesh, stk::mesh::Entity parent, stk::mesh::Entity child)
-    {
-      VERIFY_OP_ON(eMesh.entity_rank(parent), ==, eMesh.entity_rank(child), "UniformRefinerPatternBase::findSideRelations: bad ranks");
-      if (eMesh.entity_rank(parent) == stk::topology::ELEMENT_RANK)
-        return true;
-
-      for (stk::mesh::EntityRank higher_order_rank = static_cast<stk::mesh::EntityRank>(eMesh.entity_rank(parent)+1u); higher_order_rank <= stk::topology::ELEMENT_RANK; higher_order_rank++)
-        {
-          percept::MyPairIterRelation parent_to_elem_rels (eMesh, parent, higher_order_rank);
-          VERIFY_OP_ON(parent_to_elem_rels.size(), <=, 1, "UniformRefinerPatternBase::findSideRelations bad number of side to elem relations");
-          if (parent_to_elem_rels.size() == 0)
-            {
-              // nothing to do
-              return true;
-            }
-
-          for (unsigned i_parent_to_elem=0; i_parent_to_elem < parent_to_elem_rels.size(); i_parent_to_elem++)
-            {
-              stk::mesh::Entity parents_volume_element = parent_to_elem_rels[i_parent_to_elem].entity();
-
-              std::vector<stk::mesh::Entity> parents_volume_elements_children;
-              VERIFY_OP_ON(eMesh.hasFamilyTree(parents_volume_element), == , true, "UniformRefinerPatternBase::findSideRelations parent's volume element has no children.");
-              //if (! eMesh.hasFamilyTree(*parents_volume_element) ) return true;
-              eMesh.getChildren(parents_volume_element, parents_volume_elements_children);
-              for (unsigned i_vol_child=0; i_vol_child < parents_volume_elements_children.size(); i_vol_child++)
-                {
-                  stk::mesh::Entity parents_volume_elements_child = parents_volume_elements_children[i_vol_child];
-
-                  VERIFY_OP_ON(eMesh.entity_rank(parents_volume_elements_child), ==, higher_order_rank, "UniformRefinerPatternBase::findSideRelations: bad ranks 2");
-                  if (connectSides(eMesh, parents_volume_elements_child, child))
-                    return true;
-                }
-            }
-        }
-      return false;
-    }
-
-#define DEBUG_GSPR_1 1
-
-    // if the element (element) has a side that matches  the given side (side_elem), connect them but first delete old connections
-    bool UniformRefinerPatternBase::connectSides(percept::PerceptMesh& eMesh, stk::mesh::Entity element, stk::mesh::Entity side_elem)
-    {
-      EXCEPTWATCH;
-      bool debug = false;
-      //if (eMesh.identifier(side_elem) == 4348) debug = true;
-      //       if (eMesh.identifier(element) == 71896)
-      //         {
-      //           if (eMesh.identifier(side_elem) == 11174) debug = true;
-      //           if (eMesh.identifier(side_elem) == 10190) debug = true;
-      //         }
-      //       if (eMesh.identifier(side_elem) == 5 && eMesh.identifier(element) == 473) {
-      //         debug = true;
-      //       }
-
-      shards::CellTopology element_topo(eMesh.get_cell_topology(element));
-      unsigned element_nsides = (unsigned)element_topo.getSideCount();
-
-      if (debug) {
-        std::cout << "tmp srk connectSides element= "; eMesh.print(element, true, true);
-        std::cout << " side= "; eMesh.print(side_elem, true, true);
-      }
-
-      // special case for shells
-      int topoDim = UniformRefinerPatternBase::getTopoDim(element_topo);
-
-      bool isShell = false;
-      if (topoDim < (int)eMesh.entity_rank(element))
-        {
-          isShell = true;
-        }
-      int spatialDim = eMesh.get_spatial_dim();
-      if (spatialDim == 3 && isShell && eMesh.entity_rank(side_elem) == eMesh.edge_rank())
-        {
-          element_nsides = (unsigned) element_topo.getEdgeCount();
-        }
-
-      if (debug) std::cout << "isShell= " << isShell << std::endl;
-
-      int permIndex = -1;
-      int permPolarity = 1;
-
-      unsigned k_element_side = 0;
-
-      // try search
-      for (unsigned j_element_side = 0; j_element_side < element_nsides; j_element_side++)
-        {
-          bool use_coordinate_compare = false;
-          eMesh.element_side_permutation(element, side_elem, j_element_side, permIndex, permPolarity, use_coordinate_compare, false);
-          if (permIndex >= 0)
-            {
-              k_element_side = j_element_side;
-              break;
-            }
-        }
-
-      if (permIndex >= 0)
-        {
-          percept::MyPairIterRelation rels (eMesh, side_elem, eMesh.element_rank());
-
-          // special case for shells
-          if (isShell)
-            {
-              // FIXME for 2D
-              if (eMesh.entity_rank(side_elem) == eMesh.face_rank())
-                {
-                  percept::MyPairIterRelation elem_sides (eMesh, element, eMesh.entity_rank(side_elem));
-                  unsigned elem_sides_size= elem_sides.size();
-                  if (debug) std::cout << "tmp srk found shell, elem_sides_size= " << elem_sides_size << std::endl;
-                  if (elem_sides_size == 1)
-                    {
-                      stk::mesh::RelationIdentifier rel_id = elem_sides[0].relation_ordinal();
-                      if (rel_id > 1)
-                        throw std::logic_error("connectSides:: logic 1");
-                      k_element_side = (rel_id == 0 ? 1 : 0);
-                      if (debug) std::cout << "tmp srk k_element_side= " << k_element_side << " rel_id= " << rel_id << std::endl;
-                    }
-                }
-            }
-
-          int exists=0;
-          percept::MyPairIterRelation elem_sides (eMesh, element, eMesh.entity_rank(side_elem));
-          unsigned elem_sides_size= elem_sides.size();
-          unsigned rel_id = 0;
-          for (unsigned iside=0; iside < elem_sides_size; iside++)
-            {
-              stk::mesh::Entity existing_side = elem_sides[iside].entity();
-              if (existing_side == side_elem)
-                {
-                  ++exists;
-                  rel_id = elem_sides[iside].relation_ordinal();
-                }
-
-              if (elem_sides[iside].relation_ordinal() == k_element_side ) {
-                std::cout << "ERROR: Relation already exists: connectSides element= "; eMesh.print(element, true, true);
-                std::cout << " side= " << eMesh.identifier(side_elem); eMesh.print(side_elem, true, true);
-                std::cout << " existing_side= " << eMesh.identifier(existing_side); eMesh.print(existing_side, true, true);
-
-                if (DEBUG_GSPR_1)
-                  {
-                    std::cout << "connectSides:: ERROR: side = " << side_elem << std::endl;
-                    eMesh.print(side_elem);
-                    std::cout << "\nconnectSides:: ERROR: existing_side = " << existing_side << std::endl;
-                    eMesh.print(existing_side);
-                    std::cout << "\nelem= " << std::endl;
-                    eMesh.print(element);
-
-                    stk::mesh::PartVector const& side_parts = eMesh.bucket(side_elem).supersets();
-                    for (unsigned isp = 0; isp < side_parts.size(); isp++)
-                      {
-                        std::cout << "side parts= " << side_parts[isp]->name() << std::endl;
-                      }
-
-                    stk::mesh::PartVector const& existing_side_parts = eMesh.bucket(existing_side).supersets();
-                    for (unsigned isp = 0; isp < side_parts.size(); isp++)
-                      {
-                        std::cout << "existing_side parts= " << existing_side_parts[isp]->name() << std::endl;
-                      }
-
-                    stk::mesh::PartVector const& elem_parts = eMesh.bucket(element).supersets();
-                    for (unsigned isp = 0; isp < elem_parts.size(); isp++)
-                      {
-                        std::cout << "elem parts= " << elem_parts[isp]->name() << std::endl;
-                      }
-
-                    VERIFY_OP_ON(elem_sides[iside].relation_ordinal(), !=, k_element_side, "Relation already exists!");
-
-                  }
-
-                VERIFY_OP_ON(elem_sides[iside].relation_ordinal(), !=, k_element_side, "Relation already exists!");
-              }
-
-            }
-          if (!exists)
-            {
-              EXCEPTWATCH;
-              eMesh.get_bulk_data()->declare_relation(element, side_elem, k_element_side);
-            }
-          else
-            {
-              VERIFY_OP_ON(k_element_side, ==, rel_id, "hmmm");
-            }
-          return true;
-        }
-      else
-        {
-          return false;
-        }
-
-    }
-
 
 #define DEBUG_SET_NEEDED_PARTS 0
 #define REMOVE_UNDERSCORE_FROM_TOPO_NAME 0
@@ -973,21 +600,18 @@
         }
     }
 
-    void printSurfaceBlockMap(PerceptMesh& eMesh)
+    void addDistributionFactorToNewPart(stk::mesh::MetaData & meta, stk::mesh::Part * old_part, stk::mesh::Part * new_part)
     {
-        std::vector<const stk::mesh::Part *> surfaces =
-                eMesh.get_fem_meta_data()->get_surfaces_in_surface_to_block_map();
-
-        for (auto iter = surfaces.begin(); iter != surfaces.end(); ++iter)
-        {
-            const stk::mesh::Part * surface = *iter;
-            std::cout << "blocks touching surface=" << surface->name() << ": ";
-            std::vector<const stk::mesh::Part*> blocks =
-              eMesh.get_fem_meta_data()->get_blocks_touching_surface(surface);
-            for (auto block : blocks) {
-                std::cout << block->name() << " ";
-            }
-            std::cout << std::endl;
+      const stk::mesh::FieldBase *df_field = stk::io::get_distribution_factor_field(*old_part);
+      if (df_field) {
+    	  const std::string field_name = df_field->name();
+          stk::mesh::Field<double, stk::mesh::ElementNode> *distribution_factors_field =
+            &meta.declare_field<stk::mesh::Field<double, stk::mesh::ElementNode> >(new_part->primary_entity_rank(), field_name);
+          stk::io::set_field_role(*distribution_factors_field, Ioss::Field::MESH);
+          stk::io::set_distribution_factor_field(*new_part, *distribution_factors_field);
+          int side_node_count = new_part->topology().num_nodes();
+          stk::mesh::put_field_on_mesh(*distribution_factors_field,
+                               *new_part, side_node_count, nullptr);
         }
     }
 
@@ -997,9 +621,6 @@
 
     	if (DEBUG_SET_NEEDED_PARTS)
     		std::cout << "\n\n ============= setNeededParts start \n\n " << PerceptMesh::demangle(typeid(*this).name()) << std::endl;
-
-    	// DEBUG
-//    	printSurfaceBlockMap(eMesh);
 
     	addRefineNewNodesPart(eMesh);
 
@@ -1052,16 +673,16 @@
     				std::string toTopoPartName = getToTopoPartName();
     				if (REMOVE_UNDERSCORE_FROM_TOPO_NAME) Util::replace(toTopoPartName,"_","");
     				std::string newPartName = part->name() + getConvertSeparatorString() + toTopoPartName + getConvertSeparatorString() + getAppendConvertString();
-    				//std::string newPartName = part->name() + getAppendConvertString();
     				block_to = &eMesh.get_fem_meta_data()->declare_part(newPartName, part->primary_entity_rank());
     				if (DEBUG_SET_NEEDED_PARTS) std::cout << "tmp setNeededParts:: declare_part name= " << newPartName
     						<< " with topo= " << getToTopoPartName() << std::endl;
-    				//stk::mesh::set_cell_topology< ToTopology  >( *block_to );
     				stk::mesh::set_cell_topology(*block_to, shards::CellTopology(getToTopology()));
 
     				if (block_to->attribute<Ioss::GroupingEntity>() == 0) {
     					stk::io::put_io_part_attribute(*block_to);
     				}
+
+                    addDistributionFactorToNewPart(*eMesh.get_fem_meta_data(), part, block_to);
 
     				updateSurfaceBlockMap(eMesh, part, block_to);
 
@@ -1089,9 +710,6 @@
     			}
     		}
     	}
-
-        // DEBUG
-//        printSurfaceBlockMap(eMesh);
 
         if (!sameTopology) fixSubsets(eMesh);
     	addExtraSurfaceParts(eMesh);
@@ -1173,7 +791,6 @@
                   std::string to_subset_part_cell_topo_data_name = to_subset_part_cell_topo_data->name;
                   if (REMOVE_UNDERSCORE_FROM_TOPO_NAME) Util::replace(to_subset_part_cell_topo_data_name, "_", "");
                   std::string to_subset_name = from_subset.name() + getConvertSeparatorString() + to_subset_part_cell_topo_data_name + getConvertSeparatorString() + getAppendConvertString();
-                  //std::string to_subset_name = from_subset.name() + getAppendConvertString();
 
                   stk::mesh::Part* to_subset_p = eMesh.get_fem_meta_data()->get_part(to_subset_name);
                   if (DEBUG_fixSubSets && eMesh.get_rank() == 0)
@@ -1233,20 +850,28 @@
 
                       const std::string id = std::to_string(from_superset->id());
 
-                      std::string new_part_name = "surface_" + ioss_elem_topo + "_"+ ioss_side_topo +"_" + id;
+                      const std::string new_part_name = "surface_" + ioss_elem_topo + "_"+ ioss_side_topo +"_" + id;
                       stk::mesh::Part* new_part = eMesh.get_fem_meta_data()->get_part(new_part_name);
+
+                      if (new_part) addDistributionFactorToNewPart(*eMesh.get_fem_meta_data(), from_superset, new_part);
 
                       // alternate part naming:
                       //       "name_block_id_sidetopo_id"
 
-                      std::string new_part_name_2 = "surface_" + block->name() + "_" + ioss_side_topo + "_" + id;
+                      const std::string new_part_name_2 = "surface_" + block->name() + "_" + ioss_side_topo + "_" + id;
                       stk::mesh::Part* new_part_type_2 = eMesh.get_fem_meta_data()->get_part(new_part_name_2);
+
+                      if (new_part_type_2) addDistributionFactorToNewPart(*eMesh.get_fem_meta_data(), from_superset, new_part_type_2);
 
                       if (!new_part && !new_part_type_2)
                         {
                           new_part = &eMesh.get_fem_meta_data()->declare_part(new_part_name, eMesh.side_rank());
                           stk::mesh::set_topology(*new_part, side_topo);
                           eMesh.get_fem_meta_data()->declare_part_subset(*from_superset, *new_part);
+                          eMesh.get_fem_meta_data()->set_part_id(*new_part, from_superset->id());
+                          stk::io::put_io_part_attribute(*new_part);
+
+                          addDistributionFactorToNewPart(*eMesh.get_fem_meta_data(), from_superset, new_part);
 
                           updateSurfaceBlockMap(eMesh, from_superset, new_part);
                         }
@@ -1396,13 +1021,10 @@
               stk::mesh::EntityId eid = elems[ielem][inode];
               if (!eid)
                 {
-                  std::cout << "P[" << eMesh.get_rank() << "] eid = 0 for inode = " << inode << std::endl;
                   throw std::logic_error("UniformRefinerPatternBase::genericEnrich_createNewElements bad entity id = 0 ");
                 }
-              //stk::mesh::Entity node = eMesh.createOrGetNode(eid);
               stk::mesh::Entity node = createOrGetNode(nodeRegistry, eMesh, eid);
               nodes[inode] = node;
-              //eMesh.get_bulk_data()->declare_relation(newElement, node, inode);
             }
 
           create_side_element(eMesh, use_declare_element_side, nodes.data(), static_cast<unsigned>(ToTopology_node_count), newElement);
@@ -1673,18 +1295,10 @@
               stk::mesh::EntityId eid = elems[iChild][inode];
               if (!eid)
                 {
-                  std::cout << "P[" << eMesh.get_rank() << "] eid = 0 for inode = " << inode << " iChild = " << iChild << std::endl;
-                  std::cout << "elems[iChild] = " ;
-                  for (int in=0; in < ToTopology_node_count; in++)
-                    {
-                      std::cout << "in= " << in << " elems[iChild][in]= " << elems[iChild][in] << std::endl;
-                    }
                   throw std::logic_error("UniformRefinerPatternBase::genericRefine_createNewElements bad entity id = 0 ");
                 }
 
-              /**/                                                         TRACE_CPU_TIME_AND_MEM_0(CONNECT_LOCAL_URP_createOrGetNode);
               stk::mesh::Entity node = createOrGetNode(nodeRegistry, eMesh, eid);
-              /**/                                                         TRACE_CPU_TIME_AND_MEM_1(CONNECT_LOCAL_URP_createOrGetNode);
 
               nodes[inode] = node;
             }
@@ -1718,7 +1332,6 @@
 
     /// helpers for interpolating fields, coordinates
     /// ------------------------------------------------------------------------------------------------------------------------
-#define EXTRA_PRINT_URP_IF 0
 
     /// This version uses Intrepid for interpolation
     void UniformRefinerPatternBase::
@@ -1741,107 +1354,40 @@
       int fieldStride = 0;
       stk::mesh::EntityRank fr_type = static_cast<stk::mesh::EntityRank>(field->entity_rank());
 
-      //std::cout << "tmp cell_topo= " << cell_topo.getName() << " topoDim= " << topoDim << std::endl;
-
-      if (EXTRA_PRINT_URP_IF) std::cout << "tmp field = " << field->name() << " topoDim= " << topoDim << std::endl;
-
       {
         unsigned nfr = field->restrictions().size();
-        if (EXTRA_PRINT_URP_IF && nfr != 1 ) std::cout << "tmp P[" << 0 << "] info>    number of field restrictions= " << nfr << std::endl;
         for (unsigned ifr = 0; ifr < nfr; ifr++)
           {
             const stk::mesh::FieldRestriction& fr = field->restrictions()[ifr];
             fieldStride = fr.num_scalars_per_entity() ;
             stk::mesh::Selector frselect = fr.selector();
-            if (EXTRA_PRINT_URP_IF && nfr != 1 ) std::cout << "tmp P[" << 0 << "] info>    number of field restrictions= " << nfr << " fr_type= " << fr_type
-                                                           << " fieldStride = " << fieldStride << " frselect= " << frselect
-                                                           << std::endl;
           }
         {
           const stk::mesh::FieldBase::Restriction & r =
             stk::mesh::find_restriction(*field, fr_type, stk::mesh::MetaData::get(*field).universal_part());
           fieldStride = r.num_scalars_per_entity();
-          if (EXTRA_PRINT_URP_IF) std::cout << "tmp stride = " <<  r.num_scalars_per_entity() << " fieldStride= " << fieldStride
-                                            << " fr_type= " << fr_type << std::endl;
         }
       }
       // FIXME
       if (!fieldStride || fr_type != stk::topology::NODE_RANK)
         return;
 
-      //FieldFunction field_func("tmp", field, eMesh, topoDim, fieldStride);
       FieldFunction field_func("tmp", field, eMesh, topoDim, fieldStride);
 
       MDArray input_pts(1, topoDim);
       MDArray input_param_coords(1, topoDim);
       MDArray output_pts(1, fieldStride);
 
-      if (EXTRA_PRINT_URP_IF) std::cout << "tmp field = " << field->name() << " topoDim= " << topoDim << " fieldStride= " << fieldStride << std::endl;
-
-      if (1)
-        {
-          static bool entered = false;
-          if (!entered && (toTopoKey == topo_key_quad8 || toTopoKey == topo_key_hex20 || toTopoKey == topo_key_shellquad8))
-            {
-              entered = true;
-
-              if (0)
-                {
-                  std::cout << "tmp testing basis functions " << std::endl;
-                  std::cout << "tmp toTopoKey: " << toTopoKey << " topo_key_quad8      = " << topo_key_quad8 << " cell_topo= " << cell_topo.getName() << std::endl;
-                  std::cout << "tmp toTopoKey: " << toTopoKey << " topo_key_shellquad8 = " << topo_key_shellquad8 << " cell_topo= " << cell_topo.getName() << std::endl;
-                  std::cout << "tmp toTopoKey: " << toTopoKey << " topo_key_hex20      = " << topo_key_hex20 << " cell_topo= " << cell_topo.getName() << std::endl;
-                }
-              percept::MyPairIterRelation elem_nodes (eMesh, element, stk::topology::NODE_RANK);
-
-              BasisTable::BasisTypeRCP basis = BasisTable::getBasis(cell_topo);
-              MDArray output_tmp(elem_nodes.size(), 1);
-              MDArray input_param_coords_tmp(1, topoDim);
-
-              for (unsigned i_node = 0; i_node < elem_nodes.size(); i_node++)
-                {
-                  double *param_coord = ref_topo_x[i_node].parametric_coordinates;
-                  for (int ip=0; ip < topoDim; ip++)
-                    {
-                      input_param_coords_tmp(0, ip) = param_coord[ip];
-                    }
-
-                  basis->getValues(output_tmp, input_param_coords_tmp, Intrepid::OPERATOR_VALUE);
-                  bool found = false;
-                  for (unsigned ii=0; ii < elem_nodes.size(); ii++)
-                    {
-                      if (fabs(output_tmp(ii, 0)-((ii == i_node)? 1.0 : 0.0)) > 1.e-6)
-                        {
-                          found = true;
-                          std::cout << "tmp i_node= " << i_node << " elem_nodes.size()= " << elem_nodes.size() << std::endl;
-                          std::cout << "fabs(output_tmp(ii, 0)-1.0) > 1.e-6),... output_tmp(ii,0)= " << output_tmp(ii,0) << std::endl;
-                          std::cout << "ii = " << ii << " i_node= " << i_node << std::endl;
-                          std::cout << "input_param_coords= "
-                                    << input_param_coords << "  " << std::endl;
-                          std::cout << "output_tmp= " << output_tmp << std::endl;
-                        }
-                    }
-                  if (found) throw std::runtime_error("error in Intrepid");
-                }
-
-            }
-        }
-
       percept::MyPairIterRelation new_elem_nodes (eMesh, newElement, stk::topology::NODE_RANK);
       for (unsigned i_new_node = 0; i_new_node < new_elem_nodes.size(); i_new_node++)
         {
           unsigned childNodeIdx = child_nodes[i_new_node];
-          if (EXTRA_PRINT_URP_IF) std::cout << "tmp childNodeIdx, i_new_node= " << childNodeIdx << " " << i_new_node << std::endl;
           double *param_coord = ref_topo_x[childNodeIdx].parametric_coordinates;
-          if (EXTRA_PRINT_URP_IF) std::cout << "tmp childNodeIdx, i_new_node= " << childNodeIdx << " " << i_new_node
-                                            << " param_coord= " << param_coord[0] << " " << param_coord[1] << std::endl;
+
           for (int ip=0; ip < topoDim; ip++)
             {
               input_param_coords(0, ip) = param_coord[ip];
             }
-          if (EXTRA_PRINT_URP_IF) std::cout << "tmp input_param_coords= " << input_param_coords << " cell_topo= " << cell_topo << std::endl;
-
-
           double time_val=0.0;
 
           /// unfortunately, Intrepid doesn't support a quadratic Line<3> element
@@ -1851,23 +1397,7 @@
               || toTopoKey == topo_key_pyramid13 || toTopoKey == topo_key_pyramid5
               || toTopoKey == topo_key_tet10)
             {
-              //std::cout << "tmp here 1 i_new_node= " << i_new_node << " base element= " << std::endl;
-              if ( EXTRA_PRINT_URP_IF) eMesh.print_entity(std::cout, element, eMesh.get_coordinates_field() );
-
               prolongateIntrepid(eMesh, field, cell_topo, output_pts, element, input_param_coords, time_val);
-              if (0) // field == eMesh.get_coordinates_field())
-                {
-                  std::cout << "tmp input_param_coords= "
-                            << input_param_coords(0,0) << " "
-                            << input_param_coords(0,1) << " "
-                            << (topoDim == 3 ? input_param_coords(0,2) : 0.0 ) << " "
-                    ;
-                  std::cout << "output_pts= "
-                            << output_pts(0,0) << " "
-                            << output_pts(0,1) << " "
-                            << (topoDim == 3 ? output_pts(0,2) : 0.0 ) << " "
-                            << std::endl;
-                }
             }
           else
             {
@@ -1890,11 +1420,6 @@
                 f_data_new[ifd] = output_pts(0, ifd);
               }
           }
-        }
-      if ( EXTRA_PRINT_URP_IF)
-        {
-          std::cout << "tmp newElement: " << std::endl;
-          eMesh.print_entity(std::cout, newElement, eMesh.get_coordinates_field() );
         }
 #endif
     }
@@ -2098,52 +1623,6 @@
         }
       if (!found)
         {
-          std::cout << "URP::change_entity_parts couldn't find part, listing parts: " << std::endl;
-          std::cout << "m_fromParts= " << m_fromParts << std::endl;
-          for (unsigned i_part = 0; i_part < m_fromParts.size(); i_part++)
-            {
-              std::cout << "i_part = " << i_part << " m_fromParts= " << m_fromParts[i_part]->name() << std::endl;
-            }
-          //bool found_in_another_part = false;
-
-          stk::mesh::PartVector all_parts = eMesh.get_fem_meta_data()->get_parts();
-          for (stk::mesh::PartVector::iterator i_part = all_parts.begin(); i_part != all_parts.end(); ++i_part)
-            {
-              stk::mesh::Part *  part = *i_part ;
-
-              if (eMesh.bucket(old_owning_elem).member(*part))
-                {
-                  std::cout << "found_in_another_part part name= " << part->name() << std::endl;
-                  //found_in_another_part = true;
-                }
-            }
-          std::cout << "this= " << eMesh.demangle(typeid(*this).name())
-                    << " m_fromParts.size= " << m_fromParts.size()
-                    << " m_toParts.size= " << m_toParts.size() << std::endl;
-          std::cout << "tmp change_entity_parts printParts this=\n" ;
-          printParts(this, true);
-
-          if (1)
-            {
-              stk::mesh::PartVector pv = eMesh.bucket(newElement).supersets();
-              std::string str;
-              for (unsigned ii=0; ii < pv.size(); ++ii)
-                str += pv[ii]->name()+" ";
-              std::string strOld;
-              stk::mesh::PartVector pvOld = eMesh.bucket(old_owning_elem).supersets();
-              for (unsigned ii=0; ii < pvOld.size(); ++ii)
-                strOld += pvOld[ii]->name()+" ";
-
-              std::cout << "tmp my class= " << eMesh.demangle(typeid(*this).name()) << "\n changing newElement " << eMesh.identifier(newElement)
-                          << " entity_rank(newElement)= " << eMesh.entity_rank(newElement)
-                          << " for old elem= " << eMesh.identifier(old_owning_elem)
-                          << " entity_rank(old)= " << eMesh.entity_rank(old_owning_elem)
-                          << " old supersets= " << strOld
-                          << " nsupersets_new size= " << eMesh.bucket(newElement).supersets().size()
-                          << " supersets= " << str
-                          << std::endl;
-            }
-
           std::cout << "stacktrace= " << eMesh.demangled_stacktrace() << std::endl;
           throw std::runtime_error("URP::change_entity_parts couldn't find part");
         }
@@ -2400,9 +1879,9 @@
           stk::mesh::Bucket & bucket = **k ;
           const unsigned num_elements_in_bucket = bucket.size();
           const CellTopologyData * const cell_topo_data = eMesh.get_cell_topology(bucket);
-          if (cell_topo_data == 0)
+          if (cell_topo_data == 0 || 
+              cell_topo_data->name != getFromTopoPartName())
             {
-              // eMesh.get_cell_topology(bucket);
               continue;
             }
           for (unsigned iElement = 0; iElement < num_elements_in_bucket; iElement++)

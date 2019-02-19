@@ -1,6 +1,7 @@
-// Copyright 2014 Sandia Corporation. Under the terms of
-// Contract DE-AC04-94AL85000 with Sandia Corporation, the
-// U.S. Government retains certain rights in this software.
+// Copyright 2002 - 2008, 2010, 2011 National Technology Engineering
+// Solutions of Sandia, LLC (NTESS). Under the terms of Contract
+// DE-NA0003525 with NTESS, the U.S. Government retains certain rights
+// in this software.
 //
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
@@ -89,9 +90,7 @@
 
 #include <percept/FieldTypes.hpp>
 
-#if defined(STK_ADAPT_HAVE_YAML_CPP)
 #include <percept/YamlUtils.hpp>
-#endif
 
 // if this is set, use stk_mesh relations to hold parent/child information, else use special data structures for this
 #define PERCEPT_USE_FAMILY_TREE 1
@@ -239,8 +238,6 @@
       int get_parallel_size() { return stk::parallel_machine_size(m_comm); }
       stk::ParallelMachine parallel() {return m_comm;}
       std::string rank() { std::ostringstream str; str << "P[" << get_rank() << "]" ;  return str.str(); }
-      bool get_do_print_memory() { return m_do_print_memory; }
-      void set_do_print_memory(bool m) { m_do_print_memory = m; }
 
       double cpu_time() { return stk::cpu_time(); }
       double start_cpu_timer() { return cpu_time(); }
@@ -672,10 +669,6 @@
       /// allow for setting bulk data when this PerceptMesh adopted a MetaData with null BulkData
       void set_bulk_data(stk::mesh::BulkData *bulkData);
 
-      /// create stk::mesh::Entity edges for each new edge in the mesh during adaptivity
-      void set_create_edges(bool create_edges) { m_createEdges = create_edges; }
-      bool get_create_edges() { return m_createEdges; }
-
       /// find all neighbors touching one of my nodes
       void get_node_neighbors(stk::mesh::Entity element, std::set<stk::mesh::Entity>& neighbors, stk::mesh::EntityRank rank = stk::topology::ELEMENT_RANK);
       void get_node_neighbors(stk::mesh::Entity element, std::set<stk::mesh::Entity>& neighbors, stk::mesh::Selector sel, stk::mesh::EntityRank rank = stk::topology::ELEMENT_RANK);
@@ -1071,9 +1064,8 @@ private:
 
       void set_read_properties();
 
-#if defined(STK_ADAPT_HAVE_YAML_CPP)
       bool parse_property_map_string(const YAML::Node& node);
-#endif
+
       void setup_geometry_parts(const std::string& geometry_file_name);
 
       /// reads meta data, commits it, reads bulk data
@@ -1180,7 +1172,6 @@ private:
       std::vector<stk::mesh::EntityId>      m_idServer; // high water mark
       bool                                  m_large_mesh;
       stk::mesh::EntityId                   m_MAX_IDENT;
-      bool                                  m_createEdges;
 
     public:
 
@@ -1218,8 +1209,6 @@ private:
 
     private:
       
-      bool m_do_print_memory;
-
       bool m_avoid_add_all_mesh_fields_as_input_fields;
     public:
       bool m_markNone;

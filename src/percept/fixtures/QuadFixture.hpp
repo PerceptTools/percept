@@ -1,6 +1,7 @@
-// Copyright 2014 Sandia Corporation. Under the terms of
-// Contract DE-AC04-94AL85000 with Sandia Corporation, the
-// U.S. Government retains certain rights in this software.
+// Copyright 2002 - 2008, 2010, 2011 National Technology Engineering
+// Solutions of Sandia, LLC (NTESS). Under the terms of Contract
+// DE-NA0003525 with NTESS, the U.S. Government retains certain rights
+// in this software.
 //
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
@@ -103,15 +104,16 @@
           stk::io::put_io_part_attribute(quad_part);
 
           //put coord-field on all nodes:
-          put_field(
+          put_field_on_mesh(
                     coord_field,
                     meta_data.universal_part(),
-                    SpatialDim
+                    SpatialDim,
+                    nullptr
                     );
 
 #if PERCEPT_QF_USE_COORD_GATHER_FIELD
           //put coord-gather-field on all elements:
-          put_field(
+          put_field_on_mesh(
                     stk::topology::ELEMENT_RANK,
                     meta_data.universal_part(),
                     NodesPerElem
